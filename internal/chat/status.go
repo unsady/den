@@ -55,25 +55,31 @@ func (c *Chat) status(ctx context.Context) string {
 	if c.den != nil {
 		list = c.den.ListJobs()
 	}
-	for i, j := range list {
-		if i == 3 {
-			lines = append(lines, "…and more in /jobs")
-			break
-		}
-		line := "Job " + html.EscapeString(j.Label())
-		if j.LastRun != nil {
-			mark := "✓"
-			if j.LastStatus != "ok" {
-				mark = "✗"
-			}
-			line += fmt.Sprintf(" · %s %s", mark, j.LastRun.Local().Format("Jan 2 15:04"))
-		}
-		if !j.NextRun.IsZero() {
-			line += " · next " + j.NextRun.Local().Format("Jan 2 15:04")
-		}
-		lines = append(lines, line)
+	return strings.Join(append(lines, jobsLines(list)...), "\n")
+}
+
+// jobsLines sum the jobs up in a line, with the next one to run, and name
+// only those whose last run failed.
+func jobsLines(list []jobs.Job) []string {
+	if len(list) == 0 {
+		return nil
 	}
-	return strings.Join(lines, "\n")
+	var lines []string
+	var next *jobs.Job
+	for i, j := range list {
+		if j.LastRun != nil && j.LastStatus != "ok" {
+			lines = append(lines, fmt.Sprintf("✗ %s failed %s", html.EscapeString(j.Label()), j.LastRun.Local().Format("Jan 2 15:04")))
+		}
+		if !j.NextRun.IsZero() && (next == nil || j.NextRun.Before(next.NextRun)) {
+			next = &list[i]
+		}
+	}
+
+	summary := fmt.Sprintf("Jobs: %d", len(list))
+	if next != nil {
+		summary += fmt.Sprintf(" · next %s at %s", html.EscapeString(next.Label()), next.NextRun.Local().Format("15:04"))
+	}
+	return append([]string{summary}, lines...)
 }
 
 // window reads the model's context window from fx's catalog of the
@@ -82,18 +88,18 @@ func (c *Chat) window(provider, model string) int {
 	// The sessions live at ~/.fx/sessions/v2, the catalogs beside them.
 	home := filepath.Dir(filepath.Dir(c.cfg.Sessions))
 	data, err := os.ReadFile(filepath.Join(home, "model-catalogs", provider+".json"))
-	if err != nil {
-		return 0
-	}
 	var catalog map[string]struct {
 		Limit struct {
 			Context int `json:"context"`
 		} `json:"limit"`
 	}
-	if json.Unmarshal(data, &catalog) != nil {
-		return 0
+	if err == nil {
+		json.Unmarshal(data, &catalog)
 	}
-	return catalog[model].Limit.Context
+	if window := catalog[model].Limit.Context; window > 0 {
+		return window
+	}
+	return models.Window(c.cfg, provider, model)
 }
 
 // efforts reads the model's reasoning effort levels from fx's catalog of
