@@ -80,7 +80,7 @@ func (c *Chat) secondModels(ctx context.Context, telegram *notify.Telegram, edit
 		[]notify.Button{{Text: "← Main", Data: "r:"}, {Text: "All models →", Data: "A:" + provider + ":0"}, closeButton},
 	)
 
-	text := c.secondLine(setup) + "\n\nJobs set to the second model run on it, so a change here reaches them all."
+	text := "⚙︎ " + c.secondLine(setup) + "\n\nJobs set to the second model run on it, so a change here reaches them all."
 	c.show(ctx, telegram, edit, text, rows)
 }
 

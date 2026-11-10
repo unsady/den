@@ -78,7 +78,7 @@ func (c *Chat) chooseSecond(ctx context.Context, provider, model string) (string
 		c.state.Second = nil
 		c.save()
 		c.mu.Unlock()
-		return "Second: none. Jobs set to it run on the main model.", nil, nil
+		return "⚙︎ Second: none. Jobs set to it run on the main model.", nil, nil
 	}
 
 	models, err := runner.Models(ctx, c.cfg, provider)
@@ -99,7 +99,7 @@ func (c *Chat) chooseSecond(ctx context.Context, provider, model string) (string
 	c.save()
 	c.mu.Unlock()
 
-	return "Second: " + secondName(choice, setup), c.secondEfforts(provider, model, choice.Effort), nil
+	return "⚙︎ Second: " + secondName(choice, setup), c.secondEfforts(provider, model, choice.Effort), nil
 }
 
 // secondEfforts offers the second model's effort levels, or nothing when it
@@ -139,7 +139,7 @@ func (c *Chat) chooseSecondEffort(ctx context.Context, level string) (string, er
 	c.save()
 	c.mu.Unlock()
 
-	return "Second: " + secondName(choice, setup), nil
+	return "⚙︎ Second: " + secondName(choice, setup), nil
 }
 
 // again asks the second model about text as one turn, or, without text, to
