@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,11 +157,13 @@ func (r *meter) Read(p []byte) (int, error) {
 			r.call.Gap = max(r.call.Gap, int(now.Sub(r.last).Milliseconds()))
 			r.last = now
 		}
+		// Codex also counts tokens per tool and per input item, each part of
+		// its usage, so the largest count is the whole.
 		for _, match := range promptTokens.FindAllSubmatch(window, -1) {
-			fmt.Sscan(string(match[1]), &r.call.In)
+			r.call.In = max(r.call.In, atoi(match[1]))
 		}
 		for _, match := range outputTokens.FindAllSubmatch(window, -1) {
-			fmt.Sscan(string(match[1]), &r.call.Out)
+			r.call.Out = max(r.call.Out, atoi(match[1]))
 		}
 		if r.call.Status >= 400 && len(r.errText) < 300 {
 			r.errText = append(r.errText, p[:min(n, 300-len(r.errText))]...)
@@ -172,6 +174,11 @@ func (r *meter) Read(p []byte) (int, error) {
 		r.finish()
 	}
 	return n, err
+}
+
+func atoi(digits []byte) int {
+	n, _ := strconv.Atoi(string(digits))
+	return n
 }
 
 func (r *meter) Close() error {

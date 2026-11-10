@@ -319,3 +319,21 @@ func TestProxyMeasuresCalls(t *testing.T) {
 		t.Fatalf("after restart %+v", again)
 	}
 }
+
+func TestMeterTakesCodexWholeUsage(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "agent", ".fx")
+	os.MkdirAll(home, 0o700)
+	m := New(config.Config{Sessions: filepath.Join(home, "sessions", "v2"), State: t.TempDir()})
+
+	stream := `data: {"type":"response.created","response":{"usage":null,"tool_usage":{"image_gen":{"input_tokens":0,"output_tokens":0}}}}` + "\n\n" +
+		`data: {"type":"response.output_text.delta","delta":"pong"}` + "\n\n" +
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":5200,"output_tokens":40,"attribution":{"items":{"a":{"input_tokens":5},"b":{"input_tokens":0}}}}}}` + "\n\n"
+	start := time.Now()
+	body := m.measure(io.NopCloser(strings.NewReader(stream)), start, "codex", "gpt", 200)
+	io.Copy(io.Discard, body)
+	body.Close()
+
+	if got := m.Peak(start); got != 5200 {
+		t.Fatalf("peak %d, want 5200", got)
+	}
+}
