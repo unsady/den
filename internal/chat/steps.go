@@ -120,6 +120,10 @@ func shellStep(cmd string) string {
 		case "sessions":
 			return "Looking through past sessions"
 		}
+		// Other den commands say which one runs: "Running den stats".
+		if !strings.HasPrefix(fields[1], "-") {
+			return "Running den " + clipRunes(strings.Trim(fields[1], `"'`), 20)
+		}
 	}
 
 	// den serves the user's mailbox on the loopback address.

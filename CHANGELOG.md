@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- A step that runs a den command names it, such as “Running den stats”, instead of only “Running den”.
 - Setup and `den login` take an Anthropic, xAI, or Vercel AI Gateway API key, through each one's OpenAI-compatible API.
 - `/status` shows the context size with a ChatGPT subscription too: den read the wrong token count from Codex's answers.
 - Setup's list of other providers starts with the popular ones, such as OpenRouter, DeepSeek, OpenCode, Z.AI, and Moonshot AI.
