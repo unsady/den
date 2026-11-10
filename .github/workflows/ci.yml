@@ -42,4 +42,4 @@ jobs:
       - run: |
           docker run --rm den:ci den version
           docker run --rm den:ci fx --version
-          docker run --rm den:ci sh -c 'command -v whisper-cli lightpanda'
+          docker run --rm den:ci sh -c 'command -v whisper-cli && command -v lightpanda'
