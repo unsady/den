@@ -13,8 +13,8 @@ import (
 )
 
 // Codex's models come from ChatGPT, not from models.dev, so fx's catalogs
-// have no effort levels for them. The list fx fetches through the proxy has
-// them, and den keeps them from it.
+// have neither effort levels nor context windows for them. The list fx
+// fetches through the proxy has both, and den keeps them from it.
 
 // effortsFile is where den keeps a provider's effort levels by model.
 func effortsFile(cfg config.Config, provider string) string {
@@ -48,8 +48,9 @@ func (m *Models) keepCodexEfforts(resp *http.Response) {
 
 	var list struct {
 		Models []struct {
-			Slug   string `json:"slug"`
-			Levels []struct {
+			Slug    string `json:"slug"`
+			Context int    `json:"context_window"`
+			Levels  []struct {
 				Effort string `json:"effort"`
 			} `json:"supported_reasoning_levels"`
 		} `json:"models"`
@@ -59,16 +60,41 @@ func (m *Models) keepCodexEfforts(resp *http.Response) {
 	}
 
 	levels := map[string][]string{}
+	windows := map[string]int{}
 	for _, model := range list.Models {
 		for _, l := range model.Levels {
 			levels[model.Slug] = append(levels[model.Slug], l.Effort)
 		}
+		if model.Context > 0 {
+			windows[model.Slug] = model.Context
+		}
 	}
-	data, _ := json.Marshal(levels)
-	path := effortsFile(m.cfg, "codex")
+	keep(effortsFile(m.cfg, "codex"), levels)
+	keep(windowsFile(m.cfg, "codex"), windows)
+}
+
+func keep(path string, v any) {
+	data, _ := json.Marshal(v)
 	if err := os.WriteFile(path+".tmp", data, 0o644); err != nil {
 		log.Printf("models: %v", err)
 		return
 	}
 	os.Rename(path+".tmp", path)
+}
+
+// windowsFile is where den keeps a provider's context windows by model.
+func windowsFile(cfg config.Config, provider string) string {
+	return filepath.Join(cfg.State, provider+"-windows.json")
+}
+
+// Window returns the context window den kept for a provider's model, in
+// tokens, or 0 when it has none.
+func Window(cfg config.Config, provider, model string) int {
+	data, err := os.ReadFile(windowsFile(cfg, provider))
+	if err != nil {
+		return 0
+	}
+	var windows map[string]int
+	json.Unmarshal(data, &windows)
+	return windows[model]
 }

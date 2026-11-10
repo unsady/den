@@ -14,7 +14,7 @@ func TestKeepCodexEfforts(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	m := &Models{cfg: cfg}
 
-	list := `{"models":[{"slug":"gpt-terra","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-mini","supported_reasoning_levels":[]}]}`
+	list := `{"models":[{"slug":"gpt-terra","context_window":272000,"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}]},{"slug":"gpt-mini","supported_reasoning_levels":[]}]}`
 	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(list))}
 	m.keepCodexEfforts(resp)
 
@@ -30,5 +30,11 @@ func TestKeepCodexEfforts(t *testing.T) {
 	}
 	if got := Efforts(cfg, "opencode", "gpt-terra"); got != nil {
 		t.Errorf("another provider has none kept, got %v", got)
+	}
+	if got := Window(cfg, "codex", "gpt-terra"); got != 272000 {
+		t.Errorf("gpt-terra window %d", got)
+	}
+	if got := Window(cfg, "codex", "gpt-mini"); got != 0 {
+		t.Errorf("gpt-mini window %d, want none", got)
 	}
 }
