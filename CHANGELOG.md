@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- Progress steps name the program a command runs even inside `$(…)`, loops, `if`, and multi-line scripts, and pipes inside quotes no longer split a command, so steps no longer show pieces of a jq filter or a flag.
 - A step that runs a den command names it, such as “Running den stats”, instead of only “Running den”.
 - Setup and `den login` take an Anthropic, xAI, or Vercel AI Gateway API key, through each one's OpenAI-compatible API.
 - `/status` shows the context size with a ChatGPT subscription too: den read the wrong token count from Codex's answers.

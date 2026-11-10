@@ -21,15 +21,28 @@ var stepVerbs = []string{
 var (
 	urlPattern = regexp.MustCompile(`https?://[^\s"'<>)]+`)
 	// separators split a shell line into the commands it chains.
-	separators = regexp.MustCompile(`\s*(?:&&|\|\||;|\|)\s*`)
+	separators = regexp.MustCompile(`\s*(?:&&|\|\||;|\||\n)\s*`)
 	quotedText = regexp.MustCompile(`"([^"]+)"|'([^']+)'`)
+	// programName is what a program's name looks like, unlike a jq filter
+	// or a flag that the parsing below might land on.
+	programName = regexp.MustCompile(`^[A-Za-z0-9_][\w.+-]*$`)
 )
+
+// keywords are the shell's own words before a command, as in
+// "for f in *; do jq …" or "time yt-dlp …".
+var keywords = map[string]bool{
+	"for": true, "while": true, "until": true, "if": true, "then": true, "else": true,
+	"elif": true, "do": true, "done": true, "fi": true, "time": true, "!": true,
+	"{": true, "}": true, "(": true, ")": true, "exec": true, "command": true,
+	"esac": true,
+}
 
 // helpers are programs that set the stage for the command that matters,
 // such as the sleep in "sleep 5 && yt-dlp …".
 var helpers = map[string]bool{
 	"sleep": true, "cd": true, "export": true, "set": true, "mkdir": true,
 	"true": true, ":": true, "source": true, ".": true, "umask": true,
+	"echo": true, "printf": true,
 }
 
 // step turns a line fx wrote into a short step for the chat, or reports
@@ -86,20 +99,28 @@ func shellStep(cmd string) string {
 	line := cmd
 	var fields []string
 	var program string
-	for _, part := range separators.Split(cmd, -1) {
-		fields = strings.Fields(part)
-		// Variable assignments come before the program.
-		for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "-") {
-			fields = fields[1:]
-		}
-		if len(fields) == 0 {
+	// The first command that is not a helper names the step; a line of
+	// helpers alone is named by its last one, as in "sleep 5".
+	var helper string
+	var helperFields []string
+	for _, part := range splitCommands(cmd) {
+		words := commandFields(part)
+		if len(words) == 0 {
 			continue
 		}
-		program = path.Base(strings.Trim(fields[0], `"'(`))
-		if !helpers[program] {
-			cmd = part
-			break
+		name := path.Base(strings.Trim(words[0], `"'(`))
+		if !programName.MatchString(name) {
+			continue
 		}
+		if helpers[name] {
+			helper, helperFields = name, words
+			continue
+		}
+		program, fields, cmd = name, words, part
+		break
+	}
+	if program == "" {
+		program, fields = helper, helperFields
 	}
 	if program == "" {
 		return "Running a command"
@@ -139,6 +160,63 @@ func shellStep(cmd string) string {
 		text += " · " + h
 	}
 	return text
+}
+
+// splitCommands splits a shell line into the commands it chains, leaving
+// separators in quotes alone, such as the pipes of a jq filter.
+func splitCommands(line string) []string {
+	var masked strings.Builder
+	var quote rune
+	for _, r := range line {
+		switch {
+		case quote != 0 && r == quote:
+			quote = 0
+		case quote == 0 && (r == '\'' || r == '"'):
+			quote = r
+		case quote != 0 && strings.ContainsRune("|&;\n", r):
+			r += hidden
+		}
+		masked.WriteRune(r)
+	}
+
+	parts := separators.Split(masked.String(), -1)
+	for i, part := range parts {
+		parts[i] = strings.Map(func(r rune) rune {
+			if r >= hidden {
+				return r - hidden
+			}
+			return r
+		}, part)
+	}
+	return parts
+}
+
+// hidden moves a separator in quotes out of the separators' way, into
+// Unicode's private use planes.
+const hidden = 0xF0000
+
+// commandFields splits one command of a shell line into words from its
+// program on: past the shell's keywords and variable assignments, and into
+// a command substitution, as in "n=$(jq …)".
+func commandFields(part string) []string {
+	fields := strings.Fields(part)
+	// "for f in *" names no program; the command follows its "do".
+	if len(fields) > 0 && (fields[0] == "for" || fields[0] == "case" || fields[0] == "select") {
+		return nil
+	}
+	for len(fields) > 0 {
+		word := fields[0]
+		if _, inner, ok := strings.Cut(word, "$("); ok && inner != "" {
+			fields[0] = inner
+			return fields
+		}
+		if keywords[word] || strings.Contains(word, "=") && !strings.HasPrefix(word, "-") {
+			fields = fields[1:]
+			continue
+		}
+		return fields
+	}
+	return nil
 }
 
 // services name the secrets of den fetch for the user.
