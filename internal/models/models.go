@@ -465,6 +465,15 @@ func refuseLongWait(resp *http.Response) {
 }
 
 // catalogProvider finds a provider's address and models on models.dev.
+// compatible are the OpenAI-compatible addresses of providers whose own API
+// models.dev lists instead, since fx speaks only OpenAI's Chat Completions
+// to them.
+var compatible = map[string]string{
+	"anthropic": "https://api.anthropic.com/v1",
+	"xai":       "https://api.x.ai/v1",
+	"vercel":    "https://ai-gateway.vercel.sh/v1",
+}
+
 func catalogProvider(id string) (string, []string, error) {
 	client := &http.Client{Timeout: time.Minute}
 	resp, err := client.Get(catalogURL)
@@ -483,6 +492,9 @@ func catalogProvider(id string) (string, []string, error) {
 	p, ok := catalog[id]
 	if !ok {
 		return "", nil, fmt.Errorf("models.dev has no provider %q", id)
+	}
+	if p.API == "" {
+		p.API = compatible[id]
 	}
 	if p.API == "" {
 		return "", nil, fmt.Errorf("models.dev gives no address for %q: pass --base-url", id)

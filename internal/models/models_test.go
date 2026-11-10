@@ -126,7 +126,7 @@ func TestConversationIsStableAcrossTurns(t *testing.T) {
 
 func TestLogin(t *testing.T) {
 	catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"opencode":{"api":"https://opencode.ai/inference/openai/v1","models":{}},"zen":{"api":"https://zen.example/v1","models":{"glm-5":{},"beam-free":{}}},"bare":{"models":{}}}`))
+		w.Write([]byte(`{"opencode":{"api":"https://opencode.ai/inference/openai/v1","models":{}},"zen":{"api":"https://zen.example/v1","models":{"glm-5":{},"beam-free":{}}},"bare":{"models":{}},"anthropic":{"models":{"claude-sonnet-5-5":{}}}}`))
 	}))
 	defer catalog.Close()
 	catalogURL = catalog.URL
@@ -168,6 +168,13 @@ func TestLogin(t *testing.T) {
 
 	if err := m.Login("bare", "", "k", ""); err == nil || !strings.Contains(err.Error(), "--base-url") {
 		t.Fatalf("no address: %v", err)
+	}
+	// Anthropic's own API is not OpenAI's; den knows its compatible one.
+	if err := m.Login("anthropic", "", "sk-ant", "claude-sonnet-5-5"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := m.load("anthropic"); p.BaseURL != "https://api.anthropic.com/v1" {
+		t.Fatalf("anthropic at %q", p.BaseURL)
 	}
 	if err := m.Login("plain", "http://example.com/v1", "k", ""); err == nil {
 		t.Fatal("took an http address")
