@@ -97,7 +97,16 @@ func modelChoices(models map[string]catalogModel, suggested string) []choice {
 	return choices
 }
 
-// providerChoices lists the providers den can use, by name.
+// popular are the providers most people have, which the list shows first,
+// in this order.
+var popular = []string{
+	"openrouter", "deepseek", "opencode", "opencode-go", "zai", "moonshotai",
+	"alibaba", "minimax", "xiaomi", "fireworks-ai", "nvidia", "huggingface",
+	"nebius", "novita-ai", "chutes", "ollama-cloud", "cloudflare-workers-ai",
+}
+
+// providerChoices lists the providers den can use: the popular ones first,
+// then the rest by name.
 func providerChoices(cat map[string]catalogProvider) []choice {
 	var choices []choice
 	for id, p := range cat {
@@ -105,6 +114,17 @@ func providerChoices(cat map[string]catalogProvider) []choice {
 			choices = append(choices, choice{label: p.Name, about: id, value: id})
 		}
 	}
-	slices.SortFunc(choices, func(a, b choice) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
+	rank := func(id string) int {
+		if i := slices.Index(popular, id); i >= 0 {
+			return i
+		}
+		return len(popular)
+	}
+	slices.SortFunc(choices, func(a, b choice) int {
+		if d := rank(a.value) - rank(b.value); d != 0 {
+			return d
+		}
+		return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label))
+	})
 	return choices
 }

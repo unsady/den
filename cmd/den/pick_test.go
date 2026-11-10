@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestModelChoicesPutTheSuggestedFirst(t *testing.T) {
 	models := map[string]catalogModel{
@@ -31,6 +34,23 @@ func TestProviderChoicesNeedAnAddress(t *testing.T) {
 	}
 	got := providerChoices(cat)
 	if len(got) != 1 || got[0].value != "zai" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestProviderChoicesPutPopularFirst(t *testing.T) {
+	m := map[string]catalogModel{"m": {}}
+	cat := map[string]catalogProvider{
+		"aaa":        {Name: "AAA", API: "https://a", Models: m},
+		"deepseek":   {Name: "DeepSeek", API: "https://d", Models: m},
+		"openrouter": {Name: "OpenRouter", API: "https://o", Models: m},
+		"zzz":        {Name: "ZZZ", API: "https://z", Models: m},
+	}
+	var got []string
+	for _, c := range providerChoices(cat) {
+		got = append(got, c.value)
+	}
+	if strings.Join(got, " ") != "openrouter deepseek aaa zzz" {
 		t.Fatalf("got %v", got)
 	}
 }
