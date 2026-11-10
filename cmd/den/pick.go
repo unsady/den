@@ -36,11 +36,16 @@ func pickModel(provider string) (string, error) {
 
 	fmt.Printf("\n%s has %d models. Type part of a name, such as deep, glm, or claude, or Enter for all.\n", provider, len(models))
 	query, err := ask("> ", false)
+	if err != nil {
+		return "", err
+	}
+	return findModel(models, query)
+}
+
+// findModel narrows models by query until the user picks one.
+func findModel(models []catalogModel, query string) (string, error) {
 	found := models
 	for {
-		if err != nil {
-			return "", err
-		}
 		// More words narrow the last list; words it lacks search them all.
 		if narrowed := matchModels(found, query); len(narrowed) > 0 {
 			found = narrowed
@@ -67,7 +72,11 @@ func pickModel(provider string) (string, error) {
 			}
 		}
 
+		var err error
 		query, err = ask("Number, or other words: ", false)
+		if err != nil {
+			return "", err
+		}
 		if n, convErr := strconv.Atoi(query); convErr == nil && n >= 1 && n <= min(len(found), shownModels) {
 			fmt.Println("Model:", found[n-1].ID)
 			return found[n-1].ID, nil

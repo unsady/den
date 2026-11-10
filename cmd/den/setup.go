@@ -72,15 +72,7 @@ func setup(c hostConfig) error {
 	}
 
 	if !hasProvider(have) {
-		fmt.Println("\nden needs a model. Any provider on models.dev works, such as opencode-go, opencode, deepseek, or openrouter.")
-		provider, err := ask("Provider [opencode-go]: ", false)
-		if err != nil {
-			return err
-		}
-		if provider == "" {
-			provider = "opencode-go"
-		}
-		if err := login(c, provider, "", ""); err != nil {
+		if err := chooseAccount(c); err != nil {
 			return err
 		}
 	}
@@ -98,7 +90,12 @@ Settings are in %s.
 	return nil
 }
 
+// hasProvider reports whether den has a model to use: a provider's key, or
+// a ChatGPT subscription.
 func hasProvider(have map[string]bool) bool {
+	if have["codex"] {
+		return true
+	}
 	for name := range have {
 		if strings.HasPrefix(name, "provider_") {
 			return true

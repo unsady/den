@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/unsady/den/main/install.sh | sh
 The script puts `den` in `~/.local/bin`, checks its digest, and runs `den setup`. The setup gets den's image, starts the container, and asks for two things:
 
 - A Telegram bot's token, from @BotFather. You then send the bot any message, and den takes your chat from it. The bot answers only that chat.
-- A model provider from [models.dev](https://models.dev), such as `opencode-go`, `deepseek`, or `openrouter`, and its API key. You pick the default model by typing part of its name, such as `deep`.
+- The account that pays for the model: OpenCode Go, OpenRouter, DeepSeek, a ChatGPT Plus or Pro subscription, or any other provider on [models.dev](https://models.dev). den starts with a good model for it, which Enter keeps, and asks for its API key; a ChatGPT subscription signs in in the browser instead.
 
 Then write to the bot. Run `den setup` again to finish a setup that stopped halfway; it skips what is done.
 
@@ -111,7 +111,7 @@ With a second model set, it also stands in for the main one. When the main model
 
 ## Models
 
-The setup adds one provider. `den login <provider>` adds another or changes its key, and its models appear in `/model`. `den connect codex` signs in to a ChatGPT subscription in your browser for its Codex models; den keeps the tokens and refreshes them.
+The setup adds one account, and `/model` in Telegram picks any of its models. `den login <provider>` adds another or changes its key, and its models appear in `/model`. `den connect codex` signs in to a ChatGPT subscription in your browser for its Codex models; den keeps the tokens and refreshes them.
 
 fx reaches every provider through den's proxy, which also measures each request. `den stats` shows how long each provider stayed silent before the first token, whether the answer stalled, how fast it wrote, and what failed, and the agent reads the same numbers when you ask it why it was slow today.
 
