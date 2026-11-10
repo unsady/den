@@ -1,0 +1,45 @@
+# Checks every push to main and every pull request: the Go code, and that
+# the image builds and its den and fx start.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./... && go test ./...
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: den:ci
+          build-args: |
+            DEN_VERSION=ci
+            WHISPER_NATIVE=OFF
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: |
+          docker run --rm den:ci den version
+          docker run --rm den:ci fx --version
+          docker run --rm den:ci sh -c 'command -v whisper-cli lightpanda'
