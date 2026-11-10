@@ -143,7 +143,7 @@ func TestPathPattern(t *testing.T) {
 		"/repos/me/notes/issues/12/comments":              "/repos/me/notes/issues/*/comments",
 		"/api/deals/3f2b8c1e-9a7d-4e21-b5a0-1c2d3e4f5a6b": "/api/deals/*",
 		"/api/topics/01M5WRZWF8915TWQHD3CRAKPE0":          "/api/topics/*",
-		"/api/topics/villarreal-club-de-futbol":           "/api/topics/villarreal-club-de-futbol",
+		"/api/topics/getting-started-guide":           "/api/topics/getting-started-guide",
 		"/api/deals":                                      "/api/deals",
 		"/repos/me/notes/git/refs/heads/v2":               "/repos/me/notes/git/refs/heads/v2",
 	} {
