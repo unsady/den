@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- A ``` block or `inline code` in the agent's messages shows in Telegram as code that copies with a tap, without the backticks.
 - `/status` shows a ChatGPT subscription model's context window, from Codex's own list of models.
 - `/status` sums jobs up in one line with the next one to run, and names only jobs whose last run failed.
 - Choosing the second model answers with ⚙︎, like the main model.

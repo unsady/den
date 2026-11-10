@@ -48,7 +48,7 @@ var progressEvery = 3 * time.Second
 // rather than precede them, because fx names a session after the start of
 // its first message when the provider has no model for titles.
 const footer = "\n\n[The user is writing to you from Telegram. " +
-	"Your final reply is sent back to that chat as plain text, so keep it short and skip Markdown formatting.]"
+	"Your final reply is sent back to that chat as plain text, so keep it short and skip Markdown formatting. Only put text the user may want to copy, such as a command or a draft, in a ``` block: Telegram shows it as code that copies with a tap.]"
 
 // commands fill the bot's command menu and the help message.
 var commands = []notify.Command{
