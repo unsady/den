@@ -38,7 +38,8 @@ const hostUsage = `den on this machine runs den in a container.
 
 Usage:
   den setup                     Set den up, or finish a setup: container, Telegram, model
-  den update                    Rebuild the image and recreate the container; data stays
+  den update                    Update the den command and its image, and recreate the
+                                container; data stays
   den start | stop | restart
   den status                    The container, and which secrets den has
   den logs [-f]                 den's log
@@ -314,6 +315,9 @@ func recreate(c hostConfig) error {
 }
 
 func update(c hostConfig) error {
+	if err := updateCommand(c); err != nil {
+		return err
+	}
 	if err := pullOrBuild(c); err != nil {
 		return err
 	}

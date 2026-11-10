@@ -88,7 +88,7 @@ func setup(c hostConfig) error {
   den connect mail      read and send mail with an app password
   den connect google    Gmail and Calendar through your own Google client
   den status            what den runs and which secrets it has
-  den update            rebuild and restart; notes and secrets stay
+  den update            update den and restart it; notes and secrets stay
 
 Settings are in %s.
 `, configPath())

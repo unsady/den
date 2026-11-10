@@ -184,7 +184,7 @@ What the agent learns about a built-in skill goes to `notes/skills/<name>.md`, w
 | Command | What it does |
 |---|---|
 | `den setup` | Sets den up, or finishes a setup |
-| `den update` | Gets the new image and recreates the container; notes, sessions, and secrets stay |
+| `den update` | Updates the `den` command and its image from the latest release, and recreates the container; notes, sessions, and secrets stay |
 | `den start`, `den stop`, `den restart` | The container |
 | `den status`, `den logs [-f]` | The container and the secrets den has; den's log |
 | `den login <provider>` | Adds a model provider or changes its key |
@@ -233,7 +233,7 @@ Set these in `env` in `~/.config/den/config.json`.
 
 ### Building it yourself
 
-In a checkout, `go build -o ~/.local/bin/den ./cmd/den` builds `den`, and `den setup` run there builds the image from the checkout instead of pulling it; `den update` then rebuilds it. `scripts/release.sh` builds `den` for every system `install.sh` supports.
+In a checkout, `go build -o ~/.local/bin/den ./cmd/den` builds `den`, and `den setup` run there builds the image from the checkout instead of pulling it; `den update` then rebuilds it, and the `den` command too when Go is installed. `scripts/release.sh` builds `den` for every system `install.sh` supports.
 
 The image takes fx from a release of [a fork](https://github.com/unsady/fx) that carries the few changes den needs, and checks its digest. To try your own fx, build it in an fx checkout with `zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSafe` and copy `zig-out/bin/fx` to `build/fx` before `den update`.
 

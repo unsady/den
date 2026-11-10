@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- `den update` also updates the `den` command itself from the latest release, after checking its checksum. Before, only the image was updated, and a new `den` needed the install line again.
 - The web skill tells the agent to read every page with `web_fetch`, which turns HTML into clean text, and to keep `curl` for APIs, downloads, and requests with headers.
 
 ## v0.1.1
