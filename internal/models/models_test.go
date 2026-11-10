@@ -247,6 +247,20 @@ func TestDefaultKeepsAChosenModel(t *testing.T) {
 	}
 }
 
+func TestDefaultMakesTheFirstProviderFxs(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "agent", ".fx")
+	os.MkdirAll(home, 0o700)
+	m := New(config.Config{Sessions: filepath.Join(home, "sessions", "v2")})
+
+	if err := m.Default("codex", func() ([]string, error) { return []string{"gpt-a"}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(home, "settings.json"))
+	if !strings.Contains(string(data), `"provider":"codex"`) {
+		t.Fatalf("settings %s", data)
+	}
+}
+
 func TestProxyMeasuresCalls(t *testing.T) {
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.RawQuery, "fail") {

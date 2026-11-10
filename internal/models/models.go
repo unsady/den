@@ -542,8 +542,9 @@ func (m *Models) standToken(w http.ResponseWriter) {
 }
 
 // Default gives provider a model of its own in fx's settings when it has
-// none, since fx refuses to use or even list such a provider. The chat's
-// /model choice still overrides it.
+// none, since fx refuses to use or even list such a provider, and makes it
+// fx's provider when fx has none yet. The chat's /model choice still
+// overrides both.
 func (m *Models) Default(provider string, offered func() ([]string, error)) error {
 	path := filepath.Join(m.home, "settings.json")
 	settings := map[string]json.RawMessage{}
@@ -568,6 +569,10 @@ func (m *Models) Default(provider string, offered func() ([]string, error)) erro
 	}
 	models[provider] = list[0]
 	settings["models"], _ = json.Marshal(models)
+	// The first provider den gets is the one it uses.
+	if _, ok := settings["provider"]; !ok {
+		settings["provider"], _ = json.Marshal(provider)
+	}
 	out, err := json.Marshal(settings)
 	if err != nil {
 		return err
