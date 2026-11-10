@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- Setup and `den login` take an Anthropic, xAI, or Vercel AI Gateway API key, through each one's OpenAI-compatible API.
 - `/status` shows the context size with a ChatGPT subscription too: den read the wrong token count from Codex's answers.
 - Setup's list of other providers starts with the popular ones, such as OpenRouter, DeepSeek, OpenCode, Z.AI, and Moonshot AI.
 - `den update` also updates the `den` command itself from the latest release, after checking its checksum. Before, only the image was updated, and a new `den` needed the install line again.

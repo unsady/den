@@ -24,6 +24,9 @@ var accounts = []account{
 	{"OpenCode Go", "a monthly plan with many open models", "opencode-go", "deepseek-v4-pro", "https://opencode.ai/auth"},
 	{"OpenRouter", "pay as you go, almost every model", "openrouter", "deepseek/deepseek-v4-pro", "https://openrouter.ai/settings/keys"},
 	{"DeepSeek", "pay as you go, DeepSeek's own API", "deepseek", "deepseek-v4-pro", "https://platform.deepseek.com/api_keys"},
+	{"Anthropic", "pay as you go, Claude models", "anthropic", "claude-sonnet-5-5", "https://platform.claude.com/settings/keys"},
+	{"xAI", "pay as you go, Grok models", "xai", "grok-4.7", "https://console.x.ai"},
+	{"Vercel AI Gateway", "pay as you go, models of many providers", "vercel", "deepseek/deepseek-v4-pro", "https://vercel.com/ai-gateway"},
 	{"ChatGPT Plus or Pro", "your subscription, signed in in the browser", "codex", "", ""},
 	{"Another provider", "any of models.dev's", "", "", ""},
 }
