@@ -24,6 +24,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./... && go test ./...
+      # macOS sh reads a UTF-8 character after $name as part of the name.
+      - name: Shell scripts are ASCII
+        run: "! grep -nP '[^\\x00-\\x7F]' install.sh scripts/*.sh"
 
   image:
     runs-on: ubuntu-24.04
