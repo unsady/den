@@ -1,5 +1,6 @@
-# Checks every push to main and every pull request: the Go code, and that
-# the image builds and its den and fx start.
+# Checks every push to main and every pull request: the Go code, that the
+# image builds and its den and fx start, and that den runs its container on
+# a Linux host with Docker and with Podman.
 name: CI
 
 on:
@@ -43,3 +44,21 @@ jobs:
           docker run --rm den:ci den version
           docker run --rm den:ci fx --version
           docker run --rm den:ci sh -c 'command -v whisper-cli && command -v lightpanda'
+
+  # den on a Linux host with each container tool, up to the Telegram token.
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [docker, podman]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/den" ./cmd/den
+      # Outside the checkout, so setup pulls the published image as a new
+      # user's would.
+      - working-directory: ${{ runner.temp }}
+        run: $GITHUB_WORKSPACE/scripts/check-host.sh ${{ matrix.runtime }} "$RUNNER_TEMP/den"
