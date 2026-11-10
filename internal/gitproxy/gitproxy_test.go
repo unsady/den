@@ -1,0 +1,125 @@
+package gitproxy
+
+import (
+	"context"
+	"net/http"
+	"net/http/cgi"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/unsady/den/internal/approve"
+	"github.com/unsady/den/internal/config"
+)
+
+// TestPush clones and pushes with real git through the proxy to git's own
+// HTTP server, which stands in for GitHub.
+func TestPush(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	root := t.TempDir()
+	run := func(dir string, args ...string) (string, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "HOME="+root,
+			"GIT_AUTHOR_NAME=a", "GIT_AUTHOR_EMAIL=a@a", "GIT_COMMITTER_NAME=a", "GIT_COMMITTER_EMAIL=a@a")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	must := func(dir string, args ...string) {
+		t.Helper()
+		if out, err := run(dir, args...); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// GitHub: a bare repository with one commit on main.
+	bare := filepath.Join(root, "github", "me", "repo.git")
+	must(root, "init", "--bare", "-b", "main", bare)
+	must(bare, "config", "http.receivepack", "true")
+	seed := filepath.Join(root, "seed")
+	must(root, "init", "-b", "main", seed)
+	must(seed, "commit", "--allow-empty", "-m", "first")
+	must(seed, "push", bare, "main")
+
+	var mu sync.Mutex
+	var auth []string
+	backend := &cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + filepath.Join(root, "github"), "GIT_HTTP_EXPORT_ALL=1"}}
+	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auth = append(auth, r.Header.Get("Authorization"))
+		mu.Unlock()
+		backend.ServeHTTP(w, r)
+	}))
+	defer github.Close()
+
+	cfg := config.Config{State: filepath.Join(root, "state"), Secrets: filepath.Join(root, "secrets")}
+	os.MkdirAll(cfg.State, 0o700)
+	os.MkdirAll(cfg.Secrets, 0o700)
+	os.WriteFile(filepath.Join(cfg.Secrets, TokenFile), []byte("tok\n"), 0o600)
+
+	var asked []string
+	var answer error
+	p := New(cfg, func(ctx context.Context, q approve.Question) error {
+		asked = append(asked, q.Text)
+		return answer
+	})
+	p.upstream = github.URL
+	proxy := httptest.NewServer(p)
+	defer proxy.Close()
+
+	work := filepath.Join(root, "work")
+	must(root, "clone", proxy.URL+"/me/repo", work)
+	if auth[0] != "Basic eC1hY2Nlc3MtdG9rZW46dG9r" {
+		t.Fatalf("authorization %q", auth[0])
+	}
+
+	// A new branch, and later changes to it, go at once.
+	must(work, "commit", "--allow-empty", "-m", "second")
+	must(work, "push", "origin", "HEAD:refs/heads/feature")
+	must(work, "commit", "--allow-empty", "-m", "third")
+	must(work, "push", "origin", "HEAD:refs/heads/feature")
+	if len(asked) != 0 {
+		t.Fatalf("asked %q", asked)
+	}
+
+	// main is not the agent's: the push waits for the user, who denies it.
+	answer = approve.ErrDenied
+	out, err := run(work, "push", "origin", "HEAD:main")
+	if err == nil || !strings.Contains(out, "den: the user did not allow this push") {
+		t.Fatalf("denied push: %v\n%s", err, out)
+	}
+	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Push to me/repo?\n\n• main: ") {
+		t.Fatalf("asked %q", asked)
+	}
+	if head, _ := run(bare, "log", "-1", "--format=%s", "main"); strings.TrimSpace(head) != "first" {
+		t.Fatalf("main moved to %q", head)
+	}
+
+	answer = nil
+	must(work, "push", "origin", "HEAD:main")
+	if head, _ := run(bare, "log", "-1", "--format=%s", "main"); strings.TrimSpace(head) != "third" {
+		t.Fatalf("main is at %q", head)
+	}
+
+	// The agent's own branch goes away without a question, and den
+	// remembers its branches across restarts.
+	if !New(cfg, nil).mine["me/repo:feature"] {
+		t.Fatal("forgot the agent's branch")
+	}
+	must(work, "push", "origin", ":feature")
+	if len(asked) != 2 {
+		t.Fatalf("asked %q", asked)
+	}
+
+	resp, _ := http.Get(proxy.URL + "/me/repo/other")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("other path: %d", resp.StatusCode)
+	}
+}

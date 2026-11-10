@@ -1,0 +1,48 @@
+# den's chart style: dark, minimal, and readable on a phone, where Telegram
+# fits a photo to the screen's width.
+
+figure.figsize: 6, 6
+figure.dpi: 100
+savefig.dpi: 200
+savefig.bbox: tight
+savefig.pad_inches: 0.3
+figure.facecolor: 0f1115
+savefig.facecolor: 0f1115
+axes.facecolor: 0f1115
+
+font.family: DejaVu Sans
+font.size: 15
+text.color: e6e6e6
+axes.labelcolor: 9aa0aa
+axes.labelsize: 14
+axes.titlesize: 18
+axes.titleweight: bold
+axes.titlelocation: left
+axes.titlepad: 16
+xtick.color: 9aa0aa
+ytick.color: 9aa0aa
+xtick.labelsize: 13
+ytick.labelsize: 13
+
+axes.prop_cycle: cycler('color', ['7aa2f7', '9ece6a', 'e0af68', 'f7768e', 'bb9af7', '7dcfff'])
+lines.linewidth: 2.5
+lines.markersize: 7
+patch.edgecolor: 0f1115
+
+axes.spines.top: False
+axes.spines.right: False
+axes.spines.left: False
+axes.edgecolor: 3a3f4b
+axes.grid: True
+axes.grid.axis: y
+axes.axisbelow: True
+grid.color: 262a33
+grid.linewidth: 1
+xtick.major.size: 0
+ytick.major.size: 0
+xtick.major.pad: 8
+ytick.major.pad: 8
+
+legend.frameon: False
+legend.fontsize: 13
+legend.labelcolor: e6e6e6

@@ -1,0 +1,5 @@
+# fx keeps its own state in .fx/; only skills are part of the space.
+.fx/*
+!.fx/skills/
+
+.reflect-stamp
