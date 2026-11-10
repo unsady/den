@@ -65,6 +65,9 @@ func setup(c hostConfig) error {
 	if err := launch(c, "Starting den", start); err != nil {
 		return err
 	}
+	if err := online(c); err != nil {
+		return err
+	}
 
 	have := secrets(c)
 	if !have["telegram_token"] || !have["telegram_chat_id"] {
@@ -89,6 +92,20 @@ func setup(c hostConfig) error {
 
 Settings are in %s.
 `, configPath())
+	return nil
+}
+
+// online checks that den's container reaches the internet, which a VPN
+// on this machine can block, before setup waits on Telegram or a model.
+func online(c hostConfig) error {
+	err := step("Checking den's internet", func(context.Context) error {
+		return c.quiet("exec", c.Name, "curl", "-s", "-o", "/dev/null", "-m", "15", "https://api.telegram.org")
+	})
+	if err != nil {
+		failed("den's container cannot reach the internet")
+		return errors.New("a VPN on this machine may block its containers: turn it off, then run den setup again")
+	}
+	done("den reaches the internet")
 	return nil
 }
 
