@@ -7,7 +7,7 @@ description: Search the web with `den search` (the web_search tool does not work
 
 ## Read a page
 
-1. Use the `web_fetch` tool first. It is the fastest.
+1. Use the `web_fetch` tool first, for any page, including links you found yourself. It is the fastest, and it turns the HTML into clean text, which `curl` piped through `sed` does worse. `curl` is for JSON APIs, files to save, and requests that need headers.
 2. When it returns little or no text, the page likely builds itself with JavaScript. Load it in Lightpanda, a small headless browser:
 
    ```bash
