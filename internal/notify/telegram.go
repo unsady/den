@@ -45,14 +45,20 @@ func Load(cfg config.Config) (*Telegram, error) {
 	return &Telegram{token: token, chatID: chatID, client: &http.Client{}}, nil
 }
 
-// Send sends text to the user's chat, split into several messages when long.
+// Send sends text to the user's chat, split into several messages when long,
+// with its ``` blocks and `inline code` shown as code that a tap copies.
 func (t *Telegram) Send(ctx context.Context, text string) error {
 	for _, chunk := range split(strings.TrimSpace(text), maxMessage) {
-		err := t.call(ctx, "sendMessage", map[string]any{
+		chunk, entities := code(chunk)
+		body := map[string]any{
 			"chat_id":                  t.chatID,
 			"text":                     chunk,
 			"disable_web_page_preview": true,
-		}, nil)
+		}
+		if len(entities) > 0 {
+			body["entities"] = entities
+		}
+		err := t.call(ctx, "sendMessage", body, nil)
 		if err != nil {
 			return err
 		}
