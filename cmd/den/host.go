@@ -160,11 +160,15 @@ func hostRun(args []string) error {
 	case "update":
 		return update(c)
 	case "start":
-		return start(c)
+		return launch(c, "Starting den", start)
 	case "stop":
-		return c.run("stop", c.Name)
+		if err := step("Stopping den", func(context.Context) error { return c.quiet("stop", c.Name) }); err != nil {
+			return err
+		}
+		done("den stopped")
+		return nil
 	case "restart":
-		return recreate(c)
+		return launch(c, "Restarting den", recreate)
 	case "status":
 		return status(c)
 	case "logs":
@@ -217,6 +221,18 @@ func inside(c hostConfig, input string, args ...string) error {
 	return nil
 }
 
+// insideQuiet runs den with args in the container, with input on its
+// stdin, and shows its output only when it fails.
+func insideQuiet(c hostConfig, input string, args ...string) error {
+	cmd := c.engine().command(append([]string{"exec", "-i", c.Name, "den"}, args...)...)
+	cmd.Stdin = strings.NewReader(input)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "den: ")))
+	}
+	return nil
+}
+
 func agentExec(c hostConfig, args ...string) error {
 	flags := []string{"exec", "-i", "-u", "agent", "-w", "/home/agent/space", "-e", "HOME=/home/agent"}
 	if terminal() {
@@ -250,7 +266,7 @@ func start(c hostConfig) error {
 		e.command("rm", c.Name).Run()
 	}
 	if !c.exists("volume", "inspect", c.Volume) {
-		if err := c.run("volume", "create", c.Volume); err != nil {
+		if err := c.quiet("volume", "create", c.Volume); err != nil {
 			return err
 		}
 	}
@@ -266,7 +282,26 @@ func start(c hostConfig) error {
 	for i := 0; i < 50 && !c.exists("exec", c.Name, "test", "-S", "/run/den/den.sock"); i++ {
 		time.Sleep(200 * time.Millisecond)
 	}
-	fmt.Printf("den is running in the container %s\n", c.Name)
+	return nil
+}
+
+// launch starts den with how, under a spinner titled title, and says
+// where it runs.
+func launch(c hostConfig, title string, how func(hostConfig) error) error {
+	if err := step(title, func(context.Context) error { return how(c) }); err != nil {
+		return err
+	}
+	done("den is running in the container %s", c.Name)
+	return nil
+}
+
+// quiet runs the container tool with args and shows its output only when
+// it fails.
+func (c hostConfig) quiet(args ...string) error {
+	out, err := c.engine().command(args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %v\n%s", c.engine(), args[0], err, lastLines(string(out), 20))
+	}
 	return nil
 }
 
@@ -279,10 +314,23 @@ func recreate(c hostConfig) error {
 }
 
 func update(c hostConfig) error {
-	if err := getImage(c); err != nil {
+	if err := pullOrBuild(c); err != nil {
 		return err
 	}
-	return recreate(c)
+	return launch(c, "Restarting den", recreate)
+}
+
+// pullOrBuild gets den's image under a spinner.
+func pullOrBuild(c hostConfig) error {
+	title := "Pulling " + c.Image
+	if c.Source != "" {
+		title = "Building the image from " + c.Source
+	}
+	if err := step(title, func(context.Context) error { return getImage(c) }); err != nil {
+		return err
+	}
+	done("Image %s", c.Image)
+	return nil
 }
 
 // getImage builds the image from the den checkout, or pulls it without
@@ -290,7 +338,6 @@ func update(c hostConfig) error {
 func getImage(c hostConfig) error {
 	e := c.engine()
 	if c.Source == "" {
-		fmt.Println("Pulling " + c.Image + "…")
 		pull := []string{"pull", c.Image}
 		if e == appleContainer {
 			pull = []string{"image", "pull", c.Image}
@@ -301,7 +348,6 @@ func getImage(c hostConfig) error {
 		return nil
 	}
 
-	fmt.Println("Building the image…")
 	out, err := e.command("build", "-t", c.Image, c.Source).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s build: %v\n%s", e, err, lastLines(string(out), 20))
@@ -355,10 +401,23 @@ func login(c hostConfig, provider, model, baseURL string) error {
 			return err
 		}
 	}
-	key, err := ask("API key for "+provider+": ", true)
+	name := provider
+	if p, ok := loadedCatalog[provider]; ok && p.Name != "" {
+		name = p.Name
+	}
+	for _, a := range accounts {
+		if a.provider == provider {
+			name = a.name
+			if a.keys != "" {
+				note("Create a key at " + a.keys)
+			}
+		}
+	}
+	key, err := ask("API key for "+name, true)
 	if err != nil {
 		return err
 	}
+
 	args := []string{"login"}
 	if model != "" {
 		args = append(args, "--model", model)
@@ -366,11 +425,14 @@ func login(c hostConfig, provider, model, baseURL string) error {
 	if baseURL != "" {
 		args = append(args, "--base-url", baseURL)
 	}
-	if err := inside(c, key, append(args, provider)...); err != nil {
+	if err := step("Signing in to "+name, func(context.Context) error { return insideQuiet(c, key, append(args, provider)...) }); err != nil {
 		return err
 	}
-	if model == "" {
-		fmt.Println("Its models are in /model in Telegram; the default model stays as it was.")
+	done("Signed in to %s", name)
+	if model != "" {
+		done("Model %s; /model in Telegram changes it", model)
+	} else {
+		note("Its models are in /model in Telegram; the default model stays as it was.")
 	}
 	return nil
 }
@@ -422,8 +484,11 @@ func connectMail(c hostConfig) error {
 		}
 		text += "imap=" + imap + "\nsmtp=" + smtp + "\n"
 	}
-	fmt.Println("Checking the login…")
-	return inside(c, text, "connect", "mail")
+	if err := step("Checking the mailbox", func(context.Context) error { return insideQuiet(c, text, "connect", "mail") }); err != nil {
+		return err
+	}
+	done("Mail connected: %s", address)
+	return nil
 }
 
 // connectHost signs in in this machine's browser. den in the container
@@ -489,32 +554,6 @@ func connectHost(c hostConfig, service, back, name string) error {
 	}
 	stdin.Close()
 	return quiet(cmd.Wait())
-}
-
-// ask reads a line from the terminal, without echo when secret.
-func ask(prompt string, secret bool) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	if secret && terminal() {
-		stty("-echo")
-		defer func() {
-			stty("echo")
-			fmt.Fprintln(os.Stderr)
-		}()
-	}
-	line, err := stdinReader.ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" && err != nil {
-		return "", fmt.Errorf("nothing entered for %q", strings.TrimSuffix(prompt, ": "))
-	}
-	return line, nil
-}
-
-var stdinReader = bufio.NewReader(os.Stdin)
-
-func stty(arg string) {
-	cmd := exec.Command("stty", arg)
-	cmd.Stdin = os.Stdin
-	cmd.Run()
 }
 
 // terminal reports whether stdin is a terminal: a character device such as

@@ -6,21 +6,23 @@ import (
 	"testing"
 )
 
-func TestPickAccount(t *testing.T) {
+func TestChooseLine(t *testing.T) {
+	choices := []choice{{"OpenCode Go", "", "opencode-go"}, {"OpenRouter", "", "openrouter"}, {"DeepSeek", "", "deepseek"}}
 	for input, want := range map[string]string{
-		"\n":        "opencode-go",
-		"9\nx\n4\n": "codex",
-		"5\n":       "",
+		"\n":            "openrouter",
+		"9\nx\n3\n":     "deepseek",
+		"OpenCode Go\n": "opencode-go",
+		"deepseek\n":    "deepseek",
 	} {
 		stdinReader = bufio.NewReader(strings.NewReader(input))
-		a, err := pickAccount()
-		if err != nil || a.provider != want {
-			t.Errorf("%q: got %q, %v; want %q", input, a.provider, err, want)
+		got, err := chooseLine("Account", choices, "openrouter")
+		if err != nil || got != want {
+			t.Errorf("%q: got %q, %v; want %q", input, got, err, want)
 		}
 	}
 
 	stdinReader = bufio.NewReader(strings.NewReader(""))
-	if _, err := pickAccount(); err == nil {
+	if _, err := chooseLine("Account", choices, ""); err == nil {
 		t.Error("no answer: want an error")
 	}
 }

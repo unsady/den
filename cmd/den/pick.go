@@ -1,127 +1,110 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// shownModels is the most models one search lists.
-const shownModels = 15
+type catalogProvider struct {
+	Name string `json:"name"`
+	// API is the provider's OpenAI-compatible address. den's model proxy
+	// works only with such providers.
+	API    string                  `json:"api"`
+	Models map[string]catalogModel `json:"models"`
+}
 
 type catalogModel struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	Cost *struct {
-		Input  float64 `json:"input"`
-		Output float64 `json:"output"`
-	} `json:"cost"`
+	Cost *price `json:"cost"`
+}
+
+// price is what a model costs per million tokens.
+type price struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
 }
 
 func (m catalogModel) free() bool {
 	return m.Cost != nil && m.Cost.Input == 0 && m.Cost.Output == 0
 }
 
-// pickModel lets the user find a provider's model by a part of its name,
-// from models.dev, so they need not know its id.
-func pickModel(provider string) (string, error) {
-	models, err := catalogModels(provider)
-	if err != nil || len(models) == 0 {
-		return ask("Model id: ", false)
+var loadedCatalog map[string]catalogProvider
+
+// catalog reads models.dev's providers and models once, under a spinner.
+func catalog() (map[string]catalogProvider, error) {
+	if loadedCatalog != nil {
+		return loadedCatalog, nil
 	}
-
-	fmt.Printf("\n%s has %d models. Type part of a name, such as deep, glm, or claude, or Enter for all.\n", provider, len(models))
-	query, err := ask("> ", false)
-	if err != nil {
-		return "", err
-	}
-	return findModel(models, query)
-}
-
-// findModel narrows models by query until the user picks one.
-func findModel(models []catalogModel, query string) (string, error) {
-	found := models
-	for {
-		// More words narrow the last list; words it lacks search them all.
-		if narrowed := matchModels(found, query); len(narrowed) > 0 {
-			found = narrowed
-		} else {
-			found = matchModels(models, query)
-		}
-		switch {
-		case len(found) == 0:
-			fmt.Println("Nothing matches. Try another word.")
-			found = models
-		case len(found) == 1:
-			fmt.Println("Model:", found[0].ID)
-			return found[0].ID, nil
-		default:
-			for i, m := range found[:min(len(found), shownModels)] {
-				line := fmt.Sprintf("  %2d  %-28s %s", i+1, m.ID, m.Name)
-				if m.free() {
-					line += "  · free"
-				}
-				fmt.Println(line)
-			}
-			if len(found) > shownModels {
-				fmt.Printf("  … and %d more: type more of the name\n", len(found)-shownModels)
-			}
-		}
-
-		var err error
-		query, err = ask("Number, or other words: ", false)
+	err := step("Loading models from models.dev", func(ctx context.Context) error {
+		req, err := http.NewRequestWithContext(ctx, "GET", "https://models.dev/api.json", nil)
 		if err != nil {
-			return "", err
+			return err
 		}
-		if n, convErr := strconv.Atoi(query); convErr == nil && n >= 1 && n <= min(len(found), shownModels) {
-			fmt.Println("Model:", found[n-1].ID)
-			return found[n-1].ID, nil
+		resp, err := (&http.Client{Timeout: time.Minute}).Do(req)
+		if err != nil {
+			return err
 		}
-	}
+		defer resp.Body.Close()
+		return json.NewDecoder(resp.Body).Decode(&loadedCatalog)
+	})
+	return loadedCatalog, err
 }
 
-// matchModels finds the models whose id or name holds every word of query,
-// or the exact id alone.
-func matchModels(models []catalogModel, query string) []catalogModel {
-	words := strings.Fields(strings.ToLower(query))
-	var found []catalogModel
-	for _, m := range models {
-		if m.ID == query {
-			return []catalogModel{m}
-		}
-		text := strings.ToLower(m.ID + " " + m.Name)
-		if !slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(text, w) }) {
-			found = append(found, m)
+// pickModel asks for one of a provider's models, starting at the one its
+// account suggests.
+func pickModel(provider string) (string, error) {
+	cat, err := catalog()
+	if err != nil || len(cat[provider].Models) == 0 {
+		return ask("Model id", false)
+	}
+
+	suggested := ""
+	for _, a := range accounts {
+		if a.provider == provider {
+			suggested = a.model
 		}
 	}
-	return found
+	return choose("Model", modelChoices(cat[provider].Models, suggested), suggested)
 }
 
-func catalogModels(provider string) ([]catalogModel, error) {
-	client := &http.Client{Timeout: time.Minute}
-	resp, err := client.Get("https://models.dev/api.json")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var catalog map[string]struct {
-		Models map[string]catalogModel `json:"models"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&catalog); err != nil {
-		return nil, err
-	}
-	var models []catalogModel
-	for id, m := range catalog[provider].Models {
+// modelChoices lists models by id, with the suggested one first.
+func modelChoices(models map[string]catalogModel, suggested string) []choice {
+	var choices []choice
+	for id, m := range models {
 		if m.ID == "" {
 			m.ID = id
 		}
-		models = append(models, m)
+		about := m.Name
+		if m.free() {
+			about += " · free"
+		}
+		choices = append(choices, choice{label: m.ID, about: about, value: m.ID})
 	}
-	slices.SortFunc(models, func(a, b catalogModel) int { return strings.Compare(a.ID, b.ID) })
-	return models, nil
+	slices.SortFunc(choices, func(a, b choice) int {
+		switch {
+		case a.value == suggested:
+			return -1
+		case b.value == suggested:
+			return 1
+		}
+		return strings.Compare(a.value, b.value)
+	})
+	return choices
+}
+
+// providerChoices lists the providers den can use, by name.
+func providerChoices(cat map[string]catalogProvider) []choice {
+	var choices []choice
+	for id, p := range cat {
+		if p.API != "" && len(p.Models) > 0 {
+			choices = append(choices, choice{label: p.Name, about: id, value: id})
+		}
+	}
+	slices.SortFunc(choices, func(a, b choice) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
+	return choices
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,18 +29,19 @@ func setup(c hostConfig) error {
 		return errors.New("den runs in a container: install Docker or Podman, then run den setup again")
 	}
 	if e == appleContainer && !c.exists("system", "status") {
-		fmt.Println("Starting Apple's container service…")
-		if err := c.run("system", "start"); err != nil {
+		if err := step("Starting Apple's container service", func(context.Context) error { return c.quiet("system", "start") }); err != nil {
 			return err
 		}
+		done("Apple's container service is running")
 	}
 
 	_, saved := loadHost()
 	if !saved {
-		home, err := ask(fmt.Sprintf("Folder for den's notes and files [%s]: ", c.Home), false)
-		if err == nil && home != "" {
-			c.Home = expand(home)
+		home, err := input("Folder for den's notes and files", c.Home)
+		if err != nil {
+			return err
 		}
+		c.Home = expand(home)
 		if c.Source == "" {
 			if wd, err := os.Getwd(); err == nil && isSource(wd) {
 				c.Source = wd
@@ -53,14 +55,14 @@ func setup(c hostConfig) error {
 	}
 
 	if !c.exists("image", "inspect", c.Image) {
-		if err := getImage(c); err != nil {
+		if err := pullOrBuild(c); err != nil {
 			return err
 		}
 	}
 	if err := c.save(); err != nil {
 		return err
 	}
-	if err := start(c); err != nil {
+	if err := launch(c, "Starting den", start); err != nil {
 		return err
 	}
 
@@ -77,9 +79,9 @@ func setup(c hostConfig) error {
 		}
 	}
 
+	fmt.Println()
+	done("den is ready. Write to your bot in Telegram.")
 	fmt.Printf(`
-den is ready. Write to your bot in Telegram.
-
   den connect mail      read and send mail with an app password
   den connect google    Gmail and Calendar through your own Google client
   den status            what den runs and which secrets it has
@@ -107,23 +109,48 @@ func hasProvider(have map[string]bool) bool {
 // setupTelegram checks the bot's token and finds the user's chat with it
 // from the first message they send, so they never look up an id.
 func setupTelegram(c hostConfig) error {
-	fmt.Println("\nden talks to you through a Telegram bot. Create one with @BotFather and copy its token.")
-	token, err := ask("Bot token: ", true)
+	fmt.Println()
+	note("den talks to you through a Telegram bot. Create one with @BotFather and copy its token.")
+	var token, bot string
+	for {
+		var err error
+		if token, err = ask("Bot token", true); err != nil {
+			return err
+		}
+		var me struct {
+			Username string `json:"username"`
+		}
+		err = step("Checking the token", func(context.Context) error { return telegram(token, "getMe", nil, &me) })
+		if err == nil {
+			bot = me.Username
+			break
+		}
+		if !terminal() {
+			return fmt.Errorf("Telegram does not accept this token: %v", err)
+		}
+		failed("Telegram does not accept this token: %v", err)
+	}
+	done("Bot @%s", bot)
+
+	var name string
+	err := step("Send any message to @"+bot+" in Telegram", func(ctx context.Context) error {
+		var err error
+		name, err = firstMessage(ctx, c, token)
+		return err
+	})
 	if err != nil {
 		return err
 	}
+	done("Connected to your chat, %s", name)
+	return nil
+}
 
-	var me struct {
-		Username string `json:"username"`
-	}
-	if err := telegram(token, "getMe", nil, &me); err != nil {
-		return fmt.Errorf("Telegram does not accept this token: %v", err)
-	}
-
-	fmt.Printf("Now send any message to @%s in Telegram…\n", me.Username)
+// firstMessage waits for the user's first message to the bot and keeps
+// its chat and the token in den. It returns the user's name.
+func firstMessage(ctx context.Context, c hostConfig, token string) (string, error) {
 	var offset int64
 	deadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && ctx.Err() == nil {
 		var updates []struct {
 			ID      int64 `json:"update_id"`
 			Message *struct {
@@ -136,7 +163,7 @@ func setupTelegram(c hostConfig) error {
 			} `json:"message"`
 		}
 		if err := telegram(token, "getUpdates", url.Values{"offset": {fmt.Sprint(offset)}, "timeout": {"20"}}, &updates); err != nil {
-			return err
+			return "", err
 		}
 		for _, u := range updates {
 			offset = u.ID + 1
@@ -146,18 +173,16 @@ func setupTelegram(c hostConfig) error {
 			// Mark the message read, so den does not answer it as a request.
 			telegram(token, "getUpdates", url.Values{"offset": {fmt.Sprint(offset)}, "timeout": {"0"}}, nil)
 
-			chat := fmt.Sprint(u.Message.Chat.ID)
-			if err := inside(c, chat, "secret", "set", "telegram_chat_id"); err != nil {
-				return err
+			if err := insideQuiet(c, fmt.Sprint(u.Message.Chat.ID), "secret", "set", "telegram_chat_id"); err != nil {
+				return "", err
 			}
-			if err := inside(c, token, "secret", "set", "telegram_token"); err != nil {
-				return err
+			if err := insideQuiet(c, token, "secret", "set", "telegram_token"); err != nil {
+				return "", err
 			}
-			fmt.Printf("Connected to your chat, %s.\n", u.Message.From.Name)
-			return nil
+			return u.Message.From.Name, nil
 		}
 	}
-	return errors.New("no message came in 5 minutes: run den setup again")
+	return "", errors.New("no message came in 5 minutes: run den setup again")
 }
 
 func telegram(token, method string, params url.Values, result any) error {
