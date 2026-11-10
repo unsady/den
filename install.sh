@@ -45,7 +45,7 @@ file=den-$os-$arch
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-echo "Downloading den for $os/$arch…"
+echo "Downloading den for $os/$arch..."
 curl -fsSL -o "$tmp/den" "$base/$file" || fail "could not download $base/$file"
 curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || fail "could not download $base/SHA256SUMS"
 
