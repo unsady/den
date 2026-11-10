@@ -256,16 +256,28 @@ func show(body []byte) string {
 	return text
 }
 
-// ids are path segments that name one thing, such as an issue number or a
-// uuid, rather than a kind of thing.
-var ids = regexp.MustCompile(`^(\d+|[0-9a-fA-F-]{16,})$`)
+// ids are path segments that name one thing, such as an issue number, a
+// uuid, or a ULID, rather than a kind of thing: a number, or 16 or more
+// letters, digits, - and _ that include a digit.
+var ids = regexp.MustCompile(`^[\w-]{16,}$`)
+
+func isID(segment string) bool {
+	if segment == "" {
+		return false
+	}
+	if strings.Trim(segment, "0123456789") == "" {
+		return true
+	}
+
+	return ids.MatchString(segment) && strings.ContainsAny(segment, "0123456789")
+}
 
 // pathPattern turns ids in a path into *, so a rule for
 // /repos/o/r/issues/12/comments covers the comments of every issue.
 func pathPattern(path string) string {
 	parts := strings.Split(path, "/")
 	for i, p := range parts {
-		if ids.MatchString(p) {
+		if isID(p) {
 			parts[i] = "*"
 		}
 	}
