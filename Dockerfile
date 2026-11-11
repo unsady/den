@@ -59,7 +59,7 @@ RUN if [ -f /tmp/build/fx ]; then \
 FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        bash ca-certificates curl git jq less opus-tools procps ripgrep tini tzdata xz-utils && \
+        bash ca-certificates curl git jq less opus-tools procps ripgrep sqlite3 tini tzdata xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # The agent installs its own tools, such as yt-dlp, in ~/.local/bin. Debian's
