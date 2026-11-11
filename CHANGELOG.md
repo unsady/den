@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- The message that shows the agent's steps arrives without a sound, so only the reply makes your phone ring.
 - When the agent tries mail over IMAP or SMTP without a mail account, den points it at Gmail through Google sign-in, so it no longer asks you to run `den connect mail` when Google is connected.
 - `/bug` gives the link to report a bug or suggest an idea on GitHub, and den@bazutya.com for those who would rather write.
 - `/compact` shrinks the chat's session to a summary now and says how many tokens it went from and to. fx compacts a session from 10% of the model's window, so a smaller one is left as it is.

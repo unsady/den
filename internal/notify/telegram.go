@@ -67,7 +67,8 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 }
 
 // Post sends text as one message, cut to Telegram's limit, and returns its
-// id for Edit and Delete.
+// id for Edit and Delete. It arrives without a sound, since it only tells
+// how a turn goes; the reply after it is the one to hear.
 func (t *Telegram) Post(ctx context.Context, text string) (int64, error) {
 	var sent struct {
 		ID int64 `json:"message_id"`
@@ -76,6 +77,7 @@ func (t *Telegram) Post(ctx context.Context, text string) (int64, error) {
 		"chat_id":                  t.chatID,
 		"text":                     clip(text),
 		"disable_web_page_preview": true,
+		"disable_notification":     true,
 	}, &sent)
 	return sent.ID, err
 }
