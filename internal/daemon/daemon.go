@@ -408,6 +408,12 @@ type NotifyRequest struct {
 	Text string `json:"text"`
 }
 
+// ProgressRequest is the body of POST /progress: what a running command
+// says about itself, shown under its step in the chat.
+type ProgressRequest struct {
+	Text string `json:"text"`
+}
+
 // SendRequest is the body of POST /send. The CLI reads the file as the
 // agent, so den sends only what the agent can read itself.
 type SendRequest struct {
@@ -532,6 +538,16 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		reply(w, http.StatusOK, map[string]bool{"sent": true})
+	})
+
+	mux.HandleFunc("POST /progress", func(w http.ResponseWriter, r *http.Request) {
+		var req ProgressRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		d.chat.Note(req.Text)
+		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {

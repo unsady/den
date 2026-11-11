@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/daemon"
 	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/models"
 )
@@ -68,13 +71,27 @@ func mapCommand(cfg config.Config, args []string) error {
 		Workers:      *workers,
 		Resume:       *resume,
 		Wait:         5 * time.Second,
-		Progress:     os.Stderr,
-		Every:        15 * time.Second,
+		Progress:     mapProgress(cfg),
+		Every:        10 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "Asking %s/%s about each item of %s…\n", provider.name, provider.model, rest[0])
 	sum, err := mapper.Run(ctx, opts, in, *out)
 	printMapSummary(os.Stdout, *out, provider, sum)
 	return err
+}
+
+// mapProgress prints how far a run is for the agent, and has den show it
+// under the step in the user's chat.
+func mapProgress(cfg config.Config) func(mapper.Status) {
+	return func(s mapper.Status) {
+		fmt.Fprintf(os.Stderr, "den map: %d of %d done, %d failed, $%.4f so far\n", s.Done, s.Total, s.Failed, s.Cost)
+		note := fmt.Sprintf("🗂 %d of %d items", s.Done, s.Total)
+		if s.Failed > 0 {
+			note += fmt.Sprintf(", %d failed", s.Failed)
+		}
+		// The chat is a nicety: a daemon that is away does not stop the run.
+		_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Text: note}, nil)
+	}
 }
 
 type mapTarget struct {

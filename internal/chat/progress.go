@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/unsady/den/internal/notify"
@@ -31,6 +32,16 @@ func (c *Chat) showTyping(ctx context.Context, done <-chan struct{}) {
 	}
 }
 
+// Note shows text under the running step of the turn's progress message,
+// until the next step. It drops the text when no turn is running or an
+// earlier note waits.
+func (c *Chat) Note(text string) {
+	select {
+	case c.notes <- clipRunes(strings.TrimSpace(text), 200):
+	default:
+	}
+}
+
 // showProgress keeps one message in the chat that lists the latest steps fx
 // reported, and deletes it when done closes, before the reply is sent.
 func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-chan struct{}) {
@@ -42,14 +53,24 @@ func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-cha
 		skipped int
 		id      int64
 		changed bool
+		note    string
 	)
+	// A note left from a turn that ended belongs to no step of this one.
+	select {
+	case <-c.notes:
+	default:
+	}
 	for {
 		select {
+		case note = <-c.notes:
+			changed = len(recent) > 0
+
 		case line := <-lines:
 			text, ok := step(line)
 			if !ok {
 				continue
 			}
+			note = ""
 			// The same step again counts up instead of adding a line.
 			if n := len(recent); n > 0 && recent[n-1].text == text {
 				recent[n-1].count++
@@ -71,6 +92,9 @@ func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-cha
 				continue
 			}
 			text := progressText(recent, skipped)
+			if note != "" {
+				text += "\n   " + note
+			}
 			call, cancel := context.WithTimeout(ctx, typing)
 			if id == 0 {
 				id, err = telegram.Post(call, text)

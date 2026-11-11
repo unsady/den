@@ -159,6 +159,9 @@ type Chat struct {
 	wake chan struct{}
 	// squeeze asks the worker to compact the session now, for /compact.
 	squeeze chan struct{}
+	// notes carry what a running command says about itself, such as how
+	// many items den map has done, to the progress message.
+	notes chan string
 }
 
 func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
@@ -169,6 +172,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 		usage:   usage,
 		wake:    make(chan struct{}, 1),
 		squeeze: make(chan struct{}, 1),
+		notes:   make(chan string, 1),
 	}
 
 	data, err := os.ReadFile(c.path)

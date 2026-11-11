@@ -803,3 +803,37 @@ func TestSessionsList(t *testing.T) {
 	telegram.message(42, "/sessions boat")
 	telegram.expect(t, "No session title has “boat”.")
 }
+
+func TestProgressNote(t *testing.T) {
+	cfg, telegram := startChat(t, nil)
+	c := New(cfg, nil, usage.Open(cfg.State))
+
+	// A note from before the turn is not shown.
+	c.Note("stale")
+	lines, done := make(chan string, 4), make(chan struct{})
+	shown := make(chan struct{})
+	go func() {
+		c.showProgress(context.Background(), lines, done)
+		close(shown)
+	}()
+	defer func() {
+		close(done)
+		<-shown
+	}()
+
+	lines <- "Running den map -p @prompt.md jobs.jsonl"
+	time.Sleep(50 * time.Millisecond)
+	c.Note("🗂 3 of 10 items")
+	telegram.expect(t, "Working…\n→ Running den map…\n   🗂 3 of 10 items")
+
+	// The next step ends the note.
+	lines <- "Reading jobs.out.jsonl"
+	select {
+	case got := <-telegram.edited:
+		if strings.Contains(got, "🗂") || !strings.Contains(got, "jobs.out.jsonl") {
+			t.Fatalf("edited %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the progress message was not edited")
+	}
+}
