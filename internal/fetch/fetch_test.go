@@ -166,7 +166,9 @@ func TestPathPattern(t *testing.T) {
 	for path, want := range map[string]string{
 		"/repos/me/notes/issues/12/comments":              "/repos/me/notes/issues/*/comments",
 		"/api/deals/3f2b8c1e-9a7d-4e21-b5a0-1c2d3e4f5a6b": "/api/deals/*",
-		"/api/topics/01M5WRZWF8915TWQHD3CRAKPE0":          "/api/topics/01M5WRZWF8915TWQHD3CRAKPE0",
+		"/api/topics/01M5WRZWF8915TWQHD3CRAKPE0":          "/api/topics/*",
+		"/api/topics/01m5wrzwf8915twqhd3crakpe0":          "/api/topics/*",
+		"/api/topics/release-notes-for-version-2x":        "/api/topics/release-notes-for-version-2x",
 		"/repos/me/2024/issues/3":                         "/repos/me/2024/issues/*",
 		"/api/topics/getting-started-guide":               "/api/topics/getting-started-guide",
 		"/api/deals":                                      "/api/deals",

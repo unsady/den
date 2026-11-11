@@ -347,14 +347,19 @@ func show(body []byte) string {
 	return text
 }
 
-// uuid matches a UUID, which names one thing like a number does.
-var uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+// uuid and ulid match a UUID and a ULID, which name one thing like a number
+// does. A ULID is exactly 26 characters of Crockford's base32 and starts
+// with its time, so names such as a repository's do not look like one.
+var (
+	uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	ulid = regexp.MustCompile(`(?i)^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
+)
 
 // isID says whether a path segment names one thing, such as an issue
-// number or a UUID, rather than a kind of thing. Names, such as a
+// number, a UUID, or a ULID, rather than a kind of thing. Names, such as a
 // repository's, stay as they are, so a rule never covers another one.
 func isID(segment string) bool {
-	return segment != "" && strings.Trim(segment, "0123456789") == "" || uuid.MatchString(segment)
+	return segment != "" && strings.Trim(segment, "0123456789") == "" || uuid.MatchString(segment) || ulid.MatchString(segment)
 }
 
 // pathPattern turns ids in a path into *, so a rule for
