@@ -38,9 +38,9 @@ RUN curl -fsSL -o /lightpanda \
 # image takes a release of the fork that carries them and checks its digest.
 # A Linux fx at build/fx, such as one built from an fx checkout, takes its
 # place.
-ARG FX_VERSION=v0.0.16-den.1
-ARG FX_SHA256_AARCH64=c8e0e7e275291ce8c4ae4d35155367039681597776817e361983bcf63f1ac36d
-ARG FX_SHA256_X86_64=6cb58fa5fc36c95457db5a1eabda706a6b7d2988bf0d51f03bacd64a6dcdd2b7
+ARG FX_VERSION=v0.0.16-den.2
+ARG FX_SHA256_AARCH64=827135f69d5713a9efad6e531d5a706abed73b6487c8c2113e4d0b7f45b0fc95
+ARG FX_SHA256_X86_64=c49945e9e5ddfb1ccda8a1de2564db260f14032b93cede2f5dd0218ad678773d
 COPY build/ /tmp/build/
 RUN if [ -f /tmp/build/fx ]; then \
         cp /tmp/build/fx /fx; \
