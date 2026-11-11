@@ -124,11 +124,12 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	case <-ctx.Done():
 	}
 
-	// Nobody answered: take the buttons away, so a late press does nothing.
+	// Nobody answered: take the buttons away, so a late press does nothing,
+	// and shrink the question to its one line.
 	a.Note(q.What, Expired)
 	call, cancel = context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := telegram.Edit(call, message, q.Text+"\n\n✗ Expired"); err != nil {
+	if err := telegram.Edit(call, message, q.What+"\n✗ Expired"); err != nil {
 		log.Printf("approve: %v", err)
 	}
 	if ctx.Err() != nil {
@@ -139,7 +140,8 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 
 // Answer passes the user's answer to question id: Allowed, Denied, or
 // Always, which also allows the question's kind of action for good. It
-// returns the question's text, or false when it is no longer waiting.
+// returns the question's one line, which the answered message shrinks to,
+// or false when it is no longer waiting.
 func (a *Asker) Answer(id, outcome string) (string, bool) {
 	a.mu.Lock()
 	p, found := a.pending[id]
@@ -159,5 +161,5 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 		}
 	}
 	p.answer <- outcome
-	return p.Text, true
+	return p.What, true
 }

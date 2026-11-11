@@ -58,7 +58,7 @@ func TestAsk(t *testing.T) {
 		}
 		if outcome != "" {
 			_, id, _ := strings.Cut(strings.Fields(got)[2], ":")
-			if text, ok := a.Answer(id, outcome); !ok || text != "Post it?" {
+			if text, ok := a.Answer(id, outcome); !ok || text != "crm: POST /api/deals" {
 				t.Fatalf("answer found %v text %q", ok, text)
 			}
 		}
@@ -76,7 +76,7 @@ func TestAsk(t *testing.T) {
 	if err := ask(""); !errors.Is(err, ErrExpired) {
 		t.Fatalf("expired: %v", err)
 	}
-	if got := <-edited; got != "Post it?\n\n✗ Expired" {
+	if got := <-edited; got != "crm: POST /api/deals\n✗ Expired" {
 		t.Fatalf("edited %q", got)
 	}
 	if _, ok := a.Answer("3", Allowed); ok {

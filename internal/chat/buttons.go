@@ -175,13 +175,14 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 
 	case "ok", "no", "al":
 		// The answer to a question den asked, such as whether to send a
-		// request. The message keeps the question and shows the answer.
-		outcome, result := approve.Allowed, "\n\n✓ Allowed"
+		// request. The message shrinks to the action's one line and the
+		// answer, so answered questions take little room.
+		outcome, result := approve.Allowed, "\n✓ Allowed"
 		switch kind {
 		case "no":
-			outcome, result = approve.Denied, "\n\n✗ Denied"
+			outcome, result = approve.Denied, "\n✗ Denied"
 		case "al":
-			outcome, result = approve.Always, "\n\n✓ Always allowed. /log lists what you always allow."
+			outcome, result = approve.Always, "\n✓ Always allowed. /log lists what you always allow."
 		}
 		answer = "This question has expired."
 		if question, found := c.den.Answer(ref, outcome); found {

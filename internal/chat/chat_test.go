@@ -642,12 +642,12 @@ func TestChatControls(t *testing.T) {
 
 	// A button answers a question den asked, once.
 	telegram.press("no:1")
-	telegram.expectEdit(t, "1: Send it?\n\n✗ Denied")
+	telegram.expectEdit(t, "1: Send it?\n✗ Denied")
 	telegram.expectAnswer(t, "")
 	telegram.press("ok:1")
 	telegram.expectAnswer(t, "This question has expired.")
 	telegram.press("al:2")
-	telegram.expectEdit(t, "1: Push it?\n\n✓ Always allowed. /log lists what you always allow.")
+	telegram.expectEdit(t, "1: Push it?\n✓ Always allowed. /log lists what you always allow.")
 	telegram.expectAnswer(t, "")
 	if strings.Join(scheduler.answers, ",") != "1=denied,2=allowed for good" {
 		t.Fatalf("answers %v", scheduler.answers)

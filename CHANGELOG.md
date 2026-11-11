@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- Once answered or expired, a question about a request, a push, or a mail shrinks to one line, such as “news: POST /api/events” and ✓ Allowed, instead of keeping the whole request body in the chat.
 - A step that waits on a command still running in the background reads “Waiting for jq” instead of showing the whole command cut off.
 - A ``` block or `inline code` in the agent's messages shows in Telegram as code that copies with a tap, without the backticks.
 - `/status` shows a ChatGPT subscription model's context window, from Codex's own list of models.
