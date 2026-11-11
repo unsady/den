@@ -22,6 +22,12 @@ release notes.
 - More GitHub writes now wait for you: den lets through only issues, comments, labels, milestones, pull requests short of merging, and git objects in your own repositories. Changing files through the API, merging, tags, releases, workflow runs and repository transfers used to go without a question. Any GraphQL mutation now asks too, also when it hides behind a query in the same request.
 - Some Google requests got past the questions: batch requests and method-override headers are now refused, and the calendar asks before an event with guests changes, before an event is cancelled, and before guests are notified any way. A draft you allowed is sent only if it is still what you saw.
 - **Always** covers less: never another repository with a similar name, nor a request with a query string or a GraphQL body.
+- The model proxy passed any path of a provider's host on with its key, and any path of ChatGPT with your token. Keys now reach only their provider's API, and the ChatGPT token only Codex's models.
+- The question about an email now shows `Reply-To` and `Sender`, and the HTML version when it says something other than the plain text, since most mail apps show the HTML.
+- The agent could delete mail for good over IMAP. den now answers `NO` to expunging, deleting folders, and marking messages deleted; the agent moves mail to the trash.
+- den commands run from your computer, other than those that handle secrets, now run as the agent, not as root.
+- A service's answer or a command's output in den's messages to the agent is now quoted apart, so it cannot pass for den's own words.
+- The README now warns that a branch the agent pushes runs your GitHub Actions, and that the agent's home folder is not a place to run git on your computer.
 
 ## v0.2.0
 

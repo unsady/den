@@ -119,7 +119,9 @@ fx reaches every provider through den's proxy, which also measures each request.
 
 ## Services and approvals
 
-**GitHub.** Create a fine-grained token limited to the repositories the agent may use, with Contents, Issues, and Pull requests set to read and write, and run `den secret set github_token`. The agent clones and pushes with plain `git`, and calls GitHub's API with `den fetch`. Creating a branch and changing a branch the agent created go at once. Changing any other branch, such as `main`, deleting a branch, pushing a tag, writing to someone else's repository, changing who can access one, or creating a public one waits for your answer. A push you do not allow fails with `den: the user did not allow this push`. Ask the agent to back up its workspace, and it pushes `space/` to an empty private repository of yours every night.
+**GitHub.** Create a fine-grained token limited to the repositories the agent may use, with Contents, Issues, and Pull requests set to read and write, and run `den secret set github_token`. The agent clones and pushes with plain `git`, and calls GitHub's API with `den fetch`. Creating a branch and changing a branch the agent created go at once, and so do issues and pull requests through the API. Changing any other branch, such as `main`, merging, deleting a branch, pushing a tag, writing to someone else's repository, changing who can access one, or creating a public one waits for your answer.
+
+A branch the agent pushes runs your repository's GitHub Actions that start on a push or a pull request, with the secrets those workflows get. So leave out of the token any repository whose workflows hold secrets the agent must not reach, and give the token no Workflows permission, so the agent cannot change workflows. Where tags publish something, such as a release, protect them with a tag ruleset in the repository's settings. Ask the agent to back up its workspace, and it pushes `space/` to an empty private repository of yours every night.
 
 **Your own APIs.** Any API that takes a token in a header:
 
@@ -221,6 +223,8 @@ The agent's files live in that folder on your computer. den's state and secrets 
   archive/               past sessions as markdown
   inbox/                 photos and files from the chat
 ```
+
+The agent's home is a folder on your computer, and the agent writes everything in it. Read it, but do not run git or other tools that follow a repository's own config there, such as an editor's git integration or a shell prompt that shows git status: a repository's config can name a program to run, and it would run as you, outside the container.
 
 ### Environment
 
