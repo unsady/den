@@ -269,10 +269,10 @@ func TestChat(t *testing.T) {
 
 	telegram.message(7, "from a stranger")
 	telegram.message(42, "hello")
-	telegram.expect(t, "resume=none msg=hello lines=2")
+	telegram.expect(t, "resume=none msg=hello lines=1")
 	prompt, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
-	if !strings.HasPrefix(string(prompt), "hello\n\n[The user is writing to you from Telegram.") {
-		t.Fatalf("first prompt %q does not start with the user's words", prompt)
+	if strings.TrimSpace(string(prompt)) != "hello" {
+		t.Fatalf("first prompt %q is not the user's words alone", prompt)
 	}
 
 	telegram.mu.Lock()
@@ -288,7 +288,7 @@ func TestChat(t *testing.T) {
 	telegram.message(42, "/new@den_bot")
 	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
 	telegram.message(42, "fresh")
-	telegram.expect(t, "resume=none msg=fresh lines=2")
+	telegram.expect(t, "resume=none msg=fresh lines=1")
 
 	telegram.message(42, "/stop")
 	telegram.expect(t, "Nothing is running.")
@@ -638,7 +638,7 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "/effort")
 	telegram.expect(t, "⚙︎ <b>auto</b> · p1 has no effort levels.")
 	telegram.message(42, "/new please")
-	telegram.expect(t, "resume=none msg=/new please lines=2")
+	telegram.expect(t, "resume=none msg=/new please lines=1")
 
 	// A button answers a question den asked, once.
 	telegram.press("no:1")
@@ -684,7 +684,7 @@ func TestCompactWhenIdle(t *testing.T) {
 
 	// After the user goes quiet, den compacts the session once, silently.
 	telegram.message(42, "hello")
-	telegram.expect(t, "resume=none msg=hello lines=2")
+	telegram.expect(t, "resume=none msg=hello lines=1")
 	compacted := filepath.Join(cfg.Space, "compacted")
 	deadline := time.Now().Add(5 * time.Second)
 	for {

@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- den keeps its instructions for every session, such as plain-text replies and code blocks, in fx's own `~/.fx/AGENTS.md`, which it rewrites on each start, instead of adding them to your first message. Your space's `AGENTS.md` stays yours.
 - The agent is asked to do the work itself and start a subagent only for a long, independent part, since subagents spend the same model's limits.
 - den compacts a long session while you are away with a ChatGPT subscription too: like `/status`, it did not find the model's context window.
 - When a subagent reports after the agent has answered, the chat and jobs get the agent's answer instead of a bare “SILENT” or “Done.” from the report's turn, which kept a job's reply from being sent.
