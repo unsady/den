@@ -78,6 +78,7 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
 | `/again` | Ask the second model to answer your last message again in the same session, or `/again <text>` for one message; the reply starts with `↻` and its model |
 | `/stop` | Stop the current turn |
+| `/compact` | Shrink the session to a summary now, when it fills at least 10% of the model's window |
 | `/jobs` | Run, remove, or move a job between the two models |
 | `/status` | The model, how full the session is, memory, and the next jobs |
 | `/log` | What the agent changed outside in the last day, and what you always allow |

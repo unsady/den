@@ -401,6 +401,8 @@ type fakeDaemon struct {
 
 func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
 
+func (f *fakeDaemon) LastContext(since time.Time) int { return f.context / 4 }
+
 func (f *fakeDaemon) Answer(id, outcome string) (string, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -714,4 +716,36 @@ func TestCompactWhenIdle(t *testing.T) {
 	if _, err := os.Stat(compacted); err == nil {
 		t.Fatal("a user's turn compacted")
 	}
+}
+
+func TestCompactCommand(t *testing.T) {
+	den := &fakeDaemon{context: 50_000}
+	cfg, telegram := startChat(t, den)
+	catalogs := filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "model-catalogs")
+	os.MkdirAll(catalogs, 0o755)
+	os.WriteFile(filepath.Join(catalogs, "p1.json"), []byte(`{"auto":{"limit":{"context":200000}}}`), 0o644)
+
+	telegram.message(42, "/compact")
+	telegram.expect(t, "There is no session to compact yet.")
+
+	telegram.message(42, "hello")
+	telegram.expect(t, "resume=none msg=hello lines=1")
+	telegram.message(42, "/compact")
+	got := telegram.expectPrefix(t, "🗜 Compacted the session: 50k → ")
+	if data, _ := os.ReadFile(filepath.Join(cfg.Space, "compacted")); string(data) != "10 s1\n" {
+		t.Fatalf("compacted %q, reply %q", data, got)
+	}
+
+	// A compaction the user asked for is not announced again.
+	telegram.message(42, "back")
+	telegram.expect(t, "resume=s1 msg=back lines=1")
+
+	// fx does not compact a session under compactPercent of the window.
+	den.mu.Lock()
+	den.context = 10_000
+	den.mu.Unlock()
+	telegram.message(42, "small")
+	telegram.expect(t, "resume=s1 msg=small lines=1")
+	telegram.message(42, "/compact")
+	telegram.expect(t, "Context is 10k of 200k: fx compacts a session from 10% of the window, so this one stays as it is.")
 }

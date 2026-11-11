@@ -52,6 +52,7 @@ var commands = []notify.Command{
 	{Name: "effort", Description: "Choose how hard the model thinks"},
 	{Name: "again", Description: "Ask the second model about your last message, or a new one"},
 	{Name: "stop", Description: "Stop the current turn"},
+	{Name: "compact", Description: "Shrink the session to a summary"},
 	{Name: "jobs", Description: "List, run, or remove jobs"},
 	{Name: "log", Description: "What the agent did outside today, and what you always allow"},
 	{Name: "status", Description: "Show the model, context, memory, and jobs"},
@@ -81,6 +82,9 @@ type Daemon interface {
 	// ContextSize is the largest prompt sent to the model since a time, in
 	// tokens, or 0 when unknown.
 	ContextSize(since time.Time) int
+	// LastContext is the size of the last prompt since a time, in tokens,
+	// or 0 when unknown.
+	LastContext(since time.Time) int
 }
 
 func help() string {
@@ -143,15 +147,18 @@ type Chat struct {
 	// menu is set once the command menu was sent to Telegram.
 	menu bool
 	wake chan struct{}
+	// squeeze asks the worker to compact the session now, for /compact.
+	squeeze chan struct{}
 }
 
 func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 	c := &Chat{
-		cfg:   cfg,
-		path:  filepath.Join(cfg.State, "chat.json"),
-		den:   den,
-		usage: usage,
-		wake:  make(chan struct{}, 1),
+		cfg:     cfg,
+		path:    filepath.Join(cfg.State, "chat.json"),
+		den:     den,
+		usage:   usage,
+		wake:    make(chan struct{}, 1),
+		squeeze: make(chan struct{}, 1),
 	}
 
 	data, err := os.ReadFile(c.path)
@@ -268,6 +275,18 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	case "/usage":
 		c.send(ctx, telegram, c.usage.Report(time.Now()))
 
+	case "/compact":
+		c.mu.Lock()
+		busy := c.stop != nil
+		c.mu.Unlock()
+		select {
+		case c.squeeze <- struct{}{}:
+			if busy {
+				c.send(ctx, telegram, "den compacts the session after this turn.")
+			}
+		default:
+		}
+
 	case "/stop":
 		c.mu.Lock()
 		stop := c.stop
@@ -344,6 +363,10 @@ func (c *Chat) work(ctx context.Context) {
 		case <-idle:
 			idle = nil
 			c.compact(ctx)
+		case <-c.squeeze:
+			if telegram, err := notify.Load(c.cfg); err == nil {
+				c.send(ctx, telegram, c.compactNow(ctx))
+			}
 		}
 
 		ran := false

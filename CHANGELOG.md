@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- `/compact` shrinks the chat's session to a summary now and says how many tokens it went from and to. fx compacts a session from 10% of the model's window, so a smaller one is left as it is.
 - `sqlite3` comes with den, and the new `data` skill tells the agent to keep records that change, such as job openings with a status, in a SQLite database under `~/space/.data/`, which a new space keeps out of git.
 - A Markdown link such as [Open VisuAlgo](https://visualgo.net/en) in the agent's messages shows in Telegram as a link with that text, instead of the brackets and the address.
 - den keeps its instructions for every session, such as plain-text replies and code blocks, in fx's own `~/.fx/AGENTS.md`, which it rewrites on each start, instead of adding them to your first message. Your space's `AGENTS.md` stays yours.

@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -31,36 +33,85 @@ const compactPercent = 10
 const compactPrompt = "[den: the user has been away for a while, so den compacted this session. " +
 	"Nothing needs doing now. Reply with exactly " + runner.Silent + ".]"
 
-// compact compacts the chat's session when it is long enough to be worth
-// it. The turn's reply is not sent.
+// compact compacts the chat's session when the user has been away and it
+// is long enough to be worth it. The turn's reply is not sent.
 func (c *Chat) compact(ctx context.Context) {
 	c.mu.Lock()
-	session, used := c.state.Session, c.state.Context
-	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
-	generation := c.generation
-	waiting := len(c.inbox) > 0
+	session, used, waiting := c.state.Session, c.state.Context, len(c.inbox) > 0
 	c.mu.Unlock()
 	if session == "" || waiting || used < compactAbove {
 		return
 	}
+	if window := c.currentWindow(ctx); window == 0 || used*100/window < compactPercent {
+		return
+	}
+	if _, err := c.squeezeSession(ctx); err != nil {
+		log.Printf("chat: compacting failed: %v", err)
+	}
+}
 
+// compactNow compacts the session at the user's request, for /compact, and
+// says how it went.
+func (c *Chat) compactNow(ctx context.Context) string {
+	c.mu.Lock()
+	session, used := c.state.Session, c.state.Context
+	c.mu.Unlock()
+	if session == "" {
+		return "There is no session to compact yet."
+	}
+	// fx compacts from compactPercent of the window, so a smaller session
+	// would come back as it was.
+	if window := c.currentWindow(ctx); window > 0 && used > 0 && used*100/window < compactPercent {
+		return fmt.Sprintf("Context is %s of %s: fx compacts a session from %d%% of the window, so this one stays as it is.",
+			tokens(used), tokens(window), compactPercent)
+	}
+
+	after, err := c.squeezeSession(ctx)
+	if err == nil {
+		// The user asked for this one, so the next reply need not tell them.
+		c.mu.Lock()
+		c.state.Compacted = 0
+		c.save()
+		c.mu.Unlock()
+	}
+	switch {
+	case err != nil:
+		return "Compacting failed: " + err.Error()
+	case after == 0:
+		return "🗜 Compacted the session."
+	case used > 0 && after >= used:
+		return fmt.Sprintf("fx left the session as it was: %s tokens.", tokens(after))
+	case used > 0:
+		return fmt.Sprintf("🗜 Compacted the session: %s → %s tokens.", tokens(used), tokens(after))
+	}
+	return fmt.Sprintf("🗜 Compacted the session: now %s tokens.", tokens(after))
+}
+
+// currentWindow is the context window of the chat's model, 0 when unknown.
+func (c *Chat) currentWindow(ctx context.Context) int {
+	c.mu.Lock()
+	provider, model := c.state.Provider, c.state.Model
+	c.mu.Unlock()
 	setup, err := runner.Status(ctx, c.cfg, provider)
 	if err != nil {
-		return
+		return 0
 	}
-	current := model
-	if current == "" {
-		current = setup.Model
+	if model == "" {
+		model = setup.Model
 	}
-	window := c.window(setup.Provider, current)
-	if window == 0 || used*100/window < compactPercent {
-		return
-	}
+	return c.window(setup.Provider, model)
+}
 
+// squeezeSession runs the turn that makes fx compact the session, and
+// returns the session's size after it, 0 when unknown.
+func (c *Chat) squeezeSession(ctx context.Context) (int, error) {
 	c.mu.Lock()
-	if len(c.inbox) > 0 || generation != c.generation {
+	session, used := c.state.Session, c.state.Context
+	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
+	generation := c.generation
+	if len(c.inbox) > 0 {
 		c.mu.Unlock()
-		return
+		return 0, errors.New("a message is waiting")
 	}
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
@@ -68,6 +119,7 @@ func (c *Chat) compact(ctx context.Context) {
 	defer stop()
 
 	log.Printf("chat: compacting session %s at %d tokens", session, used)
+	started := time.Now()
 	reply := runner.Ask(turn, c.cfg, runner.Request{
 		Prompt:         compactPrompt,
 		Provider:       provider,
@@ -76,14 +128,17 @@ func (c *Chat) compact(ctx context.Context) {
 		Resume:         session,
 		CompactPercent: compactPercent,
 	})
+	after := 0
+	if c.den != nil {
+		after = c.den.LastContext(started)
+	}
 
 	c.mu.Lock()
 	c.stop = nil
 	if generation == c.generation && reply.Error == "" && reply.SessionID != "" {
 		c.state.Session = reply.SessionID
-		// The size after compaction is known after the next reply, which
-		// tells the user about it.
-		c.state.Context = 0
+		c.state.Context = after
+		// The next reply tells the user about the compaction.
 		c.state.Compacted = used
 		c.save()
 	}
@@ -93,8 +148,8 @@ func (c *Chat) compact(ctx context.Context) {
 		c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 	}
 	if reply.Error != "" {
-		log.Printf("chat: compacting failed: %s", reply.Error)
-		return
+		return 0, errors.New(reply.Error)
 	}
 	log.Printf("chat: compacted session %s in %s", session, reply.Duration)
+	return after, nil
 }
