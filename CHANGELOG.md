@@ -6,32 +6,44 @@ release notes.
 
 ## Unreleased
 
-- The agent knows the names of the APIs you added with `den service add` from the start of each session, so it reaches for them without being told. den updates the list when you add or remove one.
-- den comes with fx synced with upstream fx on 2026-11-11.
-- `/sessions` lists the sessions you used last first and keeps job runs in a list of their own behind **Job runs**, so hourly jobs no longer push your chats out. `/sessions <words>` finds a session by its title.
-- The message that shows the agent's steps arrives without a sound, so only the reply makes your phone ring.
-- When the agent tries mail over IMAP or SMTP without a mail account, den points it at Gmail through Google sign-in, so it no longer asks you to run `den connect mail` when Google is connected.
-- `/bug` gives the link to report a bug or suggest an idea on GitHub, and den@bazutya.com for those who would rather write.
+## v0.2.0
+
+To update from v0.1.1, run the install line once, since its `den update` updates only the image:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/unsady/den/main/install.sh | sh
+den update
+```
+
+From now on, `den update` updates the `den` command too.
+
+### New
+
+- `den update` also updates the `den` command itself from the latest release, after checking its checksum.
+- Setup and `den login` take an Anthropic, xAI, or Vercel AI Gateway API key, through each one's OpenAI-compatible API. Setup's list of other providers starts with the popular ones, such as OpenRouter, DeepSeek, OpenCode, Z.AI, and Moonshot AI.
 - `/compact` shrinks the chat's session to a summary now and says how many tokens it went from and to. fx compacts a session from 10% of the model's window, so a smaller one is left as it is.
+- `/sessions` lists the sessions you used last first and keeps job runs in a list of their own behind **Job runs**, so hourly jobs no longer push your chats out. `/sessions <words>` finds a session by its title.
+- `/bug` gives the link to report a bug or suggest an idea on GitHub, and den@bazutya.com for those who would rather write.
 - `sqlite3` comes with den, and the new `data` skill tells the agent to keep records that change, such as job openings with a status, in a SQLite database under `~/space/.data/`, which a new space keeps out of git.
-- A Markdown link such as [Open VisuAlgo](https://visualgo.net/en) in the agent's messages shows in Telegram as a link with that text, instead of the brackets and the address.
-- den keeps its instructions for every session, such as plain-text replies and code blocks, in fx's own `~/.fx/AGENTS.md`, which it rewrites on each start, instead of adding them to your first message. Your space's `AGENTS.md` stays yours.
+- The agent knows the names of the APIs you added with `den service add` from the start of each session, so it reaches for them without being told.
+
+### Better
+
+- A ``` block or `inline code` in the agent's messages shows in Telegram as code that copies with a tap, and a Markdown link such as [Open VisuAlgo](https://visualgo.net/en) shows as a link with that text.
+- The message that shows the agent's steps arrives without a sound, so only the reply makes your phone ring.
+- Once answered or expired, a question about a request, a push, or a mail shrinks to one line, such as “news: POST /api/events” and ✓ Allowed.
+- Progress steps name the program a command runs, even inside `$(…)`, loops, `if`, and multi-line scripts, and name den commands, such as “Running den stats”. A command still running in the background reads “Waiting for jq”.
+- `/status` sums jobs up in one line with the next one to run, and names only jobs whose last run failed. Choosing the second model answers with ⚙︎, like the main model.
+- den keeps its instructions for every session in fx's own `~/.fx/AGENTS.md`, which it rewrites on each start, instead of adding them to your first message. Your space's `AGENTS.md` stays yours.
 - The agent is asked to do the work itself and start a subagent only for a long, independent part, since subagents spend the same model's limits.
-- den compacts a long session while you are away with a ChatGPT subscription too: like `/status`, it did not find the model's context window.
-- When a subagent reports after the agent has answered, the chat and jobs get the agent's answer instead of a bare “SILENT” or “Done.” from the report's turn, which kept a job's reply from being sent.
-- Once answered or expired, a question about a request, a push, or a mail shrinks to one line, such as “news: POST /api/events” and ✓ Allowed, instead of keeping the whole request body in the chat.
-- A step that waits on a command still running in the background reads “Waiting for jq” instead of showing the whole command cut off.
-- A ``` block or `inline code` in the agent's messages shows in Telegram as code that copies with a tap, without the backticks.
-- `/status` shows a ChatGPT subscription model's context window, from Codex's own list of models.
-- `/status` sums jobs up in one line with the next one to run, and names only jobs whose last run failed.
-- Choosing the second model answers with ⚙︎, like the main model.
-- Progress steps name the program a command runs even inside `$(…)`, loops, `if`, and multi-line scripts, and pipes inside quotes no longer split a command, so steps no longer show pieces of a jq filter or a flag.
-- A step that runs a den command names it, such as “Running den stats”, instead of only “Running den”.
-- Setup and `den login` take an Anthropic, xAI, or Vercel AI Gateway API key, through each one's OpenAI-compatible API.
-- `/status` shows the context size with a ChatGPT subscription too: den read the wrong token count from Codex's answers.
-- Setup's list of other providers starts with the popular ones, such as OpenRouter, DeepSeek, OpenCode, Z.AI, and Moonshot AI.
-- `den update` also updates the `den` command itself from the latest release, after checking its checksum. Before, only the image was updated, and a new `den` needed the install line again.
 - The web skill tells the agent to read every page with `web_fetch`, which turns HTML into clean text, and to keep `curl` for APIs, downloads, and requests with headers.
+- den comes with fx synced with upstream fx on 2026-11-11.
+
+### Fixed
+
+- When a subagent reports after the agent has answered, the chat and jobs get the agent's answer instead of a bare “SILENT” or “Done.”, which kept some job replies from being sent.
+- With a ChatGPT subscription, `/status` shows the context size and the model's window, and den compacts a long session while you are away: den read the wrong token count and missed the window before.
+- When Google is connected, the agent sends Gmail through it instead of asking you to run `den connect mail`.
 
 ## v0.1.1
 
