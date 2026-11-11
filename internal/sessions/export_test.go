@@ -12,7 +12,7 @@ const index = `{"op":"put","id":"abc","role":"root","title":"","created":1794165
 {"op":"put","id":"abc","role":"root","title":"Plan the trip","created":1794165718796,"updated":1794165718796}
 {"op":"put","id":"kid","role":"subagent","title":"child","created":1794165718796}
 {"op":"put","id":"gone","role":"root","title":"deleted","created":1794165718796}
-{"op":"delete","id":"gone"}
+{"op":"del","id":"gone"}
 `
 
 const log = `{"kind":"session_created","workspace":"/home/agent/space"}

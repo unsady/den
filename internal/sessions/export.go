@@ -171,9 +171,10 @@ func readIndex(path string) (map[string]indexEntry, error) {
 		if json.Unmarshal(scanner.Bytes(), &e) != nil || e.ID == "" {
 			continue
 		}
-		if e.Op == "put" {
+		switch e.Op {
+		case "put":
 			index[e.ID] = e
-		} else {
+		case "del":
 			delete(index, e.ID)
 		}
 	}
