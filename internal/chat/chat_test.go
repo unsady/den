@@ -727,6 +727,8 @@ func TestCompactCommand(t *testing.T) {
 
 	telegram.message(42, "/compact")
 	telegram.expect(t, "There is no session to compact yet.")
+	telegram.message(42, "/bug")
+	telegram.expect(t, bugReport)
 
 	telegram.message(42, "hello")
 	telegram.expect(t, "resume=none msg=hello lines=1")

@@ -57,8 +57,13 @@ var commands = []notify.Command{
 	{Name: "log", Description: "What the agent did outside today, and what you always allow"},
 	{Name: "status", Description: "Show the model, context, memory, and jobs"},
 	{Name: "usage", Description: "Show the tokens den used"},
+	{Name: "bug", Description: "Report a bug or suggest an idea"},
 	{Name: "help", Description: "Show what the bot does"},
 }
+
+// bugReport answers /bug.
+const bugReport = "Found a bug or have an idea? Open an issue on GitHub:\nhttps://github.com/unsady/den/issues/new\n\n" +
+	"Say what you did, what den answered, and what you expected. The output of den version on your computer helps too."
 
 // recentSessions is how many sessions /sessions offers.
 const recentSessions = 8
@@ -271,6 +276,9 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 
 	case "/status":
 		c.sendHTML(ctx, telegram, c.status(ctx), nil)
+
+	case "/bug":
+		c.send(ctx, telegram, bugReport)
 
 	case "/usage":
 		c.send(ctx, telegram, c.usage.Report(time.Now()))
