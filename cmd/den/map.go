@@ -29,7 +29,7 @@ func mapCommand(cfg config.Config, args []string) error {
 	prompt := fs.String("p", "", "the instructions for every item, or @file to read them")
 	model := fs.String("model", "", "provider/model, or a model of fx's provider; fx's model when empty")
 	out := fs.String("out", "", "where to write the answers; <items>.out.jsonl when empty")
-	workers := fs.Int("workers", 6, "how many items to ask about at once; 2 for Codex")
+	workers := fs.Int("workers", 6, "how many items to ask about at once")
 	resume := fs.Bool("resume", false, "keep the answers already in the output file and ask only for the rest")
 	rest, err := parse(fs, args)
 	if err != nil {
@@ -51,14 +51,6 @@ func mapCommand(cfg config.Config, args []string) error {
 	provider, err := mapProvider(filepath.Join(cfg.Sessions, "..", "..", "settings.json"), *model)
 	if err != nil {
 		return err
-	}
-
-	// Codex finds its cache for fewer of the requests the more of them run
-	// at once: 93% with one, 73% with two, 18% with six.
-	set := false
-	fs.Visit(func(f *flag.Flag) { set = set || f.Name == "workers" })
-	if provider.name == "codex" && !set {
-		*workers = 2
 	}
 
 	in, err := os.Open(rest[0])
