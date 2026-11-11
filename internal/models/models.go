@@ -154,6 +154,14 @@ func (m *Models) Serve(stop <-chan struct{}) error {
 // ServeHTTP sends /<name>/<path> to the provider saved as name.
 func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	name, rest, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	// The path only extends the provider's own, so a key reaches only the
+	// API it is for: no step back out of it.
+	for _, segment := range strings.Split(rest, "/") {
+		if segment == "." || segment == ".." {
+			http.Error(w, "den does not pass on a path with . or ..", http.StatusBadRequest)
+			return
+		}
+	}
 	switch name {
 	case "codex":
 		m.serveCodex(w, r, rest)
@@ -480,7 +488,15 @@ func catalogProvider(id string) (string, []string, error) {
 
 // serveCodex passes fx's Codex requests on to ChatGPT with the account's
 // token in place of the stand-in fx sends.
+// codexPaths are the parts of ChatGPT's Codex API that fx calls.
+var codexPaths = map[string]bool{"responses": true, "responses/compact": true, "models": true}
+
 func (m *Models) serveCodex(w http.ResponseWriter, r *http.Request, rest string) {
+	// The account's token opens all of ChatGPT; fx needs only its models.
+	if !codexPaths[rest] {
+		http.Error(w, "den passes on only Codex's responses and models", http.StatusNotFound)
+		return
+	}
 	access, account, err := m.codex.Token(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)

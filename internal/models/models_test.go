@@ -234,6 +234,20 @@ func TestCodexGetsTheRealToken(t *testing.T) {
 	if !strings.Contains(string(payload), `"chatgpt_account_id":"acct-1"`) {
 		t.Fatalf("stand-in %s", payload)
 	}
+
+	// The token reaches only Codex's responses and models.
+	for path, want := range map[string]int{"/codex/wham/tasks": 404, "/codex/../wham/tasks": 400, "/codex/responses/%2e%2e/x": 400} {
+		req, _ := http.NewRequest(http.MethodGet, proxy.URL+path, nil)
+		req.URL.Opaque = path
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("%s: %d, want %d", path, resp.StatusCode, want)
+		}
+	}
 }
 
 func TestDefaultKeepsAChosenModel(t *testing.T) {
