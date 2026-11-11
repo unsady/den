@@ -96,10 +96,10 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 	if d.ctx.Err() != nil {
 		return
 	}
-	text := fmt.Sprintf("[den: the user allowed %s, and den ran it. Its output:\n%s]", what, out)
+	text := fmt.Sprintf("[den: the user allowed %s, and den ran it. Its output is quoted below.]\n%s", what, approve.Quote(out))
 	user := ""
 	if err != nil {
-		text = fmt.Sprintf("[den: the user allowed %s, and it failed: %v. Its output:\n%s]", what, err, out)
+		text = fmt.Sprintf("[den: the user allowed %s, and it failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(out))
 		user = fmt.Sprintf("🗂 %s failed: %v", what, err)
 	} else if first, _, _ := strings.Cut(summary, "\n"); first != "" {
 		// The summary's first line says how many items it answered; the

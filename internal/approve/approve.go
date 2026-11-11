@@ -222,3 +222,11 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 	p.answer <- outcome
 	return p.What, true
 }
+
+// Quote marks text from outside den, such as a service's answer, inside
+// what den tells the agent: between two lines with a tag the text cannot
+// know, so the text cannot pass itself off as den's own words.
+func Quote(text string) string {
+	tag := rand.Text()[:8]
+	return "<quoted " + tag + ">\n" + text + "\n</quoted " + tag + ">"
+}
