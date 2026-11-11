@@ -115,6 +115,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	owner, repo, op := m[1], m[2], m[3]
 
+	// A push's branches become the agent's only once GitHub took them, so
+	// a push GitHub refuses cannot claim a branch, such as main.
+	var pushed []command
 	if op == "git-receive-pack" && r.Method == http.MethodPost {
 		body, commands, caps, err := readCommands(r)
 		if err != nil {
@@ -129,7 +132,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else if p.Note != nil {
 			p.Note(pushName(owner+"/"+repo, commands), approve.Went)
 		}
-		p.record(owner+"/"+repo, commands)
+		pushed = commands
 	}
 
 	target, _ := url.Parse(p.upstream + "/" + owner + "/" + repo + ".git/" + op)
@@ -148,6 +151,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		FlushInterval: -1,
 		Transport:     p.transport,
+	}
+	if pushed != nil {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			if resp.StatusCode == http.StatusOK {
+				resp.Body = &watched{ReadCloser: resp.Body, done: func(out []byte) {
+					took, _, err := readReport(out)
+					if err != nil {
+						log.Printf("git: %s/%s: %v", owner, repo, err)
+					}
+					p.record(owner+"/"+repo, pushed, took)
+				}}
+			}
+			return nil
+		}
 	}
 	proxy.ServeHTTP(w, r)
 }
@@ -242,15 +259,40 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo string,
 
 var errWaiting = errors.New("waiting for the user in Telegram; den pushes it once they allow it and tells you, so do not push it again")
 
-// record remembers the branches a push creates and forgets the ones it
-// deletes.
-func (p *Proxy) record(repo string, commands []command) {
+// watched passes a response on and hands what it read to done once, up to
+// 1 MB, when it ends.
+type watched struct {
+	io.ReadCloser
+	kept bytes.Buffer
+	done func([]byte)
+	once sync.Once
+}
+
+func (w *watched) Read(b []byte) (int, error) {
+	n, err := w.ReadCloser.Read(b)
+	if w.kept.Len() < 1<<20 {
+		w.kept.Write(b[:n])
+	}
+	if err == io.EOF {
+		w.once.Do(func() { w.done(w.kept.Bytes()) })
+	}
+	return n, err
+}
+
+func (w *watched) Close() error {
+	w.once.Do(func() { w.done(w.kept.Bytes()) })
+	return w.ReadCloser.Close()
+}
+
+// record remembers the branches a push created and forgets the ones it
+// deleted, of the refs GitHub took.
+func (p *Proxy) record(repo string, commands []command, took map[string]bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, c := range commands {
 		branch, isBranch := strings.CutPrefix(c.ref, "refs/heads/")
 		switch {
-		case !isBranch:
+		case !isBranch || !took[c.ref]:
 		case zero(c.new):
 			delete(p.mine, repo+":"+branch)
 		case zero(c.old):
@@ -277,7 +319,7 @@ func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, c
 		return
 	}
 
-	refused, err := p.replay(owner, repo, header, data)
+	took, refused, err := p.replay(owner, repo, header, data)
 	switch {
 	case err != nil:
 		log.Printf("git: %s: %v", what, err)
@@ -288,19 +330,19 @@ func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, c
 			fmt.Sprintf("%s: GitHub refused it: %s", what, refused))
 	default:
 		log.Printf("git: %s: pushed, allowed by the user", what)
-		p.record(owner+"/"+repo, commands)
+		p.record(owner+"/"+repo, commands, took)
 		report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches.]", what), "")
 	}
 }
 
-// replay sends a kept push to GitHub and returns GitHub's reasons for the
-// refs it refused, empty when it took them all.
-func (p *Proxy) replay(owner, repo string, header http.Header, data []byte) (string, error) {
+// replay sends a kept push to GitHub and returns the refs it took and its
+// reasons for the ones it refused, empty when it took them all.
+func (p *Proxy) replay(owner, repo string, header http.Header, data []byte) (map[string]bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.upstream+"/"+owner+"/"+repo+".git/git-receive-pack", bytes.NewReader(data))
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	for _, k := range []string{"Content-Type", "Content-Encoding", "Accept", "Git-Protocol", "User-Agent"} {
 		if v := header.Get(k); v != "" {
@@ -314,26 +356,27 @@ func (p *Proxy) replay(owner, repo string, header http.Header, data []byte) (str
 	client := &http.Client{Transport: p.transport}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		text, _ := io.ReadAll(io.LimitReader(resp.Body, 1000))
-		return "", fmt.Errorf("GitHub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(text)))
+		return nil, "", fmt.Errorf("GitHub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(text)))
 	}
 	out, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return refusals(out)
+	took, refused, err := readReport(out)
+	return took, strings.Join(refused, "; "), err
 }
 
-// refusals reads receive-pack's report, with or without side bands, and
-// returns the reasons for the refs it refused.
-func refusals(out []byte) (string, error) {
+// readReport reads receive-pack's report, with or without side bands, and
+// returns the refs GitHub took and its reasons for the ones it refused.
+func readReport(out []byte) (map[string]bool, []string, error) {
 	lines, err := pktLines(out)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	// With side bands, the report is itself pkt-lines inside band 1.
 	if len(lines) > 0 && len(lines[0]) > 0 && lines[0][0] <= 3 {
@@ -348,15 +391,15 @@ func refusals(out []byte) (string, error) {
 			}
 		}
 		if len(errs) > 0 {
-			return strings.TrimSpace(string(errs)), nil
+			return nil, []string{strings.TrimSpace(string(errs))}, nil
 		}
 		if lines, err = pktLines(report); err != nil {
-			return "", err
+			return nil, nil, err
 		}
 	}
 
+	took := map[string]bool{}
 	var refused []string
-	took := false
 	for _, l := range lines {
 		line := strings.TrimSpace(string(l))
 		switch {
@@ -365,13 +408,21 @@ func refusals(out []byte) (string, error) {
 		case strings.HasPrefix(line, "ng "):
 			refused = append(refused, strings.TrimPrefix(line, "ng "))
 		case strings.HasPrefix(line, "ok "):
-			took = true
+			took[strings.TrimPrefix(line, "ok ")] = true
 		}
 	}
-	if len(refused) == 0 && !took {
-		return "", errors.New("GitHub sent no report")
+	if len(refused) == 0 && len(took) == 0 {
+		return nil, nil, errors.New("GitHub sent no report")
 	}
-	return strings.Join(refused, "; "), nil
+	if len(refused) > 0 {
+		// A failed unpack refuses every ref, whatever the lines say.
+		for _, r := range refused {
+			if strings.HasPrefix(r, "unpack ") {
+				took = map[string]bool{}
+			}
+		}
+	}
+	return took, refused, nil
 }
 
 // pktLines splits git's pkt-line data, dropping flush packets.
@@ -471,10 +522,16 @@ func readCommands(r *http.Request) (io.Reader, []command, string, error) {
 		if found {
 			caps = more
 		}
-		fields := strings.Fields(text)
-		if len(fields) == 3 && len(fields[0]) >= 40 && len(fields[1]) >= 40 {
-			commands = append(commands, command{old: fields[0], new: fields[1], ref: fields[2]})
+		if strings.HasPrefix(text, "shallow ") {
+			continue
 		}
+		// Every other line must be a command den understands, read the way
+		// git reads it, so none reaches GitHub unseen.
+		c, ok := parseCommand(text)
+		if !ok {
+			return nil, nil, "", fmt.Errorf("den does not pass on this push: it cannot read %q", text)
+		}
+		commands = append(commands, c)
 	}
 
 	if r.Header.Get("Content-Encoding") == "gzip" {
@@ -483,6 +540,35 @@ func readCommands(r *http.Request) (io.Reader, []command, string, error) {
 	// kept holds every byte the reader took in, read or buffered; the rest
 	// is still in the body.
 	return io.MultiReader(&kept, r.Body), commands, caps, nil
+}
+
+// parseCommand reads "<old> <new> <ref>" as git does: two object IDs and
+// the rest of the line. den takes only refs of printable ASCII, so what the
+// user reads in a question is what GitHub gets.
+func parseCommand(text string) (command, bool) {
+	old, rest, _ := strings.Cut(text, " ")
+	new, ref, _ := strings.Cut(rest, " ")
+	if !objectID(old) || !objectID(new) || !strings.HasPrefix(ref, "refs/") {
+		return command{}, false
+	}
+	for _, r := range ref {
+		if r <= ' ' || r > '~' {
+			return command{}, false
+		}
+	}
+	return command{old: old, new: new, ref: ref}, true
+}
+
+func objectID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return false
+		}
+	}
+	return true
 }
 
 // refuse answers a push the user did not allow the way GitHub refuses one,

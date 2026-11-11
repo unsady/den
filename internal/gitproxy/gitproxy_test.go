@@ -1,6 +1,7 @@
 package gitproxy
 
 import (
+	"io"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -141,7 +142,28 @@ func TestPush(t *testing.T) {
 		t.Fatalf("asked %q", asked)
 	}
 
-	resp, _ := http.Get(proxy.URL + "/me/repo/other")
+	// A push that only claims to create main, and which GitHub refuses,
+	// does not make main the agent's.
+	zero := strings.Repeat("0", 40)
+	fake := pkt(zero+" "+strings.Repeat("a", 40)+" refs/heads/main\x00report-status\n") + "0000"
+	resp, err := http.Post(proxy.URL+"/me/repo/git-receive-pack", "application/x-git-receive-pack-request", strings.NewReader(fake))
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if New(cfg, nil).mine["me/repo:main"] || p.mine["me/repo:main"] {
+		t.Fatal("a refused push made main the agent's")
+	}
+
+	// A command den cannot read stops the push.
+	odd := pkt(zero+" "+strings.Repeat("a", 40)+" refs/tags/v9\u00a0x\x00report-status\n") + "0000"
+	resp, _ = http.Post(proxy.URL+"/me/repo/git-receive-pack", "application/x-git-receive-pack-request", strings.NewReader(odd))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("an unreadable command went on: %d", resp.StatusCode)
+	}
+
+	resp, _ = http.Get(proxy.URL + "/me/repo/other")
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("other path: %d", resp.StatusCode)
 	}
