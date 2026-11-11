@@ -83,7 +83,7 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/status` | The model, how full the session is, memory, and the next jobs |
 | `/log` | What the agent changed outside in the last day, and what you always allow |
 | `/usage` | Tokens used today and over the last 7 and 30 days |
-| `/bug` | Where to report a bug or suggest an idea |
+| `/bug` | Where to report a bug or suggest an idea: GitHub issues or den@bazutya.com |
 
 When you reply to a message, the agent sees which one you mean. Photos, voice messages, and files you send are saved in the agent's `inbox/`; a photo also goes to a model that takes images, and a voice message comes with its transcript when [speech-to-text](#voice-messages) is set up. Telegram lets a bot download files up to 20 MB, and the agent sends files up to 50 MB.
 

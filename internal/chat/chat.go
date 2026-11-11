@@ -62,7 +62,7 @@ var commands = []notify.Command{
 }
 
 // bugReport answers /bug.
-const bugReport = "Found a bug or have an idea? Open an issue on GitHub:\nhttps://github.com/unsady/den/issues/new\n\n" +
+const bugReport = "Found a bug or have an idea? Open an issue on GitHub:\nhttps://github.com/unsady/den/issues/new\n\nOr write to den@bazutya.com.\n\n" +
 	"Say what you did, what den answered, and what you expected. The output of den version on your computer helps too."
 
 // recentSessions is how many sessions /sessions offers.
