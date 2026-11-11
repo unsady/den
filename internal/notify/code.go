@@ -9,7 +9,8 @@ import (
 // The agent writes plain text, but marks text to copy the way Markdown
 // does: a ``` block or `inline code`. Telegram shows those as code, which
 // a tap copies, when the message names them as entities; the marks
-// themselves are left out.
+// themselves are left out. A Markdown link, [text](url), becomes a link
+// the same way.
 
 // entity is a part of a message Telegram formats, in UTF-16 code units.
 type entity struct {
@@ -17,11 +18,12 @@ type entity struct {
 	Offset   int    `json:"offset"`
 	Length   int    `json:"length"`
 	Language string `json:"language,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 var (
 	fence  = regexp.MustCompile("(?s)```([\\w+#.-]*)[ \\t]*\\n?(.*?)\\n?```")
-	inline = regexp.MustCompile("`([^`\\n]+)`")
+	inline = regexp.MustCompile("`([^`\\n]+)`|\\[([^\\]\\n]+)\\]\\((https?://(?:[^()\\s]|\\([^()\\s]*\\))+)\\)")
 )
 
 // code takes the code marks out of text and returns the text with the
@@ -29,11 +31,12 @@ var (
 func code(text string) (string, []entity) {
 	var out strings.Builder
 	var entities []entity
-	add := func(kind, body, language string) {
+	add := func(e entity, body string) {
 		if body == "" {
 			return
 		}
-		entities = append(entities, entity{Type: kind, Offset: units(out.String()), Length: units(body), Language: language})
+		e.Offset, e.Length = units(out.String()), units(body)
+		entities = append(entities, e)
 		out.WriteString(body)
 	}
 
@@ -52,13 +55,17 @@ func code(text string) (string, []entity) {
 				break
 			}
 			out.WriteString(plain[:m[0]])
-			add("code", plain[m[2]:m[3]], "")
+			if m[2] >= 0 {
+				add(entity{Type: "code"}, plain[m[2]:m[3]])
+			} else {
+				add(entity{Type: "text_link", URL: plain[m[6]:m[7]]}, plain[m[4]:m[5]])
+			}
 			plain = plain[m[1]:]
 		}
 		if block == nil {
 			break
 		}
-		add("pre", rest[block[4]:block[5]], rest[block[2]:block[3]])
+		add(entity{Type: "pre", Language: rest[block[2]:block[3]]}, rest[block[4]:block[5]])
 		rest = rest[block[1]:]
 	}
 	return out.String(), entities

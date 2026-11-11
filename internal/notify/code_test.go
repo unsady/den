@@ -19,6 +19,11 @@ func TestCode(t *testing.T) {
 		{"```\nls -la\n``` and `pwd`", "ls -la and pwd",
 			[]entity{{Type: "pre", Offset: 0, Length: 6}, {Type: "code", Offset: 11, Length: 3}}},
 		{"an unmatched ` stays", "an unmatched ` stays", nil},
+		{"See [the book](https://example.com/a_(b)) and `x`.", "See the book and x.",
+			[]entity{{Type: "text_link", Offset: 4, Length: 8, URL: "https://example.com/a_(b)"}, {Type: "code", Offset: 17, Length: 1}}},
+		{"[Открыть](https://example.com/en)\nhttps://example.com/raw", "Открыть\nhttps://example.com/raw",
+			[]entity{{Type: "text_link", Offset: 0, Length: 7, URL: "https://example.com/en"}}},
+		{"[not a link](notes/a.md)", "[not a link](notes/a.md)", nil},
 	} {
 		out, entities := code(c.in)
 		if out != c.out || !reflect.DeepEqual(entities, c.entities) {
