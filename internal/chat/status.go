@@ -83,8 +83,12 @@ func jobsLines(list []jobs.Job) []string {
 }
 
 // window reads the model's context window from fx's catalog of the
-// provider, or 0 when it does not say.
+// provider, or 0 when it does not say. fx names its Codex provider
+// "Codex subscription" in its status.
 func (c *Chat) window(provider, model string) int {
+	if provider == "Codex subscription" {
+		provider = "codex"
+	}
 	// The sessions live at ~/.fx/sessions/v2, the catalogs beside them.
 	home := filepath.Dir(filepath.Dir(c.cfg.Sessions))
 	data, err := os.ReadFile(filepath.Join(home, "model-catalogs", provider+".json"))

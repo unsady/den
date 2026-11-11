@@ -1,10 +1,13 @@
 package chat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/jobs"
 )
 
@@ -23,5 +26,16 @@ func TestJobsLinesSumUpAndNameFailures(t *testing.T) {
 	}
 	if jobsLines(nil) != nil {
 		t.Fatal("no jobs: want no lines")
+	}
+}
+
+func TestWindowOfCodexSubscription(t *testing.T) {
+	dir := t.TempDir()
+	c := &Chat{cfg: config.Config{State: dir, Sessions: filepath.Join(dir, "sessions", "v2")}}
+	if err := os.WriteFile(filepath.Join(dir, "codex-windows.json"), []byte(`{"gpt-6.1-sol":500000}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.window("Codex subscription", "gpt-6.1-sol"); got != 500000 {
+		t.Fatalf("got %d", got)
 	}
 }
