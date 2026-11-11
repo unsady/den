@@ -141,4 +141,10 @@ func TestAsk(t *testing.T) {
 	if waiting, err := later(""); waiting || err != nil {
 		t.Fatalf("later by rule: %v %v", waiting, err)
 	}
+
+	// A question too long for one message is not asked, rather than cut.
+	long := Question{Text: "Push to me/repo?\n\n• " + strings.Repeat("a", 5000) + "\n• main", What: "Push"}
+	if err := a.Ask(context.Background(), long); err == nil || !strings.Contains(err.Error(), "too long") {
+		t.Fatalf("long: %v", err)
+	}
 }

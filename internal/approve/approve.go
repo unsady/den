@@ -10,10 +10,10 @@ package approve
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"sync"
 	"time"
 
@@ -61,7 +61,6 @@ type Asker struct {
 	cfg config.Config
 
 	mu      sync.Mutex
-	next    int
 	pending map[string]*question
 }
 
@@ -124,14 +123,20 @@ type sent struct {
 }
 
 func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
+	// A question cut to fit a message could hide the part the user must
+	// see, such as a second branch a push changes.
+	if !notify.Fits(q.Text) {
+		return nil, errors.New("the question is too long to show the user in one message; send less at once")
+	}
 	telegram, err := notify.Load(a.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("asking the user needs Telegram: %w", err)
 	}
 
+	// The ID is random, so a button of a question from before a restart
+	// cannot answer a new one.
 	a.mu.Lock()
-	a.next++
-	id := strconv.Itoa(a.next)
+	id := rand.Text()
 	p := &question{Question: q, answer: make(chan string, 1)}
 	a.pending[id] = p
 	a.mu.Unlock()

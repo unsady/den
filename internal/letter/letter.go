@@ -58,7 +58,7 @@ func Show(raw []byte, also []string) string {
 
 	out := b.String()
 	if runes := []rune(out); len(runes) > 1500 {
-		out = string(runes[:1500]) + "…"
+		out = fmt.Sprintf("%s…\n(%d more characters not shown)", string(runes[:1500]), len(runes)-1500)
 	}
 	return out
 }

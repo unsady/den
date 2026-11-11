@@ -305,7 +305,7 @@ func show(body []byte) string {
 		}
 	}
 	if runes := []rune(text); len(runes) > 1500 {
-		text = string(runes[:1500]) + "…"
+		text = fmt.Sprintf("%s…\n(%d more characters not shown)", string(runes[:1500]), len(runes)-1500)
 	}
 	return text
 }

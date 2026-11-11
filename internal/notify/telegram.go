@@ -97,6 +97,11 @@ func (t *Telegram) Delete(ctx context.Context, id int64) error {
 	return t.call(ctx, "deleteMessage", map[string]any{"chat_id": t.chatID, "message_id": id}, nil)
 }
 
+// Fits says whether text goes in one message, uncut.
+func Fits(text string) bool {
+	return len(split(strings.TrimSpace(text), maxMessage)) <= 1
+}
+
 func clip(text string) string {
 	if parts := split(strings.TrimSpace(text), maxMessage); len(parts) > 0 {
 		return parts[0]
