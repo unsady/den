@@ -65,7 +65,11 @@ func step(line string) (string, bool) {
 	case "Running ":
 		return shellStep(rest), true
 	case "Waiting for ":
-		// fx waits on a command that still runs in the background.
+		// fx waits on a command that still runs in the background. It names
+		// one it no longer knows "the shell execution".
+		if strings.HasPrefix(rest, "the ") {
+			return "Waiting for a command", true
+		}
 		if what, ok := strings.CutPrefix(shellStep(rest), "Running "); ok {
 			return "Waiting for " + what, true
 		}

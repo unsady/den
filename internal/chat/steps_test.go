@@ -19,6 +19,7 @@ func TestStep(t *testing.T) {
 		{`Running command -v yt-dlp && yt-dlp -F x`, "Running yt-dlp"},
 		{"Waiting for jq --slurpfile catalog /tmp/check/catalog.json '.items[] | select(.a)' plan.json", "Waiting for jq"},
 		{"Waiting for den fetch --secret news https://example.com/api", "Waiting for a command"},
+		{"Waiting for the shell execution", "Waiting for a command"},
 		{"Running set -e\nden fetch --secret news https://example.com/api", "Calling example.com"},
 		{`Running sleep 5`, "Running sleep"},
 		{`Running jq -r '.a | select(.b and .c) | .d; .e' f.json`, "Running jq"},
