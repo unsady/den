@@ -46,13 +46,17 @@ func TestFetch(t *testing.T) {
 	cfg := config.Config{Secrets: dir}
 	var asked []string
 	allow := true
-	f := New(cfg, func(ctx context.Context, q approve.Question) error {
+	var reports []string
+	f := New(cfg, func(q approve.Question, then func(error)) (bool, error) {
 		asked = append(asked, q.Text)
 		if !allow {
-			return errors.New("denied")
+			then(errors.New("denied"))
+		} else {
+			then(nil)
 		}
-		return nil
+		return true, nil
 	}, nil)
+	f.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
 	f.client.Transport = server.Client().Transport
 
 	do := func(method, path, body string) (Response, error) {
@@ -107,17 +111,23 @@ func TestFetch(t *testing.T) {
 		{"POST", "/graphql", `{"query":"mutation { addStar(input:{}) { clientMutationId } }"}`},
 		{"POST", "/user/repos", `{"name":"x"}`},
 	} {
-		if _, err := do(c[0], c[1], c[2]); err != nil {
-			t.Fatalf("%v: %v", c, err)
+		if resp, err := do(c[0], c[1], c[2]); err != nil || !resp.Waiting {
+			t.Fatalf("%v: %+v %v", c, resp, err)
 		}
+	}
+	if len(reports) != 6 || !strings.HasPrefix(reports[0], " [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200:\nok") {
+		t.Fatalf("reports %q", reports)
 	}
 	if len(asked) != 6 || !strings.HasPrefix(asked[0], "GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
 		t.Fatalf("asked %q", asked)
 	}
 
 	allow = false
-	if _, err := do("POST", "/repos/other/x/issues", `{"title":"no"}`); err == nil {
-		t.Fatal("a denied request went out")
+	if resp, err := do("POST", "/repos/other/x/issues", `{"title":"no"}`); err != nil || !resp.Waiting {
+		t.Fatalf("denied: %+v %v", resp, err)
+	}
+	if got := reports[len(reports)-1]; got != " [den: GitHub: POST /repos/other/x/issues was not sent: denied.]" {
+		t.Fatalf("denied report %q", got)
 	}
 
 	mu.Lock()

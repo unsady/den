@@ -53,9 +53,10 @@ func TestCustomService(t *testing.T) {
 	os.WriteFile(filepath.Join(cfg.Secrets, "keyed_token"), []byte("key\n"), 0o600)
 
 	var asked []string
-	f := New(cfg, func(ctx context.Context, q approve.Question) error {
+	f := New(cfg, func(q approve.Question, then func(error)) (bool, error) {
 		asked = append(asked, q.Text)
-		return errors.New("denied")
+		then(errors.New("denied"))
+		return true, nil
 	}, nil)
 	f.client.Transport = server.Client().Transport
 
@@ -63,8 +64,8 @@ func TestCustomService(t *testing.T) {
 	if _, err := f.Do(context.Background(), Request{Secret: "crm", URL: server.URL + "/api/events", Header: map[string]string{"Authorization": "stolen"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Do(context.Background(), Request{Secret: "crm", Method: "POST", URL: server.URL + "/api/events", Body: []byte(`{"title":"x"}`)}); err == nil {
-		t.Fatal("a denied write went out")
+	if _, err := f.Do(context.Background(), Request{Secret: "crm", Method: "POST", URL: server.URL + "/api/events", Body: []byte(`{"title":"x"}`)}); err != nil {
+		t.Fatal(err)
 	}
 	if len(asked) != 1 || !strings.HasPrefix(asked[0], "crm: POST /api/events\nIt may change data on 127.0.0.1.") {
 		t.Fatalf("asked %q", asked)

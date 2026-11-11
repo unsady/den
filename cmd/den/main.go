@@ -16,7 +16,6 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
@@ -384,7 +383,7 @@ func fetchCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("fetch needs --secret and one URL")
 	}
 
-	req := fetch.Request{Secret: *secret, Method: *method, URL: rest[0], Header: header}
+	req := fetch.Request{Secret: *secret, Method: *method, URL: rest[0], Header: header, Turn: os.Getenv("DEN_TURN")}
 	switch {
 	case *data == "@-":
 		req.Body, err = io.ReadAll(os.Stdin)
@@ -405,10 +404,15 @@ func fetchCommand(cfg config.Config, args []string) error {
 		}
 	}
 
-	// A write may wait for the user to allow it.
+	// A write the user must allow does not wait for them: den sends it
+	// once they do.
 	var resp fetch.Response
-	if err := client.New(cfg).Wait(approve.Wait+5*time.Minute).Do(http.MethodPost, "/fetch", req, &resp); err != nil {
+	if err := client.New(cfg).Wait(6*time.Minute).Do(http.MethodPost, "/fetch", req, &resp); err != nil {
 		return err
+	}
+	if resp.Waiting {
+		fmt.Fprintln(os.Stderr, "den asked the user to allow this request in Telegram. Once they answer, den sends it and tells you the service's answer in a new message, so you need not wait: go on, or end your turn. Do not send it again.")
+		return nil
 	}
 	if *include {
 		fmt.Printf("HTTP %d\n", resp.Status)

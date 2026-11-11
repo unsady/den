@@ -40,6 +40,9 @@ type Request struct {
 	URL    string            `json:"url"`
 	Header map[string]string `json:"header,omitempty"`
 	Body   []byte            `json:"body,omitempty"`
+	// Turn is the DEN_TURN of the chat's agent that sent the request, which
+	// den tells what came of a request that waited for the user.
+	Turn string `json:"turn,omitempty"`
 }
 
 // Response is what the service answered.
@@ -47,6 +50,9 @@ type Response struct {
 	Status int               `json:"status"`
 	Header map[string]string `json:"header,omitempty"`
 	Body   []byte            `json:"body,omitempty"`
+	// Waiting says the request waits for the user, and den sends it once
+	// they allow it.
+	Waiting bool `json:"waiting,omitempty"`
 }
 
 // Errors that are the agent's or the user's, not the service's.
@@ -86,14 +92,19 @@ var services = map[string]service{
 	"google": google,
 }
 
-// Ask asks the user to allow an action and returns nil when they do.
-type Ask func(ctx context.Context, q approve.Question) error
+// Later asks the user to allow an action without waiting for the answer,
+// as approve.Asker.Later does with den's own context.
+type Later func(q approve.Question, then func(error)) (bool, error)
 
 type Fetcher struct {
-	cfg config.Config
-	ask Ask
+	cfg   config.Config
+	later Later
 	// Note logs a request that changed something without a question.
-	Note   func(what, outcome string)
+	Note func(what, outcome string)
+	// Report tells the agent of turn what came of a request that waited for
+	// the user: agent in full, user in one line for the user when the turn
+	// is gone.
+	Report func(turn, agent, user string)
 	google *googleauth.Google
 	client *http.Client
 
@@ -102,8 +113,8 @@ type Fetcher struct {
 	logins map[string]string
 }
 
-func New(cfg config.Config, ask Ask, google *googleauth.Google) *Fetcher {
-	f := &Fetcher{cfg: cfg, ask: ask, google: google, logins: map[string]string{}}
+func New(cfg config.Config, later Later, google *googleauth.Google) *Fetcher {
+	f := &Fetcher{cfg: cfg, later: later, google: google, logins: map[string]string{}}
 	f.client = &http.Client{Timeout: 5 * time.Minute, CheckRedirect: f.redirect}
 	return f
 }
@@ -159,18 +170,61 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 			q.Rule = "fetch " + req.Secret + " " + method + " " + pathPattern(u.Path)
 			q.Label = s.label + ": " + method + " " + pathPattern(u.Path)
 		}
-		if err := f.ask(ctx, q); err != nil {
+		// The request does not wait for the answer: den sends it once the
+		// user allows it, and tells the agent what came of it.
+		waiting, err := f.later(q, func(err error) { f.sendLater(s, req, method, u, what, err) })
+		if err != nil {
 			log.Printf("fetch: %s %s %s: not sent: %v", req.Secret, method, u, err)
 			return Response{}, fmt.Errorf("not sent: %w", err)
 		}
-		log.Printf("fetch: %s %s %s: allowed by the user", req.Secret, method, u)
+		if waiting {
+			return Response{Waiting: true}, nil
+		}
 	} else if method != http.MethodGet && method != http.MethodHead {
 		log.Printf("fetch: %s %s %s", req.Secret, method, u)
 		if f.Note != nil {
 			f.Note(what, approve.Went)
 		}
 	}
+	return f.send(ctx, s, secret, method, u, req)
+}
 
+// sendLater sends a request the user answered, and reports what came of it.
+func (f *Fetcher) sendLater(s service, req Request, method string, u *url.URL, what string, answer error) {
+	if f.Report == nil {
+		return
+	}
+	if answer != nil {
+		log.Printf("fetch: %s %s %s: not sent: %v", req.Secret, method, u, answer)
+		if !errors.Is(answer, context.Canceled) {
+			f.Report(req.Turn, fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
+		}
+		return
+	}
+	log.Printf("fetch: %s %s %s: allowed by the user", req.Secret, method, u)
+
+	// An access token may have run out while the request waited.
+	ctx := context.Background()
+	resp, err := func() (Response, error) {
+		secret, err := f.secret(ctx, s)
+		if err != nil {
+			return Response{}, err
+		}
+		return f.send(ctx, s, secret, method, u, req)
+	}()
+	if err != nil {
+		f.Report(req.Turn, fmt.Sprintf("[den: the user allowed %s, and it failed: %v.]", what, err), fmt.Sprintf("%s failed: %v", what, err))
+		return
+	}
+	body := string(resp.Body)
+	if len(body) > 4000 {
+		body = body[:4000] + "…"
+	}
+	f.Report(req.Turn, fmt.Sprintf("[den: the user allowed %s, and den sent it. The service answered %d:\n%s]", what, resp.Status, body), fmt.Sprintf("%s: %d", what, resp.Status))
+}
+
+// send sends req with its secret.
+func (f *Fetcher) send(ctx context.Context, s service, secret, method string, u *url.URL, req Request) (Response, error) {
 	ctx = context.WithValue(ctx, serviceKey{}, s)
 	r, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(req.Body))
 	if err != nil {

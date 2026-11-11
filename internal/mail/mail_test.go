@@ -137,13 +137,18 @@ func TestIMAPReportsARefusedLogin(t *testing.T) {
 func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 	var asked []string
 	allow := true
-	s := New(setup(t, "address=me@gmail.com\npassword=pw\n"), func(ctx context.Context, q approve.Question) error {
+	s := New(setup(t, "address=me@gmail.com\npassword=pw\n"), func(q approve.Question, then func(error)) (bool, error) {
 		asked = append(asked, q.Text)
 		if !allow {
-			return errors.New("denied")
+			then(errors.New("denied"))
+		} else {
+			then(nil)
 		}
-		return nil
+		return true, nil
 	})
+	var reports []string
+	s.Turn = func() string { return "t1" }
+	s.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
 	var sent []string
 	s.send = func(a Account, to []string, msg []byte) error {
 		sent = append(sent, a.SMTP+" "+strings.Join(to, ",")+" "+string(msg))
@@ -164,8 +169,12 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 
 	allow = false
 	err := smtp.SendMail(addr, nil, "agent@den", []string{"anya@example.com"}, msg)
-	if err == nil || !strings.Contains(err.Error(), "not sent") || len(sent) != 1 {
+	if err != nil || len(sent) != 1 {
 		t.Fatalf("denied: %v, sent %d", err, len(sent))
+	}
+	want := "t1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|t1 [den: Mail to anya@example.com was not sent: denied.]"
+	if got := strings.Join(reports, "|"); got != want {
+		t.Fatalf("reports %q", got)
 	}
 }
 

@@ -1,7 +1,6 @@
 package gitproxy
 
 import (
-	"context"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -64,12 +63,15 @@ func TestPush(t *testing.T) {
 	os.MkdirAll(cfg.Secrets, 0o700)
 	os.WriteFile(filepath.Join(cfg.Secrets, TokenFile), []byte("tok\n"), 0o600)
 
-	var asked []string
-	var answer error
-	p := New(cfg, func(ctx context.Context, q approve.Question) error {
+	var asked, reports []string
+	var then func(error)
+	p := New(cfg, func(q approve.Question, answer func(error)) (bool, error) {
 		asked = append(asked, q.Text)
-		return answer
+		then = answer
+		return true, nil
 	})
+	p.Turn = func() string { return "t1" }
+	p.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
 	p.upstream = github.URL
 	proxy := httptest.NewServer(p)
 	defer proxy.Close()
@@ -89,23 +91,44 @@ func TestPush(t *testing.T) {
 		t.Fatalf("asked %q", asked)
 	}
 
-	// main is not the agent's: the push waits for the user, who denies it.
-	answer = approve.ErrDenied
+	// main is not the agent's: den keeps the push and refuses it for now,
+	// and the user denies it.
 	out, err := run(work, "push", "origin", "HEAD:main")
-	if err == nil || !strings.Contains(out, "den: the user did not allow this push") {
-		t.Fatalf("denied push: %v\n%s", err, out)
+	if err == nil || !strings.Contains(out, "den: waiting for the user in Telegram") {
+		t.Fatalf("held push: %v\n%s", err, out)
 	}
 	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Push to me/repo?\n\n• main: ") {
 		t.Fatalf("asked %q", asked)
 	}
+	then(approve.ErrDenied)
 	if head, _ := run(bare, "log", "-1", "--format=%s", "main"); strings.TrimSpace(head) != "first" {
 		t.Fatalf("main moved to %q", head)
 	}
 
-	answer = nil
-	must(work, "push", "origin", "HEAD:main")
+	// Asked again, the user allows it, and den sends the kept push.
+	run(work, "push", "origin", "HEAD:main")
+	then(nil)
 	if head, _ := run(bare, "log", "-1", "--format=%s", "main"); strings.TrimSpace(head) != "third" {
 		t.Fatalf("main is at %q", head)
+	}
+
+	// A branch that moved while the push waited refuses it.
+	must(seed, "fetch", bare, "main")
+	must(seed, "reset", "--hard", "FETCH_HEAD")
+	must(work, "commit", "--allow-empty", "-m", "fourth")
+	run(work, "push", "origin", "HEAD:main")
+	must(seed, "commit", "--allow-empty", "-m", "elsewhere")
+	must(seed, "push", bare, "main")
+	then(nil)
+	if head, _ := run(bare, "log", "-1", "--format=%s", "main"); strings.TrimSpace(head) != "elsewhere" {
+		t.Fatalf("main is at %q", head)
+	}
+	want := []string{
+		"t1 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
+		"t1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches.]",
+	}
+	if len(reports) != 3 || reports[0] != want[0] || reports[1] != want[1] || !strings.Contains(reports[2], "GitHub refused it: refs/heads/main") {
+		t.Fatalf("reports %q", reports)
 	}
 
 	// The agent's own branch goes away without a question, and den
@@ -114,7 +137,7 @@ func TestPush(t *testing.T) {
 		t.Fatal("forgot the agent's branch")
 	}
 	must(work, "push", "origin", ":feature")
-	if len(asked) != 2 {
+	if len(asked) != 3 {
 		t.Fatalf("asked %q", asked)
 	}
 

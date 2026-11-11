@@ -123,18 +123,45 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
 	} else {
 		text += " to " + strings.Join(to, ", ")
 	}
-	// Each mail is new, so it is asked about every time.
-	if err := s.ask(ctx, approve.Question{Text: text, What: "Mail to " + strings.Join(to, ", ")}); err != nil {
+	// Each mail is new, so it is asked about every time. The client does
+	// not wait for the answer: den sends the message once the user allows
+	// it, and tells the agent.
+	turn := ""
+	if s.Turn != nil {
+		turn = s.Turn()
+	}
+	what := "Mail to " + strings.Join(to, ", ")
+	_, err = s.later(approve.Question{Text: text, What: what}, func(answer error) {
+		s.sendLater(a, to, msg, what, turn, answer)
+	})
+	if err != nil {
 		log.Printf("mail: to %s: not sent: %v", strings.Join(to, ", "), err)
 		return "554 not sent: " + oneLine(err)
 	}
+	return "250 waiting for the user: den sends it once they allow it in Telegram, and tells you"
+}
 
+// sendLater sends a message the user answered, and reports what came of it.
+func (s *Server) sendLater(a Account, to []string, msg []byte, what, turn string, answer error) {
+	report := func(agent, user string) {
+		if s.Report != nil {
+			s.Report(turn, agent, user)
+		}
+	}
+	if answer != nil {
+		log.Printf("mail: to %s: not sent: %v", strings.Join(to, ", "), answer)
+		if !errors.Is(answer, context.Canceled) {
+			report(fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
+		}
+		return
+	}
 	if err := s.send(a, to, msg); err != nil {
 		log.Printf("mail: to %s: %v", strings.Join(to, ", "), err)
-		return "451 " + oneLine(err)
+		report(fmt.Sprintf("[den: the user allowed %s, and sending it failed: %v.]", what, err), fmt.Sprintf("%s failed: %v", what, err))
+		return
 	}
 	log.Printf("mail: sent to %s, allowed by the user", strings.Join(to, ", "))
-	return "250 sent"
+	report(fmt.Sprintf("[den: the user allowed %s, and den sent it.]", what), "")
 }
 
 // recipient takes the address from RCPT's argument, "TO:<a@b.c>".

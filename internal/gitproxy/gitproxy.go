@@ -5,8 +5,9 @@
 // and git's url.insteadOf sends https://github.com/ there. den adds the
 // token and passes each request on to github.com. Before a push goes on,
 // den reads the branches it changes: a branch the agent created through den
-// changes at once, and anything else waits until the user allows it in
-// Telegram.
+// changes at once. Anything else waits until the user allows it in
+// Telegram: den keeps the push and refuses it for now, so git does not wait,
+// and sends the same push to GitHub once the user allows it.
 package gitproxy
 
 import (
@@ -31,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/config"
@@ -45,17 +47,27 @@ const (
 	branchesFile = "git-branches.json"
 )
 
-// Ask asks the user to allow an action and returns nil when they do.
-type Ask func(ctx context.Context, q approve.Question) error
+// Later asks the user to allow an action without waiting for the answer,
+// as approve.Asker.Later does with den's own context.
+type Later func(q approve.Question, then func(error)) (bool, error)
+
+// maxHeld bounds a push den keeps while it waits for the user.
+const maxHeld = 64 << 20
 
 // paths are the requests of git's smart HTTP protocol for one repository.
 var paths = regexp.MustCompile(`^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/(info/refs|git-upload-pack|git-receive-pack)$`)
 
 type Proxy struct {
-	cfg config.Config
-	ask Ask
+	cfg   config.Config
+	later Later
 	// Note logs a push that went without a question.
 	Note func(what, outcome string)
+	// Report tells the agent what came of a push that waited for the user,
+	// as the fetcher's Report does.
+	Report func(turn, agent, user string)
+	// Turn names the chat's turn running now, if any, which most likely
+	// pushed: git carries no DEN_TURN.
+	Turn func() string
 	// upstream is GitHub's address; tests change it.
 	upstream  string
 	transport http.RoundTripper
@@ -65,8 +77,8 @@ type Proxy struct {
 	mine map[string]bool
 }
 
-func New(cfg config.Config, ask Ask) *Proxy {
-	p := &Proxy{cfg: cfg, ask: ask, upstream: "https://github.com", mine: map[string]bool{}}
+func New(cfg config.Config, later Later) *Proxy {
+	p := &Proxy{cfg: cfg, later: later, upstream: "https://github.com", mine: map[string]bool{}}
 	data, err := os.ReadFile(filepath.Join(cfg.State, branchesFile))
 	if err == nil {
 		var list []string
@@ -110,11 +122,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = io.NopCloser(body)
-		if err := p.review(r.Context(), owner+"/"+repo, commands); err != nil {
-			io.Copy(io.Discard, body)
-			refuse(w, commands, caps, err)
-			return
+		if q := p.question(owner+"/"+repo, commands); q != nil {
+			if !p.hold(w, r, owner, repo, body, commands, caps, *q) {
+				return
+			}
+		} else if p.Note != nil {
+			p.Note(pushName(owner+"/"+repo, commands), approve.Went)
 		}
+		p.record(owner+"/"+repo, commands)
 	}
 
 	target, _ := url.Parse(p.upstream + "/" + owner + "/" + repo + ".git/" + op)
@@ -149,16 +164,15 @@ type command struct {
 
 func zero(id string) bool { return strings.Trim(id, "0") == "" }
 
-// review lets a push go on when it only creates branches, or changes ones
-// the agent created, and asks the user about anything else.
-func (p *Proxy) review(ctx context.Context, repo string, commands []command) error {
-	var asked, refs, names []string
+// question asks the user about a push unless it only creates branches, or
+// changes ones the agent created. It returns nil when the push goes at once.
+func (p *Proxy) question(repo string, commands []command) *approve.Question {
+	var asked, names []string
 	// Changes to existing branches can be allowed for good; deleting a
 	// branch or pushing a tag is asked every time.
 	lasting := true
 	for _, c := range commands {
 		branch, isBranch := strings.CutPrefix(c.ref, "refs/heads/")
-		refs = append(refs, branch)
 		p.mu.Lock()
 		mine := p.mine[repo+":"+branch]
 		p.mu.Unlock()
@@ -171,21 +185,66 @@ func (p *Proxy) review(ctx context.Context, repo string, commands []command) err
 			lasting = false
 		}
 	}
-
-	what := "Push to " + repo + ": " + strings.Join(refs, ", ")
-	if len(asked) > 0 {
-		q := approve.Question{Text: "Push to " + repo + "?\n\n" + strings.Join(asked, "\n"), What: what}
-		if lasting {
-			slices.Sort(names)
-			q.Rule = "push " + repo + " " + strings.Join(names, ",")
-		}
-		if err := p.ask(ctx, q); err != nil {
-			return err
-		}
-	} else if p.Note != nil {
-		p.Note(what, approve.Went)
+	if len(asked) == 0 {
+		return nil
 	}
 
+	q := approve.Question{Text: "Push to " + repo + "?\n\n" + strings.Join(asked, "\n"), What: pushName(repo, commands)}
+	if lasting {
+		slices.Sort(names)
+		q.Rule = "push " + repo + " " + strings.Join(names, ",")
+	}
+	return &q
+}
+
+// pushName names a push in one line for the log.
+func pushName(repo string, commands []command) string {
+	var refs []string
+	for _, c := range commands {
+		refs = append(refs, strings.TrimPrefix(c.ref, "refs/heads/"))
+	}
+	return "Push to " + repo + ": " + strings.Join(refs, ", ")
+}
+
+// hold asks the user about a push. It returns true when a rule allows it
+// and the push goes on. Otherwise it keeps the push, refuses it for now so
+// git does not wait, and sends it to GitHub once the user allows it.
+func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo string, body io.Reader, commands []command, caps string, q approve.Question) bool {
+	data, err := io.ReadAll(io.LimitReader(body, maxHeld+1))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return false
+	}
+	if len(data) > maxHeld {
+		refuse(w, commands, caps, fmt.Errorf("the push is over %d MB, more than den keeps while the user decides; ask the user to push it themselves", maxHeld>>20))
+		return false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+
+	turn := ""
+	if p.Turn != nil {
+		turn = p.Turn()
+	}
+	header := r.Header.Clone()
+	waiting, err := p.later(q, func(answer error) {
+		p.pushLater(owner, repo, header, data, commands, q.What, turn, answer)
+	})
+	switch {
+	case err != nil:
+		refuse(w, commands, caps, err)
+		return false
+	case waiting:
+		refuse(w, commands, caps, errWaiting)
+		return false
+	}
+	return true
+}
+
+var errWaiting = errors.New("waiting for the user in Telegram; den pushes it once they allow it and tells you, so do not push it again")
+
+// record remembers the branches a push creates and forgets the ones it
+// deletes.
+func (p *Proxy) record(repo string, commands []command) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, c := range commands {
@@ -199,7 +258,141 @@ func (p *Proxy) review(ctx context.Context, repo string, commands []command) err
 		}
 	}
 	p.save()
-	return nil
+}
+
+// pushLater sends a push the user answered to GitHub, and reports what came
+// of it. A branch that moved on GitHub in the meantime refuses the push, as
+// it would refuse git itself.
+func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, commands []command, what, turn string, answer error) {
+	report := func(agent, user string) {
+		if p.Report != nil {
+			p.Report(turn, agent, user)
+		}
+	}
+	if answer != nil {
+		log.Printf("git: %s: not pushed: %v", what, answer)
+		if !errors.Is(answer, context.Canceled) {
+			report(fmt.Sprintf("[den: %s was not pushed: %v.]", what, answer), "")
+		}
+		return
+	}
+
+	refused, err := p.replay(owner, repo, header, data)
+	switch {
+	case err != nil:
+		log.Printf("git: %s: %v", what, err)
+		report(fmt.Sprintf("[den: the user allowed %s, and it failed: %v.]", what, err), fmt.Sprintf("%s failed: %v", what, err))
+	case refused != "":
+		log.Printf("git: %s: refused: %s", what, refused)
+		report(fmt.Sprintf("[den: the user allowed %s, and GitHub refused it: %s. When a branch moved meanwhile, fetch, rebase or merge, and push again.]", what, refused),
+			fmt.Sprintf("%s: GitHub refused it: %s", what, refused))
+	default:
+		log.Printf("git: %s: pushed, allowed by the user", what)
+		p.record(owner+"/"+repo, commands)
+		report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches.]", what), "")
+	}
+}
+
+// replay sends a kept push to GitHub and returns GitHub's reasons for the
+// refs it refused, empty when it took them all.
+func (p *Proxy) replay(owner, repo string, header http.Header, data []byte) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.upstream+"/"+owner+"/"+repo+".git/git-receive-pack", bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	for _, k := range []string{"Content-Type", "Content-Encoding", "Accept", "Git-Protocol", "User-Agent"} {
+		if v := header.Get(k); v != "" {
+			req.Header.Set(k, v)
+		}
+	}
+	if token := p.token(); token != "" {
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token)))
+	}
+
+	client := &http.Client{Transport: p.transport}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		text, _ := io.ReadAll(io.LimitReader(resp.Body, 1000))
+		return "", fmt.Errorf("GitHub answered %d: %s", resp.StatusCode, strings.TrimSpace(string(text)))
+	}
+	out, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return refusals(out)
+}
+
+// refusals reads receive-pack's report, with or without side bands, and
+// returns the reasons for the refs it refused.
+func refusals(out []byte) (string, error) {
+	lines, err := pktLines(out)
+	if err != nil {
+		return "", err
+	}
+	// With side bands, the report is itself pkt-lines inside band 1.
+	if len(lines) > 0 && len(lines[0]) > 0 && lines[0][0] <= 3 {
+		var report, errs []byte
+		for _, l := range lines {
+			switch {
+			case len(l) == 0:
+			case l[0] == 1:
+				report = append(report, l[1:]...)
+			case l[0] == 3:
+				errs = append(errs, l[1:]...)
+			}
+		}
+		if len(errs) > 0 {
+			return strings.TrimSpace(string(errs)), nil
+		}
+		if lines, err = pktLines(report); err != nil {
+			return "", err
+		}
+	}
+
+	var refused []string
+	took := false
+	for _, l := range lines {
+		line := strings.TrimSpace(string(l))
+		switch {
+		case strings.HasPrefix(line, "unpack ") && line != "unpack ok":
+			refused = append(refused, line)
+		case strings.HasPrefix(line, "ng "):
+			refused = append(refused, strings.TrimPrefix(line, "ng "))
+		case strings.HasPrefix(line, "ok "):
+			took = true
+		}
+	}
+	if len(refused) == 0 && !took {
+		return "", errors.New("GitHub sent no report")
+	}
+	return strings.Join(refused, "; "), nil
+}
+
+// pktLines splits git's pkt-line data, dropping flush packets.
+func pktLines(data []byte) ([][]byte, error) {
+	var lines [][]byte
+	for len(data) >= 4 {
+		n, err := strconv.ParseUint(string(data[:4]), 16, 16)
+		if err != nil {
+			return nil, fmt.Errorf("reading GitHub's report: %q is no length", data[:4])
+		}
+		if n < 4 {
+			data = data[4:]
+			continue
+		}
+		if int(n) > len(data) {
+			return nil, errors.New("reading GitHub's report: short line")
+		}
+		lines = append(lines, data[4:n])
+		data = data[n:]
+	}
+	return lines, nil
 }
 
 func (p *Proxy) save() {

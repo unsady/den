@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
@@ -34,6 +33,7 @@ func mapCommand(cfg config.Config, args []string) error {
 	workers := fs.Int("workers", 4, fmt.Sprintf("how many items to ask about at once, up to %d", maxWorkers))
 	effort := fs.String("effort", "", "the model's reasoning effort, such as none or low; the provider's default when empty, low for Codex")
 	resume := fs.Bool("resume", false, "keep the answers already in the output file and ask only for the rest")
+	run := fs.String("run", "", "set by den when it runs a run the user allowed")
 	rest, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -70,23 +70,36 @@ func mapCommand(cfg config.Config, args []string) error {
 	}
 
 	// Every run spends the user's subscription or money, so the user
-	// allows it first, or allowed this model for good.
+	// allows it first, or allowed this model for good. When den has to ask,
+	// the command does not wait: den runs it again once the user allows it,
+	// and tells the agent what came of it.
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 	ask := daemon.MapRequest{
 		Provider:     provider.name,
 		Model:        provider.model,
 		Effort:       *effort,
 		File:         rest[0],
 		Instructions: instructions,
+		Args:         args,
+		Dir:          dir,
+		Turn:         os.Getenv("DEN_TURN"),
+		Run:          *run,
 	}
 	for line := range bytes.SplitSeq(data, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) > 0 {
 			ask.Items++
 		}
 	}
-	fmt.Fprintln(os.Stderr, "Waiting for the user to allow this run in Telegram, up to 15 minutes. Keep waiting for this command: if your turn ends first, the run stops and the question expires.")
-	chatNote(cfg, "🗂 waiting for your answer")
-	if err := client.New(cfg).Wait(approve.Wait+5*time.Minute).Do(http.MethodPost, "/map", ask, nil); err != nil {
+	var answer daemon.MapReply
+	if err := client.New(cfg).Wait(2*time.Minute).Do(http.MethodPost, "/map", ask, &answer); err != nil {
 		return fmt.Errorf("not run: %w", err)
+	}
+	if answer.Waiting {
+		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait: go on, or end your turn.")
+		return nil
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

@@ -109,22 +109,29 @@ func Load(cfg config.Config) (Account, error) {
 	return a, nil
 }
 
-// Ask asks the user to allow an action and returns nil when they do.
-type Ask func(ctx context.Context, q approve.Question) error
+// Later asks the user to allow an action without waiting for the answer,
+// as approve.Asker.Later does with den's own context.
+type Later func(q approve.Question, then func(error)) (bool, error)
 
 type Server struct {
-	cfg config.Config
-	ask Ask
+	cfg   config.Config
+	later Later
+	// Report tells the agent what came of a message that waited for the
+	// user, as the fetcher's Report does.
+	Report func(turn, agent, user string)
+	// Turn names the chat's turn running now, if any, which most likely
+	// sent the message: mail clients carry no DEN_TURN.
+	Turn func() string
 	// dial reaches the account's IMAP server.
 	dial func(addr string) (net.Conn, error)
 	// send hands a message to the account's SMTP server.
 	send func(a Account, to []string, msg []byte) error
 }
 
-func New(cfg config.Config, ask Ask) *Server {
+func New(cfg config.Config, later Later) *Server {
 	return &Server{
-		cfg: cfg,
-		ask: ask,
+		cfg:   cfg,
+		later: later,
 		dial: func(addr string) (net.Conn, error) {
 			host, _, _ := net.SplitHostPort(addr)
 			return tls.DialWithDialer(&net.Dialer{Timeout: 30 * time.Second}, "tcp", addr, &tls.Config{ServerName: host})

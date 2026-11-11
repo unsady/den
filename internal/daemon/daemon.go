@@ -60,7 +60,10 @@ type daemon struct {
 
 	mu      sync.Mutex
 	running map[string]bool
-	wg      sync.WaitGroup
+	// grants are the den map runs the user allowed, by the grant den
+	// started each with.
+	grants map[string]MapRequest
+	wg     sync.WaitGroup
 }
 
 func Serve(cfg config.Config) error {
@@ -121,18 +124,29 @@ func Serve(cfg config.Config) error {
 		usage:   usage.Open(cfg.State),
 		ask:     approve.New(cfg),
 		running: map[string]bool{},
+		grants:  map[string]MapRequest{},
 	}
+	// Jobs run on the chat's models, and what the user allowed later goes
+	// to the chat's agent, so the chat exists before either starts.
+	d.chat = chat.New(cfg, d, d.usage)
 	d.google = google.New(cfg)
-	d.fetch = fetch.New(cfg, d.ask.Ask, d.google)
+	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
+	d.fetch = fetch.New(cfg, later, d.google)
 	d.fetch.Note = d.ask.Note
+	d.fetch.Report = d.report
 	go func() {
-		if err := mail.New(cfg, d.ask.Ask).Serve(ctx); err != nil {
+		m := mail.New(cfg, later)
+		m.Report = d.report
+		m.Turn = func() string { return d.chat.Current() }
+		if err := m.Serve(ctx); err != nil {
 			log.Printf("mail: %v", err)
 		}
 	}()
 	go func() {
-		git := gitproxy.New(cfg, d.ask.Ask)
+		git := gitproxy.New(cfg, later)
 		git.Note = d.ask.Note
+		git.Report = d.report
+		git.Turn = func() string { return d.chat.Current() }
 		if err := git.Serve(ctx); err != nil {
 			log.Printf("git: %v", err)
 		}
@@ -160,8 +174,6 @@ func Serve(cfg config.Config) error {
 		_ = srv.Shutdown(shutdown)
 	}()
 
-	// Jobs run on the chat's models, so the chat exists before they start.
-	d.chat = chat.New(cfg, d, d.usage)
 	go d.loop()
 	d.wg.Go(func() { d.chat.Run(ctx) })
 
@@ -425,6 +437,23 @@ type MapRequest struct {
 	Items        int    `json:"items"`
 	File         string `json:"file"`
 	Instructions string `json:"instructions"`
+
+	// Args and Dir are the command's arguments and folder, which den runs
+	// again once the user allows it.
+	Args []string `json:"args,omitempty"`
+	Dir  string   `json:"dir,omitempty"`
+	// Turn is the DEN_TURN of the chat's agent that ran the command, which
+	// den tells what came of it.
+	Turn string `json:"turn,omitempty"`
+	// Run is the grant of the run den started after the user allowed it.
+	Run string `json:"run,omitempty"`
+}
+
+// MapReply answers POST /map: run now, or the user is asked and den runs
+// it once they allow it.
+type MapReply struct {
+	Allowed bool `json:"allowed,omitempty"`
+	Waiting bool `json:"waiting,omitempty"`
 }
 
 // SendRequest is the body of POST /send. The CLI reads the file as the
@@ -563,32 +592,7 @@ func (d *daemon) routes() http.Handler {
 		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 
-	mux.HandleFunc("POST /map", func(w http.ResponseWriter, r *http.Request) {
-		var req MapRequest
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-			fail(w, http.StatusBadRequest, err)
-			return
-		}
-		model := req.Provider + "/" + req.Model
-		what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
-		text := what
-		if req.Effort != "" {
-			text += ", effort " + req.Effort
-		}
-		text += "\n" + req.File
-		if task := firstSentence(req.Instructions); task != "" {
-			text += "\n" + task
-		}
-		q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
-		switch err := d.ask.Ask(r.Context(), q); {
-		case errors.Is(err, approve.ErrDenied), errors.Is(err, approve.ErrExpired):
-			fail(w, http.StatusForbidden, err)
-		case err != nil:
-			fail(w, http.StatusServiceUnavailable, err)
-		default:
-			reply(w, http.StatusOK, map[string]bool{"allowed": true})
-		}
-	})
+	mux.HandleFunc("POST /map", d.serveMap)
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
 		var req SendRequest
