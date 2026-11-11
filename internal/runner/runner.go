@@ -26,12 +26,17 @@ import (
 // Silent is the reply that tells den a job has nothing to deliver.
 const Silent = "SILENT"
 
+// Yourself asks the agent to work without subagents where it can: each
+// one spends the same model's limits, and its report can come after the
+// answer.
+const Yourself = "Do the work yourself; start a subagent only for a long part that is independent of the rest."
+
 const deliveredNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
-	"Reply with exactly " + Silent + " when there is nothing worth sending."
+	"Reply with exactly " + Silent + " when there is nothing worth sending. " + Yourself
 
 const silentNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
-	"Your final reply is saved in the job log and is not sent to the user."
+	"Your final reply is saved in the job log and is not sent to the user. " + Yourself
 
 // Prompt is the request fx receives for j. The job's own words come first,
 // because fx names a session after the start of its first message when the
