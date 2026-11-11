@@ -148,10 +148,14 @@ func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, 
 	queue := make(chan item)
 	var wg sync.WaitGroup
 	var failed error
-	for range max(1, opts.Workers) {
+	for n := range max(1, opts.Workers) {
+		// Each worker keeps a Codex cache key of its own, so the requests
+		// that follow one another share a cache.
+		worker := ask
+		worker.key = fmt.Sprintf("%s-%d", ask.session, n)
 		wg.Go(func() {
 			for it := range queue {
-				if err := write(ask.answer(ctx, it)); err != nil {
+				if err := write(worker.answer(ctx, it)); err != nil {
 					mu.Lock()
 					failed = err
 					mu.Unlock()
@@ -225,6 +229,8 @@ type asker struct {
 	opts    Options
 	system  string
 	session string
+	// key is the worker's Codex cache key.
+	key string
 }
 
 // answer asks about one item, retrying a failed request and a reply that
@@ -299,15 +305,18 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 	})
 	if a.opts.Responses {
 		// Codex takes only streamed requests that it does not store, and
-		// chooses the output limit itself. Low effort suits one item.
+		// chooses the output limit itself. Low effort suits one item. It
+		// reuses its cache of the instructions only for requests that share
+		// a prompt_cache_key, and only once they reach about 1,024 tokens.
 		body, _ = json.Marshal(map[string]any{
-			"model":        a.opts.Model,
-			"store":        false,
-			"stream":       true,
-			"instructions": a.system,
-			"input":        []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}},
-			"reasoning":    map[string]string{"effort": "low"},
-			"text":         map[string]string{"verbosity": "low"},
+			"model":            a.opts.Model,
+			"prompt_cache_key": a.key,
+			"store":            false,
+			"stream":           true,
+			"instructions":     a.system,
+			"input":            []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}},
+			"reasoning":        map[string]string{"effort": "low"},
+			"text":             map[string]string{"verbosity": "low"},
 		})
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.opts.URL, bytes.NewReader(body))

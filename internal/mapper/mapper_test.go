@@ -228,12 +228,13 @@ func TestResponses(t *testing.T) {
 			Stream       bool   `json:"stream"`
 			Store        bool   `json:"store"`
 			Instructions string `json:"instructions"`
+			CacheKey     string `json:"prompt_cache_key"`
 			Input        []struct {
 				Content []struct{ Text string } `json:"content"`
 			} `json:"input"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		if req.Model != "luna" || !req.Stream || req.Store || !strings.HasPrefix(req.Instructions, "Classify.") || r.Header.Get("Accept") != "text/event-stream" {
+		if req.Model != "luna" || !req.Stream || req.Store || !strings.HasPrefix(req.CacheKey, "den-map-") || !strings.HasPrefix(req.Instructions, "Classify.") || r.Header.Get("Accept") != "text/event-stream" {
 			t.Errorf("request %+v, headers %v", req, r.Header)
 		}
 		if strings.Contains(req.Input[0].Content[0].Text, "broken") {

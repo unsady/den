@@ -8,7 +8,7 @@ release notes.
 
 ### New
 
-- `den map` asks a cheap model the same question about each line of a JSONL file, one short request per item, and writes one JSON answer per item with a count of each answer, the tokens, and the cost. It says how far it is every 10 seconds, also under its step in the chat's Working… message, and marks the instructions for Claude models so the provider caches them. A ChatGPT subscription works too when the model is named, such as `--model codex/gpt-6-luna`. The new `map` skill tells the agent to use it for many similar items, such as job ads or emails, instead of reading them all in its own session: on 100 job ads it took 4 minutes and 0.16M tokens where the agent took 17 minutes and 11.7M.
+- `den map` asks a cheap model the same question about each line of a JSONL file, one short request per item, and writes one JSON answer per item with a count of each answer, the tokens, and the cost. It says how far it is every 10 seconds, also under its step in the chat's Working… message, and marks the instructions for Claude models so the provider caches them. A ChatGPT subscription works too when the model is named, such as `--model codex/gpt-6-luna`; it runs two items at a time there, so Codex reuses its cache of instructions longer than about 1,000 tokens. The new `map` skill tells the agent to use it for many similar items, such as job ads or emails, instead of reading them all in its own session: on 100 job ads it took 4 minutes and 0.16M tokens where the agent took 17 minutes and 11.7M.
 
 ## v0.2.0
 
