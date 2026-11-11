@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -553,6 +554,11 @@ func (d *daemon) routes() http.Handler {
 		if j, err := d.store.Get(id); err == nil {
 			id = j.ID
 		}
+		// A removed job's runs are found by its ID, which names a folder.
+		if !jobID.MatchString(id) {
+			fail(w, http.StatusBadRequest, errors.New("not a job"))
+			return
+		}
 		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
 		if n <= 0 {
 			n = 5
@@ -655,6 +661,9 @@ func (d *daemon) routes() http.Handler {
 
 	return mux
 }
+
+// jobID is what a job's ID looks like.
+var jobID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // firstSentence is the opening of instructions, enough to tell what a run
 // is for: its first line, up to its first sentence, at most 160 runes.
