@@ -189,3 +189,21 @@ func TestRecipient(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterTurnsAwayDeletes(t *testing.T) {
+	in := "a1 UID STORE 5 +FLAGS (\\Seen)\r\n" +
+		"a2 APPEND Drafts {21}\r\nSubject: EXPUNGE me\r\n\r\n" +
+		"a3 uid store 5 +flags (\\Deleted)\r\n" +
+		"a4 EXPUNGE\r\n" +
+		"a5 UID MOVE 5 Trash\r\n"
+	var client, up strings.Builder
+	filter(&client, bufio.NewReader(strings.NewReader(in)), &up)
+
+	want := "a1 UID STORE 5 +FLAGS (\\Seen)\r\na2 APPEND Drafts {21}\r\nSubject: EXPUNGE me\r\n\r\na5 UID MOVE 5 Trash\r\n"
+	if up.String() != want {
+		t.Fatalf("passed on %q", up.String())
+	}
+	if got := client.String(); !strings.HasPrefix(got, "a3 NO den: ") || !strings.Contains(got, "\r\na4 NO den: ") {
+		t.Fatalf("answered %q", got)
+	}
+}

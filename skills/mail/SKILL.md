@@ -45,7 +45,7 @@ curl -s "$m/INBOX" -u den:den -X 'UID STORE 123 +FLAGS (\Seen)'
 curl -s "$m/INBOX" -u den:den -X 'UID MOVE 123 Archive'
 ```
 
-Gmail archives with `UID MOVE 123 "[Gmail]/All Mail"`. Move to Trash instead of deleting; do not `EXPUNGE` without the user's word.
+Gmail archives with `UID MOVE 123 "[Gmail]/All Mail"`. Move to Trash instead of deleting: den answers `NO` to `EXPUNGE`, `DELETE`, and marking messages `\Deleted`, since those lose mail for good. When the user wants mail gone for good, they empty the trash themselves.
 
 ## Sending
 

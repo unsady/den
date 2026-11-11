@@ -19,7 +19,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unsady/den/internal/approve"
@@ -259,18 +261,101 @@ func (s *Server) login(a Account) (*upstream, error) {
 	return up, nil
 }
 
-// pipe passes bytes both ways until either side closes.
+// pipe passes the session on both ways until either side closes. den reads
+// each command the client sends, and turns away those that delete mail
+// for good.
 func pipe(c net.Conn, r *bufio.Reader, up *upstream) {
+	client := &lockedWriter{w: c}
 	done := make(chan struct{}, 2)
 	go func() {
-		io.Copy(up, r)
+		filter(client, r, up)
 		done <- struct{}{}
 	}()
 	go func() {
-		io.Copy(c, up.r)
+		io.Copy(client, up.r)
 		done <- struct{}{}
 	}()
 	<-done
+}
+
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+// filter passes the client's commands on, with the literals they carry,
+// and answers NO to a command that would delete mail for good.
+func filter(client io.Writer, r *bufio.Reader, up io.Writer) {
+	start := true
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if start {
+			if why := forbidden(line); why != "" {
+				tag, _, _ := strings.Cut(line, " ")
+				fmt.Fprintf(client, "%s NO den: %s\r\n", tag, why)
+				if _, ok := literal(line); ok {
+					// The literal that follows is not a command; den
+					// cannot pass the rest of this one on.
+					return
+				}
+				continue
+			}
+		}
+		if _, err := io.WriteString(up, line); err != nil {
+			return
+		}
+		n, ok := literal(line)
+		if ok {
+			if _, err := io.CopyN(up, r, n); err != nil {
+				return
+			}
+		}
+		// After a literal the same command goes on.
+		start = !ok
+	}
+}
+
+// literal reads the {n} or {n+} that ends a line, the size of the literal
+// that follows it.
+func literal(line string) (int64, bool) {
+	trimmed := strings.TrimRight(line, "\r\n")
+	open := strings.LastIndex(trimmed, "{")
+	if open < 0 || !strings.HasSuffix(trimmed, "}") {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSuffix(trimmed[open+1:len(trimmed)-1], "+"), 10, 64)
+	return n, err == nil && n >= 0
+}
+
+// forbidden says why den does not pass a command on: deleting a folder,
+// expunging, or marking messages deleted, which loses mail for good.
+func forbidden(line string) string {
+	fields := strings.Fields(strings.ToUpper(line))
+	if len(fields) < 2 {
+		return ""
+	}
+	name := fields[1]
+	if name == "UID" && len(fields) > 2 {
+		name = fields[2]
+	}
+	switch name {
+	case "EXPUNGE", "DELETE":
+		return "deleting mail or folders for good is the user's to do; move messages to the trash instead"
+	case "STORE":
+		if strings.Contains(strings.ToUpper(line), `\DELETED`) {
+			return "deleting mail for good is the user's to do; move messages to the trash instead"
+		}
+	}
+	return ""
 }
 
 // command reads one IMAP command line, taking in the literals it carries.
