@@ -3,6 +3,7 @@
 package seed
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -20,9 +21,16 @@ import (
 //go:embed all:space
 var files embed.FS
 
-// Init creates the space and the archive when they are missing, and links
-// the built-in skills. It never overwrites a file, so it is safe to run on
-// every start.
+// rules are den's instructions for every session. fx reads them from its
+// profile, ~/.fx/AGENTS.md, beside the space's own AGENTS.md, which is the
+// agent's to change.
+//
+//go:embed fx/AGENTS.md
+var rules []byte
+
+// Init creates the space and the archive when they are missing, writes
+// den's rules, and links the built-in skills. It never overwrites a file of
+// the agent's, so it is safe to run on every start.
 func Init(cfg config.Config) error {
 	if err := os.MkdirAll(cfg.Archive, 0o755); err != nil {
 		return err
@@ -36,7 +44,28 @@ func Init(cfg config.Config) error {
 		return err
 	}
 
+	if err := writeRules(cfg); err != nil {
+		return err
+	}
 	return linkSkills(cfg)
+}
+
+// writeRules writes den's rules to fx's profile when they differ from what
+// is there. An unchanged file stays untouched, so fx does not take it for
+// new instructions in the middle of a session.
+func writeRules(cfg config.Config) error {
+	if cfg.Sessions == "" {
+		return nil
+	}
+	// The sessions live at ~/.fx/sessions/v2, the profile above them.
+	path := filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "AGENTS.md")
+	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, rules) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, rules, 0o644)
 }
 
 func create(space string) error {

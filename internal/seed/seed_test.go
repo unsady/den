@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unsady/den/internal/config"
 )
@@ -86,4 +87,39 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func TestInitWritesRules(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{
+		Space:    filepath.Join(dir, "space"),
+		Archive:  filepath.Join(dir, "archive"),
+		Sessions: filepath.Join(dir, ".fx", "sessions", "v2"),
+	}
+	path := filepath.Join(dir, ".fx", "AGENTS.md")
+	if err := Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if have, _ := os.ReadFile(path); string(have) != string(rules) {
+		t.Fatalf("rules %q", have)
+	}
+
+	// An unchanged file is left alone; a changed one is restored.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(path); !info.ModTime().Equal(old) {
+		t.Fatal("an unchanged file was written again")
+	}
+	write(t, path, "changed by the agent\n")
+	if err := Init(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if have, _ := os.ReadFile(path); string(have) != string(rules) {
+		t.Fatalf("not restored: %q", have)
+	}
 }
