@@ -35,6 +35,8 @@ den map -p @.data/jobs-prompt.md .data/jobs-try.jsonl
 den map -p @.data/jobs-prompt.md .data/jobs.jsonl
 ```
 
+Each run waits until the user allows it in Telegram, unless they allowed that model for good; a run they deny or leave unanswered fails with `not run`, so tell the user what you wanted to run instead of retrying. For a plain classification, `--effort none` makes models such as DeepSeek answer without thinking first, in a fraction of the time and tokens; keep the default when the judgment is hard. `--workers` sets how many items run at once: 4 by default, at most 8.
+
 Read the trial answers and fix the instructions before the full run. den prints how many items got each value, the tokens, and the cost, and writes one line per item to `<items>.out.jsonl`, with the answer under `answer`:
 
 ```bash

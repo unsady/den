@@ -416,6 +416,17 @@ type ProgressRequest struct {
 	Text string `json:"text"`
 }
 
+// MapRequest is the body of POST /map: a den map run the user allows before
+// it spends their subscription.
+type MapRequest struct {
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort"`
+	Items        int    `json:"items"`
+	File         string `json:"file"`
+	Instructions string `json:"instructions"`
+}
+
 // SendRequest is the body of POST /send. The CLI reads the file as the
 // agent, so den sends only what the agent can read itself.
 type SendRequest struct {
@@ -552,6 +563,30 @@ func (d *daemon) routes() http.Handler {
 		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 
+	mux.HandleFunc("POST /map", func(w http.ResponseWriter, r *http.Request) {
+		var req MapRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		model := req.Provider + "/" + req.Model
+		what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
+		text := what
+		if req.Effort != "" {
+			text += ", effort " + req.Effort
+		}
+		text += "\nItems: " + req.File + "\n\n" + clipText(strings.TrimSpace(req.Instructions), 600)
+		q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
+		switch err := d.ask.Ask(r.Context(), q); {
+		case errors.Is(err, approve.ErrDenied), errors.Is(err, approve.ErrExpired):
+			fail(w, http.StatusForbidden, err)
+		case err != nil:
+			fail(w, http.StatusServiceUnavailable, err)
+		default:
+			reply(w, http.StatusOK, map[string]bool{"allowed": true})
+		}
+	})
+
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
 		var req SendRequest
 		// The data arrives base64-encoded, a third larger than the file.
@@ -612,6 +647,15 @@ func (d *daemon) routes() http.Handler {
 	})
 
 	return mux
+}
+
+// clipText keeps the first n runes of text, marking a cut with an ellipsis.
+func clipText(text string, n int) string {
+	runes := []rune(text)
+	if len(runes) <= n {
+		return text
+	}
+	return string(runes[:n]) + "…"
 }
 
 func reply(w http.ResponseWriter, status int, v any) {
