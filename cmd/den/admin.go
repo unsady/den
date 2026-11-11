@@ -23,6 +23,7 @@ import (
 	"github.com/unsady/den/internal/mail"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/seed"
 )
 
 // These commands change den's secrets, so they run as root inside the
@@ -313,6 +314,9 @@ func serviceCommand(cfg config.Config, args []string) error {
 		if err := fetch.SaveCustom(cfg, append(list, s)); err != nil {
 			return err
 		}
+		if err := seed.WriteRules(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "den could not tell the agent about it: %v\n", err)
+		}
 		fmt.Printf("added %s: den sends its token to https://%s and %s\n", s.Name, s.Host, askText(s.Ask))
 		return nil
 
@@ -333,6 +337,9 @@ func serviceCommand(cfg config.Config, args []string) error {
 		}
 		if err := fetch.SaveCustom(cfg, kept); err != nil {
 			return err
+		}
+		if err := seed.WriteRules(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "den could not tell the agent about it: %v\n", err)
 		}
 		os.Remove(filepath.Join(cfg.Secrets, args[1]+"_token"))
 		return nil

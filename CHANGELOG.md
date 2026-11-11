@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- The agent knows the names of the APIs you added with `den service add` from the start of each session, so it reaches for them without being told. den updates the list when you add or remove one.
 - den comes with fx synced with upstream fx on 2026-11-11.
 - `/sessions` lists the sessions you used last first and keeps job runs in a list of their own behind **Job runs**, so hourly jobs no longer push your chats out. `/sessions <words>` finds a session by its title.
 - The message that shows the agent's steps arrives without a sound, so only the reply makes your phone ring.

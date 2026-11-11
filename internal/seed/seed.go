@@ -13,9 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/fetch"
 )
 
 //go:embed all:space
@@ -28,8 +32,8 @@ var files embed.FS
 //go:embed fx/AGENTS.md
 var rules []byte
 
-// Init creates the space and the archive when they are missing, writes
-// den's rules, and links the built-in skills. It never overwrites a file of
+// Init creates the space and the archive when they are missing, and links
+// the built-in skills. It never overwrites a file of
 // the agent's, so it is safe to run on every start.
 func Init(cfg config.Config) error {
 	if err := os.MkdirAll(cfg.Archive, 0o755); err != nil {
@@ -44,28 +48,50 @@ func Init(cfg config.Config) error {
 		return err
 	}
 
-	if err := writeRules(cfg); err != nil {
-		return err
-	}
 	return linkSkills(cfg)
 }
 
-// writeRules writes den's rules to fx's profile when they differ from what
-// is there. An unchanged file stays untouched, so fx does not take it for
-// new instructions in the middle of a session.
-func writeRules(cfg config.Config) error {
+// WriteRules writes den's rules to fx's profile, with the names of the
+// APIs the user connected, when they differ from what is there. An
+// unchanged file stays untouched, so fx does not take it for new
+// instructions in the middle of a session. The daemon writes them, since
+// only it reads the user's services.
+func WriteRules(cfg config.Config) error {
 	if cfg.Sessions == "" {
 		return nil
 	}
-	// The sessions live at ~/.fx/sessions/v2, the profile above them.
-	path := filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "AGENTS.md")
-	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, rules) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	services, err := fetch.LoadCustom(cfg)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, rules, 0o644)
+	text := rules
+	if len(services) > 0 {
+		names := make([]string, len(services))
+		for i, s := range services {
+			names[i] = s.Name
+		}
+		sort.Strings(names)
+		text = append(slices.Clone(rules), fmt.Sprintf("- The user connected these APIs, which you call through den with tokens it holds: %s. `den service ls` says what each one does.\n", strings.Join(names, ", "))...)
+	}
+
+	// The sessions live at ~/.fx/sessions/v2, the profile above them.
+	profile := filepath.Dir(filepath.Dir(cfg.Sessions))
+	path := filepath.Join(profile, "AGENTS.md")
+	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, text) {
+		return nil
+	}
+	if _, err := os.Stat(profile); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(profile, 0o700); err != nil {
+			return err
+		}
+		// The profile belongs to the agent, like the home above it.
+		if info, err := os.Stat(filepath.Dir(profile)); err == nil {
+			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+				os.Chown(profile, int(st.Uid), int(st.Gid))
+			}
+		}
+	}
+	return os.WriteFile(path, text, 0o644)
 }
 
 func create(space string) error {

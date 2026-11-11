@@ -33,6 +33,7 @@ import (
 	"github.com/unsady/den/internal/proc"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/search"
+	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/transcribe"
 	"github.com/unsady/den/internal/usage"
 )
@@ -98,6 +99,9 @@ func Serve(cfg config.Config) error {
 		log.Printf("agent home: %v", err)
 	}
 	initSpace(ctx, cfg)
+	if err := seed.WriteRules(cfg); err != nil {
+		log.Printf("rules: %v", err)
+	}
 	go func() {
 		if err := transcribe.Prepare(ctx, cfg); err != nil {
 			log.Printf("transcribe: %v", err)

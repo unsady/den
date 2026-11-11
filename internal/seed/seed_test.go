@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/fetch"
 )
 
 func TestInitLinksBuiltinSkills(t *testing.T) {
@@ -89,15 +90,14 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestInitWritesRules(t *testing.T) {
+func TestWriteRules(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Config{
-		Space:    filepath.Join(dir, "space"),
-		Archive:  filepath.Join(dir, "archive"),
+		State:    filepath.Join(dir, "state"),
 		Sessions: filepath.Join(dir, ".fx", "sessions", "v2"),
 	}
 	path := filepath.Join(dir, ".fx", "AGENTS.md")
-	if err := Init(cfg); err != nil {
+	if err := WriteRules(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if have, _ := os.ReadFile(path); string(have) != string(rules) {
@@ -109,17 +109,30 @@ func TestInitWritesRules(t *testing.T) {
 	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if err := Init(cfg); err != nil {
+	if err := WriteRules(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if info, _ := os.Stat(path); !info.ModTime().Equal(old) {
 		t.Fatal("an unchanged file was written again")
 	}
 	write(t, path, "changed by the agent\n")
-	if err := Init(cfg); err != nil {
+	if err := WriteRules(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if have, _ := os.ReadFile(path); string(have) != string(rules) {
 		t.Fatalf("not restored: %q", have)
+	}
+
+	// The user's services are named, in order.
+	os.MkdirAll(cfg.State, 0o700)
+	if err := fetch.SaveCustom(cfg, []fetch.Custom{{Name: "news", Host: "news.example.com", Ask: fetch.AskWrites}, {Name: "crm", Host: "crm.example.com", Ask: fetch.AskWrites}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRules(cfg); err != nil {
+		t.Fatal(err)
+	}
+	have, _ := os.ReadFile(path)
+	if !strings.HasSuffix(string(have), "these APIs, which you call through den with tokens it holds: crm, news. `den service ls` says what each one does.\n") {
+		t.Fatalf("rules %q", have)
 	}
 }
