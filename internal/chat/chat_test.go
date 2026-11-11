@@ -841,3 +841,22 @@ func TestProgressNote(t *testing.T) {
 		t.Fatal("the progress message was not edited")
 	}
 }
+
+func TestTell(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, usage.Open(cfg.State))
+	c.turns = []turnRef{{"t1", 0}}
+
+	if c.Tell("job", "[den: done]") {
+		t.Fatal("a turn the chat did not run took the note")
+	}
+	if !c.Tell("t1", "[den: done]") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" {
+		t.Fatalf("inbox %+v", c.inbox)
+	}
+
+	// A new session is not the one the command's turn ran in.
+	c.switchTo("")
+	if c.Tell("t1", "[den: done]") {
+		t.Fatal("a turn of the old session took the note")
+	}
+}

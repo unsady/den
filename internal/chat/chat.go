@@ -166,6 +166,50 @@ type Chat struct {
 	// notes carry what a running command says about itself, such as how
 	// many items den map has done, to the progress message.
 	notes chan string
+	// turns are the latest turns' IDs with their generation, so den can
+	// tell the agent of the session a turn ran in what came of a command
+	// it started.
+	turns []turnRef
+}
+
+type turnRef struct {
+	id         string
+	generation int
+}
+
+// keptTurns is how many of the latest turns Tell recognizes.
+const keptTurns = 100
+
+// Current is the running turn's ID, or "" between turns.
+func (c *Chat) Current() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.turnID
+}
+
+// Tell gives the agent text as a new turn, such as what came of a command
+// that waited for the user after the agent's turn ended. It returns false
+// when turn is not one of the chat's in its current session, such as a
+// job's, and the caller tells the user instead.
+func (c *Chat) Tell(turn, text string) bool {
+	c.mu.Lock()
+	found := false
+	for _, t := range c.turns {
+		found = found || (t.id == turn && t.generation == c.generation)
+	}
+	if found {
+		c.inbox = append(c.inbox, entry{text: text})
+	}
+	c.mu.Unlock()
+	if !found {
+		return false
+	}
+
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+	return true
 }
 
 func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
@@ -453,6 +497,10 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = stop
 	current := rand.Text()
 	c.turnID = current
+	c.turns = append(c.turns, turnRef{current, generation})
+	if len(c.turns) > keptTurns {
+		c.turns = c.turns[len(c.turns)-keptTurns:]
+	}
 	c.mu.Unlock()
 	defer stop()
 	started := time.Now()
