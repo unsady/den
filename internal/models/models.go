@@ -30,11 +30,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/proc"
 )
 
 // Proxy is where den serves the providers to fx.
@@ -276,8 +276,10 @@ func (m *Models) Protect() {
 		return
 	}
 
+	// The profile is the agent's: den reads and writes it as the agent,
+	// so a link there cannot lead den to its own secrets.
 	settingsPath := filepath.Join(m.home, "settings.json")
-	data, err := os.ReadFile(settingsPath)
+	data, err := proc.ReadFile(m.cfg, settingsPath)
 	if err != nil {
 		return
 	}
@@ -305,7 +307,7 @@ func (m *Models) Protect() {
 			// A key for a local server, or one already behind the proxy.
 			continue
 		}
-		key, err := os.ReadFile(keyPath)
+		key, err := proc.ReadFile(m.cfg, keyPath)
 		if err != nil || strings.TrimSpace(string(key)) == "" {
 			continue
 		}
@@ -331,7 +333,7 @@ func (m *Models) Protect() {
 	if err != nil {
 		return
 	}
-	if err := replace(settingsPath, out); err != nil {
+	if err := proc.WriteFile(m.cfg, settingsPath, out, 0o600); err != nil {
 		log.Printf("models: %v", err)
 	}
 }
@@ -343,23 +345,6 @@ func writeSecret(path string, data []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-// replace rewrites a file of the agent's, keeping its owner and mode.
-func replace(path string, data []byte) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-
-	tmp := path + ".den"
-	if err := os.WriteFile(tmp, append(bytes.TrimSpace(data), '\n'), info.Mode().Perm()); err != nil {
-		return err
-	}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		os.Chown(tmp, int(st.Uid), int(st.Gid))
 	}
 	return os.Rename(tmp, path)
 }
@@ -398,7 +383,7 @@ func (m *Models) Login(id, baseURL, key, model string) error {
 
 	settingsPath := filepath.Join(m.home, "settings.json")
 	settings := map[string]json.RawMessage{}
-	if data, err := os.ReadFile(settingsPath); err == nil {
+	if data, err := proc.ReadFile(m.cfg, settingsPath); err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
 			return fmt.Errorf("%s: %v", settingsPath, err)
 		}
@@ -431,28 +416,7 @@ func (m *Models) Login(id, baseURL, key, model string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(settingsPath); err != nil {
-		return m.create(settingsPath, out)
-	}
-	return replace(settingsPath, out)
-}
-
-// create writes a new file in the agent's profile, owned like the profile.
-func (m *Models) create(path string, data []byte) error {
-	if err := os.MkdirAll(m.home, 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	// The profile's parent is the agent's home.
-	if info, err := os.Stat(filepath.Dir(m.home)); err == nil {
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			os.Chown(m.home, int(st.Uid), int(st.Gid))
-			os.Chown(path, int(st.Uid), int(st.Gid))
-		}
-	}
-	return nil
+	return proc.WriteFile(m.cfg, settingsPath, out, 0o600)
 }
 
 // longWait is the longest Retry-After den lets fx wait out.
@@ -571,7 +535,7 @@ func (m *Models) standToken(w http.ResponseWriter) {
 func (m *Models) Default(provider string, offered func() ([]string, error)) error {
 	path := filepath.Join(m.home, "settings.json")
 	settings := map[string]json.RawMessage{}
-	data, err := os.ReadFile(path)
+	data, err := proc.ReadFile(m.cfg, path)
 	if err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
 			return fmt.Errorf("%s: %v", path, err)
@@ -600,8 +564,5 @@ func (m *Models) Default(provider string, offered func() ([]string, error)) erro
 	if err != nil {
 		return err
 	}
-	if data == nil {
-		return m.create(path, out)
-	}
-	return replace(path, out)
+	return proc.WriteFile(m.cfg, path, out, 0o600)
 }

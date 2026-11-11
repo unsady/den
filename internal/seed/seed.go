@@ -16,10 +16,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/fetch"
+	"github.com/unsady/den/internal/proc"
 )
 
 //go:embed all:space
@@ -77,21 +77,12 @@ func WriteRules(cfg config.Config) error {
 	// The sessions live at ~/.fx/sessions/v2, the profile above them.
 	profile := filepath.Dir(filepath.Dir(cfg.Sessions))
 	path := filepath.Join(profile, "AGENTS.md")
-	if have, err := os.ReadFile(path); err == nil && bytes.Equal(have, text) {
+	// The profile is the agent's, so den writes there as the agent: a link
+	// the agent put in place of the file leads nowhere else.
+	if have, err := proc.ReadFile(cfg, path); err == nil && bytes.Equal(have, text) {
 		return nil
 	}
-	if _, err := os.Stat(profile); errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(profile, 0o700); err != nil {
-			return err
-		}
-		// The profile belongs to the agent, like the home above it.
-		if info, err := os.Stat(filepath.Dir(profile)); err == nil {
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				os.Chown(profile, int(st.Uid), int(st.Gid))
-			}
-		}
-	}
-	return os.WriteFile(path, text, 0o644)
+	return proc.WriteFile(cfg, path, text, 0o644)
 }
 
 func create(space string) error {

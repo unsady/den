@@ -5,6 +5,7 @@
 package proc
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -135,4 +136,40 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+// ReadFile reads a file in the agent's home as the agent, so a link the
+// agent made there reaches only what the agent may read itself.
+func ReadFile(cfg config.Config, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd, err := Command(ctx, cfg, "/bin/cat", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w: %s", path, err, strings.TrimSpace(stderr.String()))
+	}
+	return data, nil
+}
+
+// WriteFile writes a file in the agent's home as the agent, so it belongs
+// to the agent and a link the agent made there leads nowhere else: the
+// data goes to a new file that then replaces path, link or not.
+func WriteFile(cfg config.Config, path string, data []byte, perm os.FileMode) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	script := `umask 077; mkdir -p -- "$(dirname -- "$1")" && t=$(mktemp "$1.XXXXXX") && cat > "$t" && chmod "$2" "$t" && mv -f -- "$t" "$1"`
+	cmd, err := Command(ctx, cfg, "/bin/sh", "-c", script, "write", path, fmt.Sprintf("%o", perm.Perm()))
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = bytes.NewReader(data)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("writing %s: %w: %s", path, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }

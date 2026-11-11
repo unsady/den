@@ -24,10 +24,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/proc"
 )
 
 const (
@@ -300,20 +300,9 @@ func (c *Codex) stand(account string) error {
 		"expires_at_ms": Never.UnixMilli(),
 		"account_id":    account,
 	})
-	if err := os.MkdirAll(c.home, 0o700); err != nil {
-		return err
-	}
-	path := filepath.Join(c.home, authFile)
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
-		return err
-	}
-	// fx reads only a session its own user owns.
-	if info, err := os.Stat(c.home); err == nil {
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
-			os.Chown(path+".tmp", int(st.Uid), int(st.Gid))
-		}
-	}
-	return os.Rename(path+".tmp", path)
+	// fx reads only a session its own user owns, and the profile is the
+	// agent's, so den writes it as the agent.
+	return proc.WriteFile(c.cfg, filepath.Join(c.home, authFile), data, 0o600)
 }
 
 type grantError struct {
