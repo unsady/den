@@ -261,3 +261,49 @@ func TestResponses(t *testing.T) {
 		t.Errorf("failure %+v, summary %+v", got[2], sum)
 	}
 }
+
+func TestEffort(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Effort    *string `json:"reasoning_effort"`
+			Reasoning *struct {
+				Effort string `json:"effort"`
+			} `json:"reasoning"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		got := "unset"
+		switch {
+		case req.Reasoning != nil:
+			got = "responses:" + req.Reasoning.Effort
+		case req.Effort != nil:
+			got = "chat:" + *req.Effort
+		}
+		mu.Lock()
+		seen = append(seen, got)
+		mu.Unlock()
+		if req.Reasoning != nil {
+			fmt.Fprint(w, "data: {\"type\":\"response.output_text.done\",\"text\":\"{}\"}\n\n")
+			return
+		}
+		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	defer srv.Close()
+
+	out := filepath.Join(t.TempDir(), "out.jsonl")
+	for _, opts := range []Options{
+		{Effort: ""},
+		{Effort: "none"},
+		{Responses: true},
+		{Responses: true, Effort: "medium"},
+	} {
+		opts.URL, opts.Model, opts.Instructions = srv.URL, "m", "x"
+		if _, err := Run(context.Background(), opts, strings.NewReader(`"a"`), out); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{"unset", "chat:none", "responses:low", "responses:medium"}; !slices.Equal(seen, want) {
+		t.Errorf("efforts %v, want %v", seen, want)
+	}
+}

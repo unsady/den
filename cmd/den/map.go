@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
@@ -29,7 +31,8 @@ func mapCommand(cfg config.Config, args []string) error {
 	prompt := fs.String("p", "", "the instructions for every item, or @file to read them")
 	model := fs.String("model", "", "provider/model, or a model of fx's provider; fx's model when empty")
 	out := fs.String("out", "", "where to write the answers; <items>.out.jsonl when empty")
-	workers := fs.Int("workers", 6, "how many items to ask about at once")
+	workers := fs.Int("workers", 4, fmt.Sprintf("how many items to ask about at once, up to %d", maxWorkers))
+	effort := fs.String("effort", "", "the model's reasoning effort, such as none or low; the provider's default when empty, low for Codex")
 	resume := fs.Bool("resume", false, "keep the answers already in the output file and ask only for the rest")
 	rest, err := parse(fs, args)
 	if err != nil {
@@ -53,13 +56,35 @@ func mapCommand(cfg config.Config, args []string) error {
 		return err
 	}
 
-	in, err := os.Open(rest[0])
+	if *workers > maxWorkers {
+		fmt.Fprintf(os.Stderr, "den map runs at most %d items at once.\n", maxWorkers)
+		*workers = maxWorkers
+	}
+
+	data, err := os.ReadFile(rest[0])
 	if err != nil {
 		return err
 	}
-	defer in.Close()
 	if *out == "" {
 		*out = strings.TrimSuffix(rest[0], ".jsonl") + ".out.jsonl"
+	}
+
+	// Every run spends the user's subscription or money, so the user
+	// allows it first, or allowed this model for good.
+	ask := daemon.MapRequest{
+		Provider:     provider.name,
+		Model:        provider.model,
+		Effort:       *effort,
+		File:         rest[0],
+		Instructions: instructions,
+	}
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) > 0 {
+			ask.Items++
+		}
+	}
+	if err := client.New(cfg).Wait(approve.Wait+5*time.Minute).Do(http.MethodPost, "/map", ask, nil); err != nil {
+		return fmt.Errorf("not run: %w", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -68,6 +93,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		URL:          provider.url,
 		Responses:    provider.name == "codex",
 		Model:        provider.model,
+		Effort:       *effort,
 		Instructions: instructions,
 		Workers:      *workers,
 		Resume:       *resume,
@@ -76,7 +102,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		Every:        10 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "Asking %s/%s about each item of %s…\n", provider.name, provider.model, rest[0])
-	sum, err := mapper.Run(ctx, opts, in, *out)
+	sum, err := mapper.Run(ctx, opts, bytes.NewReader(data), *out)
 	printMapSummary(os.Stdout, *out, provider, sum)
 	return err
 }
@@ -98,6 +124,10 @@ func mapProgress(cfg config.Config) func(mapper.Status) {
 		_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Turn: turn, Text: note}, nil)
 	}
 }
+
+// maxWorkers bounds how many requests one run sends at once, so a provider
+// does not refuse them as too many.
+const maxWorkers = 8
 
 type mapTarget struct {
 	name, model, url string

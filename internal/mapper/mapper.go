@@ -31,6 +31,9 @@ type Options struct {
 	URL       string
 	Responses bool
 	Model     string
+	// Effort is the model's reasoning effort, such as none or low; empty
+	// leaves the provider's default, and low for Codex.
+	Effort string
 	// Instructions are the question each item is answered against.
 	Instructions string
 	Workers      int
@@ -295,15 +298,23 @@ func (u usage) cost() float64 {
 }
 
 func (a asker) ask(ctx context.Context, item string) (text string, use usage, retry bool, err error) {
-	body, _ := json.Marshal(map[string]any{
+	chat := map[string]any{
 		"model":       a.opts.Model,
 		"temperature": 0,
 		"messages": []map[string]any{
 			{"role": "system", "content": a.instructions()},
 			{"role": "user", "content": item},
 		},
-	})
+	}
+	if a.opts.Effort != "" {
+		chat["reasoning_effort"] = a.opts.Effort
+	}
+	body, _ := json.Marshal(chat)
 	if a.opts.Responses {
+		effort := a.opts.Effort
+		if effort == "" {
+			effort = "low"
+		}
 		// Codex takes only streamed requests that it does not store, and
 		// chooses the output limit itself. Low effort suits one item. It
 		// reuses its cache of the instructions only for requests that share
@@ -315,7 +326,7 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 			"stream":           true,
 			"instructions":     a.system,
 			"input":            []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}},
-			"reasoning":        map[string]string{"effort": "low"},
+			"reasoning":        map[string]string{"effort": effort},
 			"text":             map[string]string{"verbosity": "low"},
 		})
 	}
