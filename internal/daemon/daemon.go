@@ -575,7 +575,10 @@ func (d *daemon) routes() http.Handler {
 		if req.Effort != "" {
 			text += ", effort " + req.Effort
 		}
-		text += "\nItems: " + req.File + "\n\n" + clipText(strings.TrimSpace(req.Instructions), 600)
+		text += "\n" + req.File
+		if task := firstSentence(req.Instructions); task != "" {
+			text += "\n" + task
+		}
 		q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
 		switch err := d.ask.Ask(r.Context(), q); {
 		case errors.Is(err, approve.ErrDenied), errors.Is(err, approve.ErrExpired):
@@ -647,6 +650,16 @@ func (d *daemon) routes() http.Handler {
 	})
 
 	return mux
+}
+
+// firstSentence is the opening of instructions, enough to tell what a run
+// is for: its first line, up to its first sentence, at most 160 runes.
+func firstSentence(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if i := strings.Index(line, ". "); i > 0 {
+		line = line[:i+1]
+	}
+	return clipText(line, 160)
 }
 
 // clipText keeps the first n runes of text, marking a cut with an ellipsis.

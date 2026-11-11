@@ -83,6 +83,8 @@ func mapCommand(cfg config.Config, args []string) error {
 			ask.Items++
 		}
 	}
+	fmt.Fprintln(os.Stderr, "Waiting for the user to allow this run in Telegram, up to 15 minutes. Keep waiting for this command: if your turn ends first, the run stops and the question expires.")
+	chatNote(cfg, "🗂 waiting for your answer")
 	if err := client.New(cfg).Wait(approve.Wait+5*time.Minute).Do(http.MethodPost, "/map", ask, nil); err != nil {
 		return fmt.Errorf("not run: %w", err)
 	}
@@ -108,21 +110,27 @@ func mapCommand(cfg config.Config, args []string) error {
 }
 
 // mapProgress prints how far a run is for the agent, and has den show it
-// under the step in the user's chat when the chat's agent runs it.
+// under the step in the user's chat.
 func mapProgress(cfg config.Config) func(mapper.Status) {
-	turn := os.Getenv("DEN_TURN")
 	return func(s mapper.Status) {
 		fmt.Fprintf(os.Stderr, "den map: %d of %d done, %d failed, $%.4f so far\n", s.Done, s.Total, s.Failed, s.Cost)
-		note := fmt.Sprintf("🗂 %d of %d items", s.Done, s.Total)
+		text := fmt.Sprintf("🗂 %d of %d items", s.Done, s.Total)
 		if s.Failed > 0 {
-			note += fmt.Sprintf(", %d failed", s.Failed)
+			text += fmt.Sprintf(", %d failed", s.Failed)
 		}
-		if turn == "" {
-			return
-		}
-		// The chat is a nicety: a daemon that is away does not stop the run.
-		_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Turn: turn, Text: note}, nil)
+		chatNote(cfg, text)
 	}
+}
+
+// chatNote shows text under the running step in the user's chat, when the
+// chat's agent runs this command.
+func chatNote(cfg config.Config, text string) {
+	turn := os.Getenv("DEN_TURN")
+	if turn == "" {
+		return
+	}
+	// The chat is a nicety: a daemon that is away does not stop the run.
+	_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Turn: turn, Text: text}, nil)
 }
 
 // maxWorkers bounds how many requests one run sends at once, so a provider
