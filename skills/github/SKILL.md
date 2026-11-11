@@ -26,8 +26,8 @@ git push -u origin <topic-branch>
 ```
 
 - Commit as the user only once they told you their name and email; until then ask, and keep the answer in `notes/skills/github.md`. Set it per repository with `git config user.name` and `git config user.email`.
-- A push that creates a branch, or changes a branch you created through den, goes at once, force-pushes included. A push to any other branch, such as `main`, deleting such a branch, or pushing a tag waits until the user allows it in Telegram, up to 15 minutes. So work on your own branch and open a pull request, unless the user asked you to push to `main`.
-- When the user does not allow a push, git reports `den: the user did not allow this push`. Do not push it again.
+- A push that creates a branch, or changes a branch you created through den, goes at once, force-pushes included. A push to any other branch, such as `main`, deleting such a branch, or pushing a tag waits for the user's Allow in Telegram. So work on your own branch and open a pull request, unless the user asked you to push to `main`.
+- Such a push fails at once with `den: waiting for the user in Telegram`: den keeps it and sends it to GitHub once the user allows it, then tells you in a new `[den:` message. Do not push it again; after that message, `git fetch` updates your copy of the remote branch. If the branch moved on GitHub meanwhile, GitHub refuses the kept push, and den says so: fetch, rebase or merge, and push again.
 
 ## Back up the space
 
@@ -51,7 +51,7 @@ The backup holds the space only, not `archive/` or `inbox/`.
 
 ## What waits for the user in the API
 
-Reads, and ordinary changes to the user's own repositories, go at once: issues, comments, files, branches, and pull requests. den asks the user in Telegram first before a request that writes to someone else's repository, deletes or reconfigures a repository, changes access, moves a branch directly, or creates a public repository. Such a request waits up to 15 minutes. Tell the user what you are waiting for, and when den answers that they did not allow it, do not send it again.
+Reads, and ordinary changes to the user's own repositories, go at once: issues, comments, files, branches, and pull requests. den asks the user in Telegram first before a request that writes to someone else's repository, deletes or reconfigures a repository, changes access, moves a branch directly, or creates a public repository. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. Tell the user what you asked for, and do not send it again.
 
 ## Requests
 
