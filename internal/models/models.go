@@ -88,6 +88,17 @@ func (m *Models) Peak(since time.Time) int {
 	return peak
 }
 
+// Last is the size of the last prompt sent since a time, in tokens, or 0
+// when none was: after a compaction, the size of the compacted session.
+func (m *Models) Last(since time.Time) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if n := len(m.prompts); n > 0 && !m.prompts[n-1].at.Before(since) {
+		return m.prompts[n-1].tokens
+	}
+	return 0
+}
+
 func (m *Models) record(tokens int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

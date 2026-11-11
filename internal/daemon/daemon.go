@@ -308,6 +308,9 @@ func (d *daemon) SetJobSlot(ref, slot string) (jobs.Job, error) { return d.store
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
 
+// LastContext serves the chat's /compact.
+func (d *daemon) LastContext(since time.Time) int { return d.models.Last(since) }
+
 // Answer passes the user's answer from the chat to a question den asked,
 // and Rules, Forget, and Actions serve the chat's /log.
 func (d *daemon) Answer(id, outcome string) (string, bool) { return d.ask.Answer(id, outcome) }
