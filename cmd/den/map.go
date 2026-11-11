@@ -68,6 +68,8 @@ func mapCommand(cfg config.Config, args []string) error {
 		Workers:      *workers,
 		Resume:       *resume,
 		Wait:         5 * time.Second,
+		Progress:     os.Stderr,
+		Every:        15 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "Asking %s/%s about each item of %s…\n", provider.name, provider.model, rest[0])
 	sum, err := mapper.Run(ctx, opts, in, *out)

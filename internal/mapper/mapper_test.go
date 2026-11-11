@@ -3,6 +3,7 @@ package mapper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // provider answers like an OpenAI-style API: the item's text decides the
@@ -141,6 +143,71 @@ func TestRun(t *testing.T) {
 	if !slices.Equal(keys, []int{1, 2, 4, 5, 6}) {
 		t.Errorf("resumed output has lines %v", keys)
 	}
+}
+
+func TestClaudeInstructionsAreCached(t *testing.T) {
+	var system json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		system = req.Messages[0].Content
+		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	defer srv.Close()
+
+	out := filepath.Join(t.TempDir(), "out.jsonl")
+	text := "Classify." + reply
+	marked, _ := json.Marshal([]map[string]any{{"type": "text", "text": text, "cache_control": map[string]string{"type": "ephemeral"}}})
+	plain, _ := json.Marshal(text)
+	for model, want := range map[string][]byte{"claude-haiku-5-5": marked, "deepseek": plain} {
+		if _, err := Run(context.Background(), Options{URL: srv.URL, Model: model, Instructions: "Classify."}, strings.NewReader(`"x"`), out); err != nil {
+			t.Fatal(err)
+		}
+		var got, wanted any
+		json.Unmarshal(system, &got)
+		json.Unmarshal(want, &wanted)
+		if fmt.Sprint(got) != fmt.Sprint(wanted) {
+			t.Errorf("%s: system %s", model, system)
+		}
+	}
+}
+
+func TestProgress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
+	}))
+	defer srv.Close()
+
+	var buf syncBuffer
+	opts := Options{URL: srv.URL, Model: "m", Instructions: "x", Workers: 1, Progress: &buf, Every: 20 * time.Millisecond}
+	if _, err := Run(context.Background(), opts, strings.NewReader("1\n2\n3\n4\n"), filepath.Join(t.TempDir(), "out.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); !strings.Contains(got, "of 4 done, 0 failed") {
+		t.Errorf("progress %q", got)
+	}
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func TestExtract(t *testing.T) {

@@ -39,6 +39,9 @@ type Options struct {
 	// Wait is how long to wait before retrying a failed request; tests
 	// shorten it.
 	Wait time.Duration
+	// Progress, when set, gets a line on how far the run is every Every.
+	Progress io.Writer
+	Every    time.Duration
 }
 
 // Result is the answer to one item: one line of the output file.
@@ -125,6 +128,12 @@ func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, 
 	}
 
 	start := time.Now()
+	stop := make(chan struct{})
+	defer close(stop)
+	if opts.Progress != nil && opts.Every > 0 {
+		go progress(opts.Progress, opts.Every, stop, &mu, &results, len(items))
+	}
+
 	ask := asker{opts: opts, system: opts.Instructions + reply}
 	ask.session = "den-map-" + digest(ask.system)
 	queue := make(chan item)
@@ -167,6 +176,35 @@ func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, 
 		failed = ctx.Err()
 	}
 	return sum, failed
+}
+
+// progress reports how many items have an answer, when that changed.
+func progress(w io.Writer, every time.Duration, stop <-chan struct{}, mu *sync.Mutex, results *[]Result, total int) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	last := -1
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+
+		mu.Lock()
+		done, failed, cost := len(*results), 0, 0.0
+		for _, r := range *results {
+			if r.Error != "" {
+				failed++
+			}
+			cost += r.Cost
+		}
+		mu.Unlock()
+
+		if done != last {
+			last = done
+			fmt.Fprintf(w, "den map: %d of %d done, %d failed, $%.4f so far\n", done, total, failed, cost)
+		}
+	}
 }
 
 type item struct {
@@ -245,8 +283,8 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 	body, _ := json.Marshal(map[string]any{
 		"model":       a.opts.Model,
 		"temperature": 0,
-		"messages": []map[string]string{
-			{"role": "system", "content": a.system},
+		"messages": []map[string]any{
+			{"role": "system", "content": a.instructions()},
 			{"role": "user", "content": item},
 		},
 	})
@@ -290,6 +328,16 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 		return "", out.Usage, true, errors.New("the provider's answer has no reply")
 	}
 	return out.Choices[0].Message.Content, out.Usage, false, nil
+}
+
+// instructions are the system message. Claude caches only up to a marked
+// block, and OpenCode otherwise marks the end of the whole request, which
+// writes each item to the cache at a higher price and never reads it back.
+func (a asker) instructions() any {
+	if !strings.Contains(strings.ToLower(a.opts.Model), "claude") {
+		return a.system
+	}
+	return []map[string]any{{"type": "text", "text": a.system, "cache_control": map[string]string{"type": "ephemeral"}}}
 }
 
 // content is what the model reads for an item: a JSON string's text, or
