@@ -308,6 +308,9 @@ func (d *daemon) SetJobSlot(ref, slot string) (jobs.Job, error) { return d.store
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
 
+// JobSessions serves the chat's /sessions, which keeps job runs apart.
+func (d *daemon) JobSessions() map[string]bool { return d.runs.Sessions() }
+
 // LastContext serves the chat's /compact.
 func (d *daemon) LastContext(since time.Time) int { return d.models.Last(since) }
 

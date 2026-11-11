@@ -78,3 +78,18 @@ func TestAddRejectsDuplicateNames(t *testing.T) {
 		t.Error("want an error for a duplicate name")
 	}
 }
+
+func TestRunSessions(t *testing.T) {
+	runs := NewRuns(t.TempDir())
+	now := time.Now()
+	for i, r := range []Run{{JobID: "a", SessionID: "s1"}, {JobID: "a", SessionID: "s2"}, {JobID: "b", SessionID: "s3"}, {JobID: "b"}} {
+		r.Started = now.Add(time.Duration(i) * time.Second)
+		if err := runs.Save(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := runs.Sessions()
+	if len(got) != 3 || !got["s1"] || !got["s2"] || !got["s3"] {
+		t.Fatalf("sessions %v", got)
+	}
+}

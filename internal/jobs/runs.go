@@ -82,6 +82,29 @@ func (r *Runs) Last(jobID string, n int) ([]Run, error) {
 	return runs, nil
 }
 
+// Sessions returns the fx sessions of every job's kept runs.
+func (r *Runs) Sessions() map[string]bool {
+	sessions := map[string]bool{}
+	jobs, _ := os.ReadDir(r.dir)
+	for _, job := range jobs {
+		if !job.IsDir() {
+			continue
+		}
+		names, _ := r.names(filepath.Join(r.dir, job.Name()))
+		for _, name := range names {
+			data, err := os.ReadFile(filepath.Join(r.dir, job.Name(), name))
+			if err != nil {
+				continue
+			}
+			var run Run
+			if json.Unmarshal(data, &run) == nil && run.SessionID != "" {
+				sessions[run.SessionID] = true
+			}
+		}
+	}
+	return sessions
+}
+
 func (r *Runs) prune(dir string) error {
 	names, err := r.names(dir)
 	if err != nil {
