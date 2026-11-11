@@ -171,6 +171,7 @@ The agent's workspace, `space/`, is a git repository with its `AGENTS.md`, its n
 - `media`: details, subtitles, and transcripts of videos and audio with yt-dlp and whisper.
 - `python`: scripts and data work with uv, which fetches Python on first use.
 - `charts`: dark, minimal charts sized for a phone.
+- `data`: records that change, such as job openings with a status, in SQLite.
 - `social`: reading X and Reddit without an API key.
 - `model-stats`: how the model providers did, by hour.
 - `github`, `google`, `mail`: the services above.
