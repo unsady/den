@@ -199,7 +199,19 @@ func hostRun(args []string) error {
 			return inside(c, value, "secret", "set", args[2])
 		}
 	}
-	return inside(c, "", args...)
+	// Only the commands that handle secrets run as root. The rest run as
+	// the agent, so they do not act as root on files the agent controls,
+	// such as the sessions they export.
+	if rootCommands[args[0]] {
+		return inside(c, "", args...)
+	}
+	return agentExec(c, append([]string{"den"}, args...)...)
+}
+
+// rootCommands are the commands that need den's secrets.
+var rootCommands = map[string]bool{
+	"secret": true, "secrets": true, "service": true, "services": true,
+	"login": true, "connect": true, "disconnect": true, "serve": true,
 }
 
 // inside runs den with args in the container, with input on its stdin, or
