@@ -1,0 +1,391 @@
+// Package mapper asks a model the same question about many items, one short
+// request per item, for classification and extraction that would otherwise
+// fill an agent's context.
+//
+// Every request opens with the same instructions, so the provider caches
+// them, and carries one item, so a request stays small however many items
+// there are.
+package mapper
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Options say where to send the items and what to ask.
+type Options struct {
+	// URL is the provider's chat completions endpoint.
+	URL   string
+	Model string
+	// Instructions are the question each item is answered against.
+	Instructions string
+	Workers      int
+	// Resume keeps answers already in the output file and asks only for the
+	// rest.
+	Resume bool
+	Client *http.Client
+	// Wait is how long to wait before retrying a failed request; tests
+	// shorten it.
+	Wait time.Duration
+}
+
+// Result is the answer to one item: one line of the output file.
+type Result struct {
+	// Line is the item's line in the input, from 1.
+	Line int `json:"line"`
+	// ID is the item's own "id" field, when it has one.
+	ID     json.RawMessage `json:"id,omitempty"`
+	Answer json.RawMessage `json:"answer,omitempty"`
+	// Text is a reply that was not JSON.
+	Text    string  `json:"text,omitempty"`
+	Error   string  `json:"error,omitempty"`
+	Input   int     `json:"input_tokens,omitempty"`
+	Cached  int     `json:"cached_tokens,omitempty"`
+	Output  int     `json:"output_tokens,omitempty"`
+	Cost    float64 `json:"cost,omitempty"`
+	Seconds float64 `json:"seconds"`
+}
+
+// Summary is what a run did.
+type Summary struct {
+	Items    int     `json:"items"`
+	Kept     int     `json:"kept,omitempty"`
+	Answered int     `json:"answered"`
+	Failed   int     `json:"failed"`
+	Minutes  float64 `json:"minutes"`
+	Input    int     `json:"input_tokens"`
+	Cached   int     `json:"cached_tokens"`
+	Output   int     `json:"output_tokens"`
+	Cost     float64 `json:"cost"`
+	// Values counts the answers' short top-level fields, such as a verdict.
+	Values map[string]map[string]int `json:"values,omitempty"`
+}
+
+const reply = "\n\nAnswer with one JSON value only: no prose and no code fence."
+
+// Run answers each line of in and writes the results to out, one JSON line
+// per item, in the order they finish.
+func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, error) {
+	var items []item
+	scan := bufio.NewScanner(in)
+	scan.Buffer(make([]byte, 1<<20), 64<<20)
+	for n := 1; scan.Scan(); n++ {
+		if line := bytes.TrimSpace(scan.Bytes()); len(line) > 0 {
+			items = append(items, item{n, bytes.Clone(line)})
+		}
+	}
+	if err := scan.Err(); err != nil {
+		return Summary{}, err
+	}
+
+	kept := map[int]Result{}
+	if opts.Resume {
+		kept = previous(out)
+	}
+	file, err := os.Create(out)
+	if err != nil {
+		return Summary{}, err
+	}
+	defer file.Close()
+
+	sum := Summary{Items: len(items)}
+	var results []Result
+	var mu sync.Mutex
+	write := func(r Result) error {
+		mu.Lock()
+		defer mu.Unlock()
+		results = append(results, r)
+		line, _ := json.Marshal(r)
+		_, err := file.Write(append(line, '\n'))
+		return err
+	}
+
+	var todo []item
+	for _, it := range items {
+		if r, ok := kept[it.line]; ok {
+			sum.Kept++
+			if err := write(r); err != nil {
+				return sum, err
+			}
+			continue
+		}
+		todo = append(todo, it)
+	}
+
+	start := time.Now()
+	ask := asker{opts: opts, system: opts.Instructions + reply}
+	ask.session = "den-map-" + digest(ask.system)
+	queue := make(chan item)
+	var wg sync.WaitGroup
+	var failed error
+	for range max(1, opts.Workers) {
+		wg.Go(func() {
+			for it := range queue {
+				if err := write(ask.answer(ctx, it)); err != nil {
+					mu.Lock()
+					failed = err
+					mu.Unlock()
+				}
+			}
+		})
+	}
+	for _, it := range todo {
+		if ctx.Err() != nil {
+			break
+		}
+		queue <- it
+	}
+	close(queue)
+	wg.Wait()
+
+	sum.Minutes = float64(int(time.Since(start).Minutes()*10)) / 10
+	for _, r := range results {
+		if r.Error != "" {
+			sum.Failed++
+		} else {
+			sum.Answered++
+		}
+		sum.Input += r.Input
+		sum.Cached += r.Cached
+		sum.Output += r.Output
+		sum.Cost += r.Cost
+	}
+	sum.Values = values(results)
+	if failed == nil {
+		failed = ctx.Err()
+	}
+	return sum, failed
+}
+
+type item struct {
+	line int
+	data []byte
+}
+
+type asker struct {
+	opts    Options
+	system  string
+	session string
+}
+
+// answer asks about one item, retrying a failed request and a reply that
+// is not JSON.
+func (a asker) answer(ctx context.Context, it item) (r Result) {
+	r = Result{Line: it.line, ID: id(it.data)}
+	start := time.Now()
+	defer func() { r.Seconds = float64(int(time.Since(start).Seconds()*10)) / 10 }()
+
+	for attempt := range 3 {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				r.Error = ctx.Err().Error()
+				return r
+			case <-time.After(a.opts.Wait * time.Duration(attempt)):
+			}
+		}
+
+		text, use, retry, err := a.ask(ctx, content(it.data))
+		r.Input += use.Prompt
+		r.Cached += use.Details.Cached
+		r.Output += use.Completion
+		r.Cost += use.cost()
+		if err != nil {
+			r.Error = err.Error()
+			if retry {
+				continue
+			}
+			return r
+		}
+
+		if answer := extract(text); answer != nil {
+			r.Answer, r.Text, r.Error = answer, "", ""
+			return r
+		}
+		r.Text, r.Error = text, "the reply is not JSON"
+	}
+	return r
+}
+
+// usage is what an OpenAI-style provider reports for one request.
+type usage struct {
+	Prompt     int `json:"prompt_tokens"`
+	Completion int `json:"completion_tokens"`
+	Details    struct {
+		Cached int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	Cost     float64 `json:"cost"`
+	OpenCode struct {
+		ListCost float64 `json:"list_cost"`
+	} `json:"opencode"`
+}
+
+// cost is the request's price in dollars; OpenCode's subscription reports
+// its list price apart.
+func (u usage) cost() float64 {
+	if u.Cost > 0 {
+		return u.Cost
+	}
+	return u.OpenCode.ListCost
+}
+
+func (a asker) ask(ctx context.Context, item string) (text string, use usage, retry bool, err error) {
+	body, _ := json.Marshal(map[string]any{
+		"model":       a.opts.Model,
+		"temperature": 0,
+		"messages": []map[string]string{
+			{"role": "system", "content": a.system},
+			{"role": "user", "content": item},
+		},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.opts.URL, bytes.NewReader(body))
+	if err != nil {
+		return "", use, false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// One name for every request lets OpenCode route them alike and reuse
+	// its cache of the instructions.
+	req.Header.Set("X-Opencode-Session", a.session)
+
+	client := a.opts.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", use, ctx.Err() == nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return "", use, true, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		return "", use, retry, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 300)])))
+	}
+
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Usage usage `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil || len(out.Choices) == 0 {
+		return "", out.Usage, true, errors.New("the provider's answer has no reply")
+	}
+	return out.Choices[0].Message.Content, out.Usage, false, nil
+}
+
+// content is what the model reads for an item: a JSON string's text, or
+// the line itself.
+func content(line []byte) string {
+	var s string
+	if json.Unmarshal(line, &s) == nil {
+		return s
+	}
+	return string(line)
+}
+
+func id(line []byte) json.RawMessage {
+	var obj struct {
+		ID json.RawMessage `json:"id"`
+	}
+	json.Unmarshal(line, &obj)
+	return obj.ID
+}
+
+// extract finds the JSON value in a reply, which models sometimes wrap in a
+// code fence or a sentence.
+func extract(text string) json.RawMessage {
+	text = strings.TrimSpace(text)
+	if json.Valid([]byte(text)) {
+		return json.RawMessage(text)
+	}
+	for _, pair := range []string{"{}", "[]"} {
+		first, last := strings.IndexByte(text, pair[0]), strings.LastIndexByte(text, pair[1])
+		if first >= 0 && last > first && json.Valid([]byte(text[first:last+1])) {
+			return json.RawMessage(text[first : last+1])
+		}
+	}
+	return nil
+}
+
+// previous reads the answered items of an earlier run's output.
+func previous(path string) map[int]Result {
+	kept := map[int]Result{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return kept
+	}
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		var r Result
+		if json.Unmarshal(line, &r) == nil && r.Line > 0 && r.Error == "" {
+			kept[r.Line] = r
+		}
+	}
+	return kept
+}
+
+// values counts the answers' short top-level strings and booleans that take
+// few values, so a summary shows such as how many items each verdict got,
+// and not each item's reason.
+func values(results []Result) map[string]map[string]int {
+	counts := map[string]map[string]int{}
+	for _, r := range results {
+		var obj map[string]any
+		if json.Unmarshal(r.Answer, &obj) != nil {
+			continue
+		}
+		for k, v := range obj {
+			var s string
+			switch v := v.(type) {
+			case string:
+				s = v
+			case bool:
+				s = fmt.Sprint(v)
+			default:
+				continue
+			}
+			if counts[k] == nil {
+				counts[k] = map[string]int{}
+			}
+			counts[k][s]++
+		}
+	}
+	for k, c := range counts {
+		for v := range c {
+			if len(v) > 40 {
+				c = nil
+				break
+			}
+		}
+		if len(c) == 0 || len(c) > 12 {
+			delete(counts, k)
+		}
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	return counts
+}
+
+func digest(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:24]
+}

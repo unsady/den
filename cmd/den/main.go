@@ -46,6 +46,9 @@ Usage:
                                 such as github; prints the response body
   den search [-n <count>] [--json] <query>
                                 Search the web through the services den has keys for
+  den map -p <instructions>|@<file> [--model <provider/model>] [--out <file>] [--workers 6] [--resume] <items.jsonl>
+                                Ask a cheap model about each line in its own short
+                                request and write one JSON answer per item
   den sessions export [--force] Write fx sessions as markdown into the archive
   den sessions recent [--since 24h] [--after <file>]
                                 Export, then list sessions that changed since then
@@ -116,6 +119,8 @@ func run(args []string) error {
 		return fetchCommand(cfg, args[1:])
 	case "search":
 		return searchCommand(cfg, args[1:])
+	case "map":
+		return mapCommand(cfg, args[1:])
 	case "sessions":
 		return sessionsCommand(cfg, args[1:])
 	case "secret", "secrets":
