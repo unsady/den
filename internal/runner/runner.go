@@ -20,6 +20,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/sessions"
 )
 
 // Silent is the reply that tells den a job has nothing to deliver.
@@ -164,6 +165,13 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 	result, parseErr := parse(stdout.Bytes())
 	reply.Output = result.output()
 	reply.SessionID = result.SessionID
+	if reply.Output == Silent || reply.Output == "Done." {
+		// A subagent's report came after the answer and took the last word;
+		// the answer is in the session.
+		if answer := sessions.Answer(cfg.Sessions, reply.SessionID, reply.Started); answer != "" {
+			reply.Output = answer
+		}
+	}
 	if result.Usage != nil {
 		reply.InputTokens = value(result.Usage.Input)
 		reply.OutputTokens = value(result.Usage.Output)

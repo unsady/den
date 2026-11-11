@@ -7,7 +7,7 @@ release notes.
 ## Unreleased
 
 - den compacts a long session while you are away with a ChatGPT subscription too: like `/status`, it did not find the model's context window.
-- When a subagent reports after the agent has answered, the chat gets the agent's answer instead of a bare “SILENT” or “Done.” from the report's turn.
+- When a subagent reports after the agent has answered, the chat and jobs get the agent's answer instead of a bare “SILENT” or “Done.” from the report's turn, which kept a job's reply from being sent.
 - Once answered or expired, a question about a request, a push, or a mail shrinks to one line, such as “news: POST /api/events” and ✓ Allowed, instead of keeping the whole request body in the chat.
 - A step that waits on a command still running in the background reads “Waiting for jq” instead of showing the whole command cut off.
 - A ``` block or `inline code` in the agent's messages shows in Telegram as code that copies with a tap, without the backticks.

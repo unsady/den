@@ -26,7 +26,6 @@ import (
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
-	"github.com/unsady/den/internal/sessions"
 	"github.com/unsady/den/internal/usage"
 )
 
@@ -473,13 +472,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 
 	text := reply.Output
-	if text == runner.Silent || text == "Done." {
-		// A subagent's report came after the answer and took the last word;
-		// the answer is in the session.
-		if answer := sessions.Answer(c.cfg.Sessions, reply.SessionID, started); answer != "" {
-			text = answer
-		}
-	}
 	switch {
 	case reply.Error != "":
 		text = "fx failed: " + reply.Error
