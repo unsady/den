@@ -125,11 +125,17 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	}
 
 	// Nobody answered: take the buttons away, so a late press does nothing,
-	// and shrink the question to its one line.
+	// and shrink the question to its one line. When the asker went away
+	// first, such as a command whose agent's turn ended, it stopped rather
+	// than ran out of time.
 	a.Note(q.What, Expired)
+	result := "\n✗ Expired"
+	if ctx.Err() != nil {
+		result = "\n✗ Stopped before you answered"
+	}
 	call, cancel = context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := telegram.Edit(call, message, q.What+"\n✗ Expired"); err != nil {
+	if err := telegram.Edit(call, message, q.What+result); err != nil {
 		log.Printf("approve: %v", err)
 	}
 	if ctx.Err() != nil {
