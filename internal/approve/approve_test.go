@@ -118,4 +118,27 @@ func TestAsk(t *testing.T) {
 	if got := <-sent; strings.Contains(got, "al:") {
 		t.Fatalf("mail offered Always: %q", got)
 	}
+
+	// Later returns at once and passes the answer on when it comes.
+	later := func(outcome string) (bool, error) {
+		answered := make(chan error, 1)
+		waiting, err := a.Later(context.Background(), q, func(err error) { answered <- err })
+		if err != nil || !waiting {
+			return waiting, err
+		}
+		_, id, _ := strings.Cut(strings.Fields(<-sent)[2], ":")
+		if _, ok := a.Answer(id, outcome); !ok {
+			t.Fatal("later: the question was not waiting")
+		}
+		return true, <-answered
+	}
+	if waiting, err := later(Denied); !waiting || !errors.Is(err, ErrDenied) {
+		t.Fatalf("later denied: %v %v", waiting, err)
+	}
+	if waiting, err := later(Always); !waiting || err != nil {
+		t.Fatalf("later always: %v %v", waiting, err)
+	}
+	if waiting, err := later(""); waiting || err != nil {
+		t.Fatalf("later by rule: %v %v", waiting, err)
+	}
 }

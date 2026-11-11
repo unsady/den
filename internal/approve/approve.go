@@ -83,9 +83,50 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 		return nil
 	}
 
+	s, err := a.send(ctx, q)
+	if err != nil {
+		return err
+	}
+	return s.wait(ctx, Wait)
+}
+
+// Later asks like Ask without waiting for the answer, for an action den can
+// take on its own once the user allows it, so nothing holds a connection
+// open in the meantime. It returns false when a rule allows q, and the
+// caller goes on at once. Otherwise it sends q, returns true, and calls
+// then with the answer, nil when the user allows it, once they give one or
+// LaterWait passes. ctx bounds the wait, such as den's own lifetime.
+func (a *Asker) Later(ctx context.Context, q Question, then func(error)) (bool, error) {
+	if q.Rule != "" && a.allowed(q.Rule) {
+		a.Note(q.What, ByRule)
+		return false, nil
+	}
+
+	s, err := a.send(ctx, q)
+	if err != nil {
+		return false, err
+	}
+	go func() { then(s.wait(ctx, LaterWait)) }()
+	return true, nil
+}
+
+// LaterWait is how long a question asked with Later waits for an answer.
+// Nothing waits on it but den, so the user can answer when they are back.
+var LaterWait = 24 * time.Hour
+
+// sent is a question in the chat, waiting for its answer.
+type sent struct {
+	a        *Asker
+	id       string
+	q        *question
+	telegram *notify.Telegram
+	message  int64
+}
+
+func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 	telegram, err := notify.Load(a.cfg)
 	if err != nil {
-		return fmt.Errorf("asking the user needs Telegram: %w", err)
+		return nil, fmt.Errorf("asking the user needs Telegram: %w", err)
 	}
 
 	a.mu.Lock()
@@ -94,11 +135,6 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	p := &question{Question: q, answer: make(chan string, 1)}
 	a.pending[id] = p
 	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		delete(a.pending, id)
-		a.mu.Unlock()
-	}()
 
 	buttons := []notify.Button{{Text: "Allow", Data: "ok:" + id}, {Text: "Deny", Data: "no:" + id}}
 	if q.Rule != "" {
@@ -108,14 +144,26 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	message, err := telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
 	cancel()
 	if err != nil {
-		return fmt.Errorf("asking the user: %w", err)
+		a.forget(id)
+		return nil, fmt.Errorf("asking the user: %w", err)
 	}
+	return &sent{a: a, id: id, q: p, telegram: telegram, message: message}, nil
+}
 
-	timer := time.NewTimer(Wait)
+func (a *Asker) forget(id string) {
+	a.mu.Lock()
+	delete(a.pending, id)
+	a.mu.Unlock()
+}
+
+func (s *sent) wait(ctx context.Context, limit time.Duration) error {
+	defer s.a.forget(s.id)
+
+	timer := time.NewTimer(limit)
 	defer timer.Stop()
 	select {
-	case outcome := <-p.answer:
-		a.Note(q.What, outcome)
+	case outcome := <-s.q.answer:
+		s.a.Note(s.q.What, outcome)
 		if outcome == Denied {
 			return ErrDenied
 		}
@@ -128,14 +176,14 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	// and shrink the question to its one line. When the asker went away
 	// first, such as a command whose agent's turn ended, it stopped rather
 	// than ran out of time.
-	a.Note(q.What, Expired)
+	s.a.Note(s.q.What, Expired)
 	result := "\n✗ Expired"
 	if ctx.Err() != nil {
 		result = "\n✗ Stopped before you answered"
 	}
-	call, cancel = context.WithTimeout(context.Background(), time.Minute)
+	call, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := telegram.Edit(call, message, q.What+result); err != nil {
+	if err := s.telegram.Edit(call, s.message, s.q.What+result); err != nil {
 		log.Printf("approve: %v", err)
 	}
 	if ctx.Err() != nil {
