@@ -14,6 +14,12 @@ release notes.
 
 - The agent no longer waits on a question in Telegram. Mail, pushes to branches the agent did not create, writes through `den fetch` that need your Allow, and `den map` runs return at once; den keeps the action, takes it once you allow it, and tells the agent what came of it in a new turn, so it can carry on, such as reporting the result. Before, the action failed when the agent's turn ended first, which some models did within a second. A question now waits up to a day instead of 15 minutes. A kept push that GitHub refuses because its branch moved meanwhile is reported, and the agent pushes again.
 
+### Fixed
+
+- The agent could get den's secrets or forge your approvals through links in its own fx profile: den read provider keys and settings there as root and followed the links. den now reads and writes the agent's profile as the agent.
+- A push that GitHub refused could still make a branch the agent's own, such as `main`, so later pushes to it went without a question. A branch is now the agent's only once GitHub took the push that created it, and den refuses a push with a line it cannot read.
+- A question too long for one Telegram message was cut, which could hide part of what you allowed; den now refuses to ask it. A long body in a question says how much of it is not shown, and a button left from before a restart can no longer answer a new question.
+
 ## v0.2.0
 
 To update from v0.1.1, run the install line once, since its `den update` updates only the image:
