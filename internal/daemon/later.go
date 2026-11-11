@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -91,7 +92,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 
 	d.wg.Add(1)
 	defer d.wg.Done()
-	out, err := d.agentCommand(d.ctx, req.Dir, append([]string{"map", "--run", run}, req.Args...)...)
+	out, summary, err := d.agentCommand(d.ctx, req.Dir, append([]string{"map", "--run", run}, req.Args...)...)
 	if d.ctx.Err() != nil {
 		return
 	}
@@ -100,29 +101,31 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 	if err != nil {
 		text = fmt.Sprintf("[den: the user allowed %s, and it failed: %v. Its output:\n%s]", what, err, out)
 		user = fmt.Sprintf("🗂 %s failed: %v", what, err)
-	} else if first, _, _ := strings.Cut(out, "\n"); first != "" {
+	} else if first, _, _ := strings.Cut(summary, "\n"); first != "" {
+		// The summary's first line says how many items it answered; the
+		// progress before it goes to stderr.
 		user = "🗂 " + first
 	}
 	d.report(req.Turn, text, user)
 }
 
-// agentCommand runs den as the agent in dir and returns what it printed,
-// its last lines when it printed much.
-func (d *daemon) agentCommand(ctx context.Context, dir string, args ...string) (string, error) {
+// agentCommand runs den as the agent in dir. It returns all it printed,
+// the last lines when it printed much, and its stdout apart.
+func (d *daemon) agentCommand(ctx context.Context, dir string, args ...string) (string, string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	cmd, err := proc.Command(ctx, d.cfg, exe, args...)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	cmd.Dir = dir
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	var all, stdout bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&all, &stdout)
+	cmd.Stderr = &all
 	err = cmd.Run()
-	return tail(out.String(), 4000), err
+	return tail(all.String(), 4000), strings.TrimSpace(stdout.String()), err
 }
 
 // tail keeps the end of text, at most n bytes, from a line's start.
