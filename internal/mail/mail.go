@@ -60,7 +60,9 @@ var providers = map[string][2]string{
 }
 
 // ErrAccount means the user has not added the account yet.
-var ErrAccount = errors.New("den has no mail account: the user can add one as the secret mail")
+// It points at the google skill too, since Gmail connected with Google
+// sign-in goes through the Google APIs rather than IMAP and SMTP.
+var ErrAccount = errors.New("den has no IMAP and SMTP account. If the user connected Google, use the google skill for Gmail instead; otherwise they run den connect mail")
 
 // Load reads the account: lines of address=, password=, and, for a domain
 // den does not know, imap= and smtp=.

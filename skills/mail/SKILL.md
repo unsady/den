@@ -10,7 +10,7 @@ den logs in to the user's mailbox itself. You connect to den on this machine wit
 - IMAP: `imap://127.0.0.1:1143`, no TLS
 - SMTP: `smtp://127.0.0.1:1025`, no TLS
 
-When den answers that it has no mail account, tell the user to run `den connect mail` on their computer, which asks for the address and an app password. For Gmail, an app password needs 2-Step Verification and is created at myaccount.google.com/apppasswords.
+When den answers that it has no mail account, try the `google` skill first: Gmail connected with `den connect google` works there. Only when that is not connected either, tell the user to run `den connect mail` on their computer, which asks for the address and an app password. For Gmail, an app password needs 2-Step Verification and is created at myaccount.google.com/apppasswords.
 
 If the user connected Google with `den connect google`, prefer the `google` skill for Gmail: it also covers the calendar.
 
