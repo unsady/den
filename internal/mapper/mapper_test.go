@@ -220,3 +220,43 @@ func TestExtract(t *testing.T) {
 		}
 	}
 }
+
+func TestResponses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Model        string `json:"model"`
+			Stream       bool   `json:"stream"`
+			Store        bool   `json:"store"`
+			Instructions string `json:"instructions"`
+			Input        []struct {
+				Content []struct{ Text string } `json:"content"`
+			} `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Model != "luna" || !req.Stream || req.Store || !strings.HasPrefix(req.Instructions, "Classify.") || r.Header.Get("Accept") != "text/event-stream" {
+			t.Errorf("request %+v, headers %v", req, r.Header)
+		}
+		if strings.Contains(req.Input[0].Content[0].Text, "broken") {
+			fmt.Fprint(w, "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"overloaded\"}}}\n\n")
+			return
+		}
+		fmt.Fprint(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"\\\"fruit\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens\":7}}}\n\n")
+	}))
+	defer srv.Close()
+
+	out := filepath.Join(t.TempDir(), "out.jsonl")
+	opts := Options{URL: srv.URL, Responses: true, Model: "luna", Instructions: "Classify."}
+	sum, err := Run(context.Background(), opts, strings.NewReader("\"apple\"\n\"broken\"\n"), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := results(t, out)
+	if string(got[1].Answer) != `{"kind":"fruit"}` || got[1].Input != 50 || got[1].Cached != 40 || got[1].Output != 7 {
+		t.Errorf("answer %+v", got[1])
+	}
+	if got[2].Error != "codex: overloaded" || sum.Failed != 1 {
+		t.Errorf("failure %+v, summary %+v", got[2], sum)
+	}
+}

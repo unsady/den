@@ -26,9 +26,11 @@ import (
 
 // Options say where to send the items and what to ask.
 type Options struct {
-	// URL is the provider's chat completions endpoint.
-	URL   string
-	Model string
+	// URL is the provider's chat completions endpoint, or with Responses
+	// set, a ChatGPT subscription's Codex responses endpoint.
+	URL       string
+	Responses bool
+	Model     string
 	// Instructions are the question each item is answered against.
 	Instructions string
 	Workers      int
@@ -295,14 +297,33 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 			{"role": "user", "content": item},
 		},
 	})
+	if a.opts.Responses {
+		// Codex takes only streamed requests that it does not store, and
+		// chooses the output limit itself. Low effort suits one item.
+		body, _ = json.Marshal(map[string]any{
+			"model":        a.opts.Model,
+			"store":        false,
+			"stream":       true,
+			"instructions": a.system,
+			"input":        []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}},
+			"reasoning":    map[string]string{"effort": "low"},
+			"text":         map[string]string{"verbosity": "low"},
+		})
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.opts.URL, bytes.NewReader(body))
 	if err != nil {
 		return "", use, false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// One name for every request lets OpenCode route them alike and reuse
-	// its cache of the instructions.
+	// One name for every request lets the provider route them alike and
+	// reuse its cache of the instructions.
 	req.Header.Set("X-Opencode-Session", a.session)
+	if a.opts.Responses {
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("OpenAI-Beta", "responses=experimental")
+		req.Header.Set("originator", "den")
+		req.Header.Set("session-id", a.session)
+	}
 
 	client := a.opts.Client
 	if client == nil {
@@ -323,6 +344,10 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 		return "", use, retry, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 300)])))
 	}
 
+	if a.opts.Responses {
+		return events(data)
+	}
+
 	var out struct {
 		Choices []struct {
 			Message struct {
@@ -335,6 +360,61 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 		return "", out.Usage, true, errors.New("the provider's answer has no reply")
 	}
 	return out.Choices[0].Message.Content, out.Usage, false, nil
+}
+
+// events reads a streamed Codex response: its text and usage, or why it
+// failed.
+func events(stream []byte) (text string, use usage, retry bool, err error) {
+	var deltas strings.Builder
+	for line := range bytes.SplitSeq(stream, []byte("\n")) {
+		data, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data: "))
+		if !ok {
+			continue
+		}
+		var e struct {
+			Type     string `json:"type"`
+			Delta    string `json:"delta"`
+			Text     string `json:"text"`
+			Message  string `json:"message"`
+			Response struct {
+				Usage struct {
+					Input   int `json:"input_tokens"`
+					Output  int `json:"output_tokens"`
+					Details struct {
+						Cached int `json:"cached_tokens"`
+					} `json:"input_tokens_details"`
+				} `json:"usage"`
+				Error *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			} `json:"response"`
+		}
+		if json.Unmarshal(data, &e) != nil {
+			continue
+		}
+		switch e.Type {
+		case "response.output_text.delta":
+			deltas.WriteString(e.Delta)
+		case "response.output_text.done":
+			text = e.Text
+		case "response.completed":
+			u := e.Response.Usage
+			use.Prompt, use.Completion, use.Details.Cached = u.Input, u.Output, u.Details.Cached
+		case "response.failed", "error":
+			msg := e.Message
+			if e.Response.Error != nil {
+				msg = e.Response.Error.Message
+			}
+			return "", use, true, fmt.Errorf("codex: %s", msg)
+		}
+	}
+	if text == "" {
+		text = deltas.String()
+	}
+	if text == "" {
+		return "", use, true, errors.New("the provider's answer has no reply")
+	}
+	return text, use, false, nil
 }
 
 // instructions are the system message. Claude caches only up to a marked

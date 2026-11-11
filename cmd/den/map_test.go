@@ -36,6 +36,14 @@ func TestMapProvider(t *testing.T) {
 		}
 	}
 
+	got, err := mapProvider(path, "codex/gpt-6-luna")
+	if err != nil || got.name != "codex" || got.model != "gpt-6-luna" || got.url != "http://127.0.0.1:4100/codex/responses" {
+		t.Errorf("codex: %+v, %v", got, err)
+	}
+	if _, err := mapProvider(path, "codex/"); err == nil {
+		t.Error("codex without a model was taken")
+	}
+
 	if _, err := mapProvider(path, "anthropic/haiku"); err == nil || !strings.Contains(err.Error(), "opencode-go, zen") {
 		t.Errorf("anthropic: %v", err)
 	}

@@ -41,7 +41,7 @@ Read the trial answers and fix the instructions before the full run. den prints 
 jq -c 'select(.answer.verdict == "fit") | {id, reason: .answer.reason}' .data/jobs.out.jsonl
 ```
 
-If a run stops, `--resume` asks only about the items without an answer. The model is fx's own unless the user names one: `--model opencode-go/claude-haiku-5-5`. Codex is not supported.
+If a run stops, `--resume` asks only about the items without an answer. The model is fx's own unless the user names one: `--model opencode-go/claude-haiku-5-5`. A ChatGPT subscription works when you name its model, such as `--model codex/gpt-6-luna`; take a small one, since every item spends the subscription. `fx models` lists the models.
 
 ## 4. Check before you trust it
 
