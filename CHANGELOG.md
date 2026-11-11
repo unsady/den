@@ -6,6 +6,7 @@ release notes.
 
 ## Unreleased
 
+- `/sessions` lists the sessions you used last first and keeps job runs in a list of their own behind **Job runs**, so hourly jobs no longer push your chats out. `/sessions <words>` finds a session by its title.
 - The message that shows the agent's steps arrives without a sound, so only the reply makes your phone ring.
 - When the agent tries mail over IMAP or SMTP without a mail account, den points it at Gmail through Google sign-in, so it no longer asks you to run `den connect mail` when Google is connected.
 - `/bug` gives the link to report a bug or suggest an idea on GitHub, and den@bazutya.com for those who would rather write.

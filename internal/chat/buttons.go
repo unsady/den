@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,29 +21,92 @@ import (
 // closeButton deletes the list it is under.
 var closeButton = notify.Button{Text: "✕", Data: "x:"}
 
-func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram) {
-	list, err := sessions.List(c.cfg.Sessions, recentSessions)
+// listSessions lists sessions to continue, in a new message or in place of
+// edit. The chat's own come first, the ones used last on top; job runs are
+// a list of their own, and words find sessions of either kind by title.
+func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, words string, jobRuns bool, edit int64) {
+	all, err := sessions.List(c.cfg.Sessions, 1<<20)
 	if err != nil {
 		c.send(ctx, telegram, "Could not read the sessions: "+err.Error())
 		return
 	}
-	if len(list) == 0 {
-		c.send(ctx, telegram, "No sessions yet. Write to start one.")
-		return
+	var ofJobs map[string]bool
+	if c.den != nil {
+		ofJobs = c.den.JobSessions()
 	}
 
-	current := c.session()
-	text := "Recent sessions. Pick one to continue it:\n"
+	c.mu.Lock()
+	current := c.state.Session
+	rank := map[string]int{}
+	for i, id := range c.state.Opened {
+		rank[id] = i + 1
+	}
+	c.mu.Unlock()
+
+	var list []sessions.Summary
+	query := strings.ToLower(strings.TrimSpace(words))
+	for _, s := range all {
+		switch {
+		case query != "":
+			if !strings.Contains(strings.ToLower(s.Title), query) {
+				continue
+			}
+		case ofJobs[s.ID] != jobRuns:
+			continue
+		}
+		list = append(list, s)
+	}
+	if query == "" && !jobRuns {
+		// sessions.List is newest first; the chat's own go before the rest.
+		sort.SliceStable(list, func(a, b int) bool {
+			ra, rb := rank[list[a].ID], rank[list[b].ID]
+			return ra != 0 && (rb == 0 || ra < rb)
+		})
+	}
+	if len(list) > recentSessions {
+		list = list[:recentSessions]
+	}
+
+	var text string
+	switch {
+	case query != "" && len(list) == 0:
+		c.send(ctx, telegram, "No session title has “"+words+"”.")
+		return
+	case len(list) == 0 && jobRuns:
+		text = "No job runs yet."
+	case len(list) == 0:
+		c.send(ctx, telegram, "No sessions yet. Write to start one.")
+		return
+	case query != "":
+		text = "Sessions with “" + html.EscapeString(words) + "”. Pick one to continue it:\n"
+	case jobRuns:
+		text = "Recent job runs. Pick one to continue it:\n"
+	default:
+		text = "Recent sessions. Pick one to continue it:\n"
+	}
+
 	var rows [][]notify.Button
 	for i, s := range list {
 		mark := ""
-		if s.ID == current {
-			mark = "  ← current"
+		if ofJobs[s.ID] && !jobRuns {
+			mark = "⏰ "
 		}
-		text += fmt.Sprintf("\n%d. %s, %s%s", i+1, s.Title, ago(s.Updated), mark)
+		line := fmt.Sprintf("\n%d. %s%s, %s", i+1, mark, html.EscapeString(s.Title), ago(s.Updated))
+		if s.ID == current {
+			line += "  ← current"
+		}
+		text += line
 		rows = append(rows, []notify.Button{{Text: fmt.Sprintf("%d. %s", i+1, clipRunes(s.Title, 40)), Data: "s:" + s.ID}})
 	}
-	c.sendButtons(ctx, telegram, text, append(rows, []notify.Button{closeButton}))
+
+	last := []notify.Button{{Text: "⏰ Job runs", Data: "sj:"}, closeButton}
+	switch {
+	case query != "":
+		last = []notify.Button{closeButton}
+	case jobRuns:
+		last = []notify.Button{{Text: "← Chats", Data: "sc:"}, closeButton}
+	}
+	c.show(ctx, telegram, edit, text, append(rows, last))
 }
 
 // listJobs lists the jobs in a new message, or in place of edit. A job can
@@ -105,6 +169,10 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 				c.editHTML(ctx, telegram, cb.Message, line, nil)
 			}
 		}
+
+	case "sj", "sc":
+		answer = " "
+		c.listSessions(ctx, telegram, "", kind == "sj", cb.Message)
 
 	case "m":
 		// The list turns into the one line that names the choice.

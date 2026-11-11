@@ -47,7 +47,7 @@ var progressEvery = 3 * time.Second
 // commands fill the bot's command menu and the help message.
 var commands = []notify.Command{
 	{Name: "new", Description: "Start a new session"},
-	{Name: "sessions", Description: "Switch to a recent session"},
+	{Name: "sessions", Description: "Switch to a recent session, or find one: /sessions <words>"},
 	{Name: "model", Description: "Choose the model and provider"},
 	{Name: "effort", Description: "Choose how hard the model thinks"},
 	{Name: "again", Description: "Ask the second model about your last message, or a new one"},
@@ -90,6 +90,8 @@ type Daemon interface {
 	// LastContext is the size of the last prompt since a time, in tokens,
 	// or 0 when unknown.
 	LastContext(since time.Time) int
+	// JobSessions are the sessions of the job runs den keeps.
+	JobSessions() map[string]bool
 }
 
 func help() string {
@@ -108,6 +110,9 @@ type state struct {
 	// Provider and Model are what /model chose, empty for fx's own choice.
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
+	// Opened are the sessions the chat used last, newest first, for the
+	// order of /sessions.
+	Opened []string `json:"opened,omitempty"`
 	// Recent are the models /model chose last, as provider/model, newest
 	// first.
 	Recent []string `json:"recent,omitempty"`
@@ -232,7 +237,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	}
 
 	name, arg := command(m.Text)
-	if arg != "" && name != "/model" && name != "/effort" && name != "/again" {
+	if arg != "" && name != "/model" && name != "/effort" && name != "/again" && name != "/sessions" {
 		name = ""
 	}
 	switch name {
@@ -266,7 +271,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		c.again(ctx, telegram, m, arg)
 
 	case "/sessions":
-		c.listSessions(ctx, telegram)
+		c.listSessions(ctx, telegram, arg, false, 0)
 
 	case "/jobs":
 		c.listJobs(ctx, telegram, 0)
@@ -332,10 +337,28 @@ func (c *Chat) switchTo(session string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.state.Session = session
+	c.opened(session)
 	c.state.Context = 0
 	c.state.Compacted = 0
 	c.generation++
 	c.save()
+}
+
+// openedSessions is how many sessions the chat remembers using.
+const openedSessions = 30
+
+// opened puts session first among the ones the chat used. c.mu is held.
+func (c *Chat) opened(session string) {
+	if session == "" {
+		return
+	}
+	list := []string{session}
+	for _, id := range c.state.Opened {
+		if id != session && len(list) < openedSessions {
+			list = append(list, id)
+		}
+	}
+	c.state.Opened = list
 }
 
 // queue keeps a message for the next turn. While a turn runs, it marks the
@@ -468,6 +491,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	compacted := ""
 	if generation == c.generation && reply.SessionID != "" {
 		c.state.Session = reply.SessionID
+		c.opened(reply.SessionID)
 		if size := c.contextSize(started); size > 0 {
 			c.state.Context = size
 		}

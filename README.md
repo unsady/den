@@ -73,7 +73,7 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | Command | What it does |
 |---|---|
 | `/new` | Start a new session with the next message |
-| `/sessions` | Continue a recent session, from the chat or from a job |
+| `/sessions` | Continue a recent session: the ones you used last come first, **Job runs** lists the jobs' sessions, and `/sessions taxes` finds one by title |
 | `/model` | Choose the model: the last ones chosen are one tap away, **All models** lists every provider's models, and `/model deep flash` finds one by name. **Second model** chooses the one for jobs set to it |
 | `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
 | `/again` | Ask the second model to answer your last message again in the same session, or `/again <text>` for one message; the reply starts with `↻` and its model |

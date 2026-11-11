@@ -397,11 +397,19 @@ type fakeDaemon struct {
 	actions []approve.Action
 	// context is the size every turn reports.
 	context int
+	// jobSessions are the sessions of job runs.
+	jobSessions map[string]bool
 }
 
 func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
 
 func (f *fakeDaemon) LastContext(since time.Time) int { return f.context / 4 }
+
+func (f *fakeDaemon) JobSessions() map[string]bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.jobSessions
+}
 
 func (f *fakeDaemon) Answer(id, outcome string) (string, bool) {
 	f.mu.Lock()
@@ -510,7 +518,7 @@ func TestChatControls(t *testing.T) {
 	// /sessions lists root sessions, newest first, and a button switches.
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
-	telegram.expectButtons(t, "s:bbb", "s:aaa", "x:")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	// ✕ deletes the list.
 	telegram.press("x:")
 	telegram.expectAnswer(t, "")
@@ -519,7 +527,7 @@ func TestChatControls(t *testing.T) {
 	}
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
-	telegram.expectButtons(t, "s:bbb", "s:aaa", "x:")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	telegram.press("s:aaa")
 	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
 	telegram.expectAnswer(t, "")
@@ -750,4 +758,48 @@ func TestCompactCommand(t *testing.T) {
 	telegram.expect(t, "resume=s1 msg=small lines=1")
 	telegram.message(42, "/compact")
 	telegram.expect(t, "Context is 10k of 200k: fx compacts a session from 10% of the window, so this one stays as it is.")
+}
+
+func TestSessionsList(t *testing.T) {
+	den := &fakeDaemon{jobSessions: map[string]bool{"job": true}}
+	cfg, telegram := startChat(t, den)
+
+	now := time.Now()
+	index := fmt.Sprintf(`{"op":"put","id":"aaa","role":"root","title":"Taxes","updated":%d}
+{"op":"put","id":"bbb","role":"root","title":"Trip","updated":%d}
+{"op":"put","id":"job","role":"root","title":"News alerts","updated":%d}
+{"op":"put","id":"gone","role":"root","title":"Gone","updated":%d}
+{"op":"del","id":"gone","ts":1}
+`, now.Add(-3*time.Hour).UnixMilli(), now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli(), now.UnixMilli())
+	os.MkdirAll(cfg.Sessions, 0o755)
+	os.WriteFile(filepath.Join(cfg.Sessions, "index.jsonl"), []byte(index), 0o644)
+
+	// Job runs stay out, and the session switched to last comes first.
+	telegram.message(42, "/sessions")
+	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 2h ago\n2. Taxes, 3h ago")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
+	telegram.press("s:aaa")
+	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
+	telegram.expectAnswer(t, "")
+	telegram.expectButtons(t)
+	telegram.message(42, "/sessions")
+	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
+	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
+
+	// Job runs have a list of their own, and the chats come back.
+	telegram.press("sj:")
+	telegram.expectEdit(t, "1: Recent job runs. Pick one to continue it:\n\n1. News alerts, 1h ago")
+	telegram.expectAnswer(t, "")
+	telegram.expectButtons(t, "s:job", "sc:", "x:")
+	telegram.press("sc:")
+	telegram.expectEdit(t, "1: Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
+	telegram.expectAnswer(t, "")
+	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
+
+	// Words find sessions of either kind by title.
+	telegram.message(42, "/sessions ALERTS")
+	telegram.expect(t, "Sessions with “ALERTS”. Pick one to continue it:\n\n1. ⏰ News alerts, 1h ago")
+	telegram.expectButtons(t, "s:job", "x:")
+	telegram.message(42, "/sessions boat")
+	telegram.expect(t, "No session title has “boat”.")
 }
