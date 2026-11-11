@@ -27,12 +27,26 @@ var github = service{
 	review: reviewGitHub,
 }
 
-// guarded are the parts of the user's own repository whose changes need the
-// user's approval: they grant access, send data elsewhere, or rewrite
-// history.
-var guarded = map[string]bool{
-	"collaborators": true, "invitations": true, "keys": true, "hooks": true,
-	"actions": true, "environments": true, "rulesets": true, "branches": true,
+// quiet are the writes in the user's own repositories that go without a
+// question, by the path after /repos/<owner>/<repo>/: issues, pull
+// requests, labels, and git objects that no branch points to yet. Anything
+// else, such as files on a branch, merges, tags, releases, workflows, or
+// access, waits for the user.
+func quiet(method string, rest []string) bool {
+	if method == http.MethodDelete || len(rest) == 0 {
+		return false
+	}
+	switch rest[0] {
+	case "issues", "labels", "milestones":
+		return true
+	case "pulls":
+		// Merging, or updating a pull request's branch, moves a branch.
+		last := rest[len(rest)-1]
+		return last != "merge" && last != "update-branch"
+	case "git":
+		return method == http.MethodPost && len(rest) == 2 && (rest[1] == "blobs" || rest[1] == "trees" || rest[1] == "commits")
+	}
+	return false
 }
 
 // reviewGitHub lets reads and ordinary changes to the user's own
@@ -43,7 +57,8 @@ func reviewGitHub(ctx context.Context, f *Fetcher, s service, method string, u *
 	}
 	path := strings.Trim(u.Path, "/")
 	if path == "graphql" && method == http.MethodPost {
-		if mutation(body) {
+		var query string
+		if !field(body, "query", &query) || !readOnly(query) {
 			return "A GraphQL change."
 		}
 		return ""
@@ -51,7 +66,8 @@ func reviewGitHub(ctx context.Context, f *Fetcher, s service, method string, u *
 
 	parts := strings.Split(path, "/")
 	if path == "user/repos" && method == http.MethodPost {
-		if private(body) {
+		private := false
+		if field(body, "private", &private) && private {
 			return ""
 		}
 		return "Creates a public repository."
@@ -60,33 +76,13 @@ func reviewGitHub(ctx context.Context, f *Fetcher, s service, method string, u *
 	if len(parts) < 3 || parts[0] != "repos" || login == "" || !strings.EqualFold(parts[1], login) {
 		return "Writes outside your own repositories."
 	}
-	switch {
-	case len(parts) == 3:
+	if len(parts) == 3 {
 		return "Changes or deletes the repository itself."
-	case guarded[parts[3]]:
-		return "Changes who or what can access the repository."
-	case parts[3] == "git" && method != http.MethodPost:
-		return "Moves or deletes a branch or tag directly."
+	}
+	if !quiet(method, parts[3:]) {
+		return "Changes your repository beyond issues and pull requests."
 	}
 	return ""
-}
-
-func mutation(body []byte) bool {
-	var q struct {
-		Query string `json:"query"`
-	}
-	if json.Unmarshal(body, &q) != nil {
-		return true
-	}
-	query := strings.TrimSpace(q.Query)
-	return !strings.HasPrefix(query, "{") && !strings.HasPrefix(query, "query")
-}
-
-func private(body []byte) bool {
-	var r struct {
-		Private bool `json:"private"`
-	}
-	return json.Unmarshal(body, &r) == nil && r.Private
 }
 
 // login returns the GitHub account the token belongs to, or "" when GitHub

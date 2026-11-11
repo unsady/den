@@ -78,6 +78,12 @@ type service struct {
 	// review says why a request needs the user's approval, or "" when it
 	// does not.
 	review func(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string
+	// preview shows what a request does when its body does not say, such
+	// as the draft that drafts/send sends. den takes it again before it
+	// sends the request, and sends it only when nothing changed.
+	preview func(ctx context.Context, f *Fetcher, s service, u *url.URL, body []byte) (string, error)
+	// refuse says why den does not send a request at all, or "".
+	refuse func(u *url.URL) string
 	// show formats a body for the user to read, when the plain one would not
 	// say much.
 	show func(body []byte) string
@@ -149,6 +155,18 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 	if method == "" {
 		method = http.MethodGet
 	}
+	if s.refuse != nil {
+		if why := s.refuse(u); why != "" {
+			return Response{}, fmt.Errorf("%w: %s", ErrRequest, why)
+		}
+	}
+	// A header that names another method would make den review one
+	// request while the service runs another.
+	for k := range req.Header {
+		if strings.Contains(strings.ToLower(k), "method") {
+			return Response{}, fmt.Errorf("%w: den does not pass on the %s header; use -X", ErrRequest, k)
+		}
+	}
 
 	secret, err := f.secret(ctx, s)
 	if err != nil {
@@ -162,17 +180,27 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 		if s.show != nil {
 			display = s.show
 		}
-		if body := display(req.Body); body != "" {
+		seen := ""
+		if s.preview != nil {
+			if seen, err = s.preview(ctx, f, s, u, req.Body); err != nil {
+				return Response{}, fmt.Errorf("%w: %v", ErrRequest, err)
+			}
+		}
+		if seen != "" {
+			text += "\n\n" + seen
+		} else if body := display(req.Body); body != "" {
 			text += "\n\n" + body
 		}
 		q := approve.Question{Text: text, What: what}
-		if s.always {
+		// Always fits a request whose method and path say what it does: not
+		// a query string, nor GraphQL, where the body decides.
+		if s.always && u.RawQuery == "" && strings.Trim(u.Path, "/") != "graphql" {
 			q.Rule = "fetch " + req.Secret + " " + method + " " + pathPattern(u.Path)
 			q.Label = s.label + ": " + method + " " + pathPattern(u.Path)
 		}
 		// The request does not wait for the answer: den sends it once the
 		// user allows it, and tells the agent what came of it.
-		waiting, err := f.later(q, func(err error) { f.sendLater(s, req, method, u, what, err) })
+		waiting, err := f.later(q, func(err error) { f.sendLater(s, req, method, u, what, seen, err) })
 		if err != nil {
 			log.Printf("fetch: %s %s %s: not sent: %v", req.Secret, method, u, err)
 			return Response{}, fmt.Errorf("not sent: %w", err)
@@ -190,7 +218,7 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 }
 
 // sendLater sends a request the user answered, and reports what came of it.
-func (f *Fetcher) sendLater(s service, req Request, method string, u *url.URL, what string, answer error) {
+func (f *Fetcher) sendLater(s service, req Request, method string, u *url.URL, what, seen string, answer error) {
 	if f.Report == nil {
 		return
 	}
@@ -209,6 +237,15 @@ func (f *Fetcher) sendLater(s service, req Request, method string, u *url.URL, w
 		secret, err := f.secret(ctx, s)
 		if err != nil {
 			return Response{}, err
+		}
+		if seen != "" {
+			now, err := s.preview(ctx, f, s, u, req.Body)
+			if err != nil {
+				return Response{}, err
+			}
+			if now != seen {
+				return Response{}, errors.New("what it sends changed after the user saw it, so den did not send it")
+			}
 		}
 		return f.send(ctx, s, secret, method, u, req)
 	}()
@@ -310,28 +347,24 @@ func show(body []byte) string {
 	return text
 }
 
-// ids are path segments that name one thing, such as an issue number, a
-// uuid, or a ULID, rather than a kind of thing: a number, or 16 or more
-// letters, digits, - and _ that include a digit.
-var ids = regexp.MustCompile(`^[\w-]{16,}$`)
+// uuid matches a UUID, which names one thing like a number does.
+var uuid = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+// isID says whether a path segment names one thing, such as an issue
+// number or a UUID, rather than a kind of thing. Names, such as a
+// repository's, stay as they are, so a rule never covers another one.
 func isID(segment string) bool {
-	if segment == "" {
-		return false
-	}
-	if strings.Trim(segment, "0123456789") == "" {
-		return true
-	}
-
-	return ids.MatchString(segment) && strings.ContainsAny(segment, "0123456789")
+	return segment != "" && strings.Trim(segment, "0123456789") == "" || uuid.MatchString(segment)
 }
 
 // pathPattern turns ids in a path into *, so a rule for
-// /repos/o/r/issues/12/comments covers the comments of every issue.
+// /repos/o/r/issues/12/comments covers the comments of every issue of that
+// repository. A repository's owner and name stay, even when numeric.
 func pathPattern(path string) string {
 	parts := strings.Split(path, "/")
 	for i, p := range parts {
-		if isID(p) {
+		named := i <= 3 && len(parts) > 1 && parts[1] == "repos"
+		if !named && isID(p) {
 			parts[i] = "*"
 		}
 	}

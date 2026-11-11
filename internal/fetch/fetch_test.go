@@ -93,6 +93,10 @@ func TestFetch(t *testing.T) {
 		{"PATCH", "/repos/me/notes/issues/1", `{"state":"closed"}`},
 		{"POST", "/graphql", `{"query":"query { viewer { login } }"}`},
 		{"POST", "/user/repos", `{"name":"x","private":true}`},
+		{"POST", "/repos/me/notes/pulls", `{"title":"x","head":"fix","base":"main"}`},
+		{"POST", "/repos/me/notes/issues/1/comments", `{"body":"hi"}`},
+		{"POST", "/repos/me/notes/git/blobs", `{"content":"x"}`},
+		{"POST", "/graphql", `{"query":"query Q($n: String = \"mutation\") { viewer { login } } # mutation"}`},
 	} {
 		if _, err := do(c[0], c[1], c[2]); err != nil {
 			t.Fatalf("%v: %v", c, err)
@@ -110,15 +114,25 @@ func TestFetch(t *testing.T) {
 		{"PATCH", "/repos/me/notes/git/refs/heads/main", `{"sha":"abc","force":true}`},
 		{"POST", "/graphql", `{"query":"mutation { addStar(input:{}) { clientMutationId } }"}`},
 		{"POST", "/user/repos", `{"name":"x"}`},
+		{"PUT", "/repos/me/notes/contents/README.md", `{"message":"x","content":"eA=="}`},
+		{"POST", "/repos/me/notes/merges", `{"base":"main","head":"fix"}`},
+		{"PUT", "/repos/me/notes/pulls/1/merge", ``},
+		{"POST", "/repos/me/notes/git/refs", `{"ref":"refs/tags/v9","sha":"abc"}`},
+		{"POST", "/repos/me/notes/transfer", `{"new_owner":"evil"}`},
+		{"POST", "/repos/me/notes/releases", `{"tag_name":"v9"}`},
+		{"POST", "/repos/me/notes/actions/workflows/ci.yml/dispatches", `{"ref":"main"}`},
+		{"POST", "/graphql", `{"query":"query A { viewer { login } } mutation B { addStar(input:{}) { clientMutationId } }","operationName":"B"}`},
+		{"POST", "/graphql", `{"query":"mutation { addStar(input:{}) { clientMutationId } }","Query":"{ viewer { login } }"}`},
+		{"POST", "/user/repos", `{"name":"x","private":false,"Private":true}`},
 	} {
 		if resp, err := do(c[0], c[1], c[2]); err != nil || !resp.Waiting {
 			t.Fatalf("%v: %+v %v", c, resp, err)
 		}
 	}
-	if len(reports) != 6 || !strings.HasPrefix(reports[0], " [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200:\nok") {
+	if len(reports) != 16 || !strings.HasPrefix(reports[0], " [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200:\nok") {
 		t.Fatalf("reports %q", reports)
 	}
-	if len(asked) != 6 || !strings.HasPrefix(asked[0], "GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
+	if len(asked) != 16 || !strings.HasPrefix(asked[0], "GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
 		t.Fatalf("asked %q", asked)
 	}
 
@@ -152,7 +166,8 @@ func TestPathPattern(t *testing.T) {
 	for path, want := range map[string]string{
 		"/repos/me/notes/issues/12/comments":              "/repos/me/notes/issues/*/comments",
 		"/api/deals/3f2b8c1e-9a7d-4e21-b5a0-1c2d3e4f5a6b": "/api/deals/*",
-		"/api/topics/01M5WRZWF8915TWQHD3CRAKPE0":          "/api/topics/*",
+		"/api/topics/01M5WRZWF8915TWQHD3CRAKPE0":          "/api/topics/01M5WRZWF8915TWQHD3CRAKPE0",
+		"/repos/me/2024/issues/3":                         "/repos/me/2024/issues/*",
 		"/api/topics/getting-started-guide":               "/api/topics/getting-started-guide",
 		"/api/deals":                                      "/api/deals",
 		"/repos/me/notes/git/refs/heads/v2":               "/repos/me/notes/git/refs/heads/v2",

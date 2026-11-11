@@ -19,6 +19,9 @@ release notes.
 - The agent could get den's secrets or forge your approvals through links in its own fx profile: den read provider keys and settings there as root and followed the links. den now reads and writes the agent's profile as the agent.
 - A push that GitHub refused could still make a branch the agent's own, such as `main`, so later pushes to it went without a question. A branch is now the agent's only once GitHub took the push that created it, and den refuses a push with a line it cannot read.
 - A question too long for one Telegram message was cut, which could hide part of what you allowed; den now refuses to ask it. A long body in a question says how much of it is not shown, and a button left from before a restart can no longer answer a new question.
+- More GitHub writes now wait for you: den lets through only issues, comments, labels, milestones, pull requests short of merging, and git objects in your own repositories. Changing files through the API, merging, tags, releases, workflow runs and repository transfers used to go without a question. Any GraphQL mutation now asks too, also when it hides behind a query in the same request.
+- Some Google requests got past the questions: batch requests and method-override headers are now refused, and the calendar asks before an event with guests changes, before an event is cancelled, and before guests are notified any way. A draft you allowed is sent only if it is still what you saw.
+- **Always** covers less: never another repository with a similar name, nor a request with a query string or a GraphQL body.
 
 ## v0.2.0
 
