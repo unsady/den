@@ -807,9 +807,10 @@ func TestSessionsList(t *testing.T) {
 func TestProgressNote(t *testing.T) {
 	cfg, telegram := startChat(t, nil)
 	c := New(cfg, nil, usage.Open(cfg.State))
+	c.turnID = "t1"
 
 	// A note from before the turn is not shown.
-	c.Note("stale")
+	c.Note("t1", "stale")
 	lines, done := make(chan string, 4), make(chan struct{})
 	shown := make(chan struct{})
 	go func() {
@@ -823,7 +824,10 @@ func TestProgressNote(t *testing.T) {
 
 	lines <- "Running den map -p @prompt.md jobs.jsonl"
 	time.Sleep(50 * time.Millisecond)
-	c.Note("🗂 3 of 10 items")
+	// A job's agent, or one between turns, is not this turn.
+	c.Note("", "🗂 from a job")
+	c.Note("t0", "🗂 from an old turn")
+	c.Note("t1", "🗂 3 of 10 items")
 	telegram.expect(t, "Working…\n→ Running den map…\n   🗂 3 of 10 items")
 
 	// The next step ends the note.

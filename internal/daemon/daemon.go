@@ -411,6 +411,8 @@ type NotifyRequest struct {
 // ProgressRequest is the body of POST /progress: what a running command
 // says about itself, shown under its step in the chat.
 type ProgressRequest struct {
+	// Turn is the DEN_TURN den gave the chat's agent.
+	Turn string `json:"turn"`
 	Text string `json:"text"`
 }
 
@@ -546,7 +548,7 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		d.chat.Note(req.Text)
+		d.chat.Note(req.Turn, req.Text)
 		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 

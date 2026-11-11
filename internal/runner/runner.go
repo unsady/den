@@ -86,6 +86,9 @@ type Request struct {
 	// CompactPercent, when set, makes fx compact the session before the
 	// request once it fills this share of the model's window.
 	CompactPercent int
+	// Turn, when set, names the chat turn to the commands the agent runs, as
+	// DEN_TURN, so what they report shows in that turn's progress message.
+	Turn string
 	// Progress, when set, receives each line fx writes to stderr while it
 	// works, such as "Reading notes/todo.md" before a tool runs.
 	Progress func(line string)
@@ -140,6 +143,9 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 	cmd.Dir = cfg.Space
 	if req.CompactPercent > 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("FX_AUTO_COMPACT_PERCENT=%d", req.CompactPercent))
+	}
+	if req.Turn != "" {
+		cmd.Env = append(cmd.Env, "DEN_TURN="+req.Turn)
 	}
 
 	var stdout bytes.Buffer

@@ -11,6 +11,7 @@ package chat
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,6 +160,9 @@ type Chat struct {
 	wake chan struct{}
 	// squeeze asks the worker to compact the session now, for /compact.
 	squeeze chan struct{}
+	// turnID names the running turn to the commands its agent runs, and
+	// is empty between turns.
+	turnID string
 	// notes carry what a running command says about itself, such as how
 	// many items den map has done, to the progress message.
 	notes chan string
@@ -447,6 +451,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	generation := c.generation
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
+	current := rand.Text()
+	c.turnID = current
 	c.mu.Unlock()
 	defer stop()
 	started := time.Now()
@@ -467,6 +473,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 			Effort:   effort,
 			Resume:   resume,
 			Images:   images,
+			Turn:     current,
 			Progress: func(line string) {
 				select {
 				case steps <- line:
@@ -492,6 +499,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 
 	c.mu.Lock()
 	c.stop = nil
+	c.turnID = ""
 	compacted := ""
 	if generation == c.generation && reply.SessionID != "" {
 		c.state.Session = reply.SessionID

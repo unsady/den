@@ -66,6 +66,7 @@ func mapCommand(cfg config.Config, args []string) error {
 	defer stop()
 	opts := mapper.Options{
 		URL:          provider.url,
+		Responses:    provider.name == "codex",
 		Model:        provider.model,
 		Instructions: instructions,
 		Workers:      *workers,
@@ -81,16 +82,20 @@ func mapCommand(cfg config.Config, args []string) error {
 }
 
 // mapProgress prints how far a run is for the agent, and has den show it
-// under the step in the user's chat.
+// under the step in the user's chat when the chat's agent runs it.
 func mapProgress(cfg config.Config) func(mapper.Status) {
+	turn := os.Getenv("DEN_TURN")
 	return func(s mapper.Status) {
 		fmt.Fprintf(os.Stderr, "den map: %d of %d done, %d failed, $%.4f so far\n", s.Done, s.Total, s.Failed, s.Cost)
 		note := fmt.Sprintf("🗂 %d of %d items", s.Done, s.Total)
 		if s.Failed > 0 {
 			note += fmt.Sprintf(", %d failed", s.Failed)
 		}
+		if turn == "" {
+			return
+		}
 		// The chat is a nicety: a daemon that is away does not stop the run.
-		_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Text: note}, nil)
+		_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Turn: turn, Text: note}, nil)
 	}
 }
 
@@ -99,9 +104,17 @@ type mapTarget struct {
 }
 
 // mapProvider picks the provider and model from fx's settings: those den
-// proxies with the chat completions API, as subscriptions such as Codex
-// speak another one.
+// proxies with the chat completions API. A ChatGPT subscription's Codex
+// serves only when named with its model, so a run does not spend the
+// subscription on its strongest model by default.
 func mapProvider(settingsPath, model string) (mapTarget, error) {
+	if m, ok := strings.CutPrefix(model, "codex/"); ok {
+		if m == "" {
+			return mapTarget{}, errors.New("name the Codex model, such as --model codex/gpt-6-luna; `fx models` lists them")
+		}
+		return mapTarget{"codex", m, "http://" + models.Proxy + "/codex/responses"}, nil
+	}
+
 	var settings struct {
 		Provider  string            `json:"provider"`
 		Models    map[string]string `json:"models"`
@@ -126,7 +139,7 @@ func mapProvider(settingsPath, model string) (mapTarget, error) {
 	}
 	slices.Sort(usable)
 	if len(usable) == 0 {
-		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go; Codex is not supported")
+		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go, or a Codex model named with --model codex/<model>, such as codex/gpt-6-luna")
 	}
 
 	name := settings.Provider
