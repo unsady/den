@@ -183,31 +183,28 @@ func TestProgress(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var buf syncBuffer
-	opts := Options{URL: srv.URL, Model: "m", Instructions: "x", Workers: 1, Progress: &buf, Every: 20 * time.Millisecond}
+	var mu sync.Mutex
+	var seen []Status
+	report := func(s Status) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, s)
+	}
+	opts := Options{URL: srv.URL, Model: "m", Instructions: "x", Workers: 1, Progress: report, Every: 20 * time.Millisecond}
 	if _, err := Run(context.Background(), opts, strings.NewReader("1\n2\n3\n4\n"), filepath.Join(t.TempDir(), "out.jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	if got := buf.String(); !strings.Contains(got, "of 4 done, 0 failed") {
-		t.Errorf("progress %q", got)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) == 0 || seen[0].Total != 4 || seen[len(seen)-1].Done == 0 {
+		t.Fatalf("progress %+v", seen)
 	}
-}
-
-type syncBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
+	for i := 1; i < len(seen); i++ {
+		if seen[i].Done <= seen[i-1].Done {
+			t.Errorf("progress repeats or goes back: %+v", seen)
+		}
+	}
 }
 
 func TestExtract(t *testing.T) {

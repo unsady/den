@@ -39,8 +39,9 @@ type Options struct {
 	// Wait is how long to wait before retrying a failed request; tests
 	// shorten it.
 	Wait time.Duration
-	// Progress, when set, gets a line on how far the run is every Every.
-	Progress io.Writer
+	// Progress, when set, is told how far the run is every Every, when that
+	// changed.
+	Progress func(Status)
 	Every    time.Duration
 }
 
@@ -59,6 +60,12 @@ type Result struct {
 	Output  int     `json:"output_tokens,omitempty"`
 	Cost    float64 `json:"cost,omitempty"`
 	Seconds float64 `json:"seconds"`
+}
+
+// Status is how far a run is.
+type Status struct {
+	Done, Failed, Total int
+	Cost                float64
 }
 
 // Summary is what a run did.
@@ -179,7 +186,7 @@ func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, 
 }
 
 // progress reports how many items have an answer, when that changed.
-func progress(w io.Writer, every time.Duration, stop <-chan struct{}, mu *sync.Mutex, results *[]Result, total int) {
+func progress(report func(Status), every time.Duration, stop <-chan struct{}, mu *sync.Mutex, results *[]Result, total int) {
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	last := -1
@@ -191,18 +198,18 @@ func progress(w io.Writer, every time.Duration, stop <-chan struct{}, mu *sync.M
 		}
 
 		mu.Lock()
-		done, failed, cost := len(*results), 0, 0.0
+		s := Status{Done: len(*results), Total: total}
 		for _, r := range *results {
 			if r.Error != "" {
-				failed++
+				s.Failed++
 			}
-			cost += r.Cost
+			s.Cost += r.Cost
 		}
 		mu.Unlock()
 
-		if done != last {
-			last = done
-			fmt.Fprintf(w, "den map: %d of %d done, %d failed, $%.4f so far\n", done, total, failed, cost)
+		if s.Done != last {
+			last = s.Done
+			report(s)
 		}
 	}
 }
