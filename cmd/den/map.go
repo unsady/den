@@ -81,6 +81,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		Provider:     provider.name,
 		Model:        provider.model,
 		Effort:       *effort,
+		Workers:      *workers,
 		File:         rest[0],
 		Instructions: instructions,
 		Args:         args,

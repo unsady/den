@@ -435,6 +435,7 @@ type MapRequest struct {
 	Provider     string `json:"provider"`
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
+	Workers      int    `json:"workers"`
 	Items        int    `json:"items"`
 	File         string `json:"file"`
 	Instructions string `json:"instructions"`

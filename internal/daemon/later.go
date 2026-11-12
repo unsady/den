@@ -44,13 +44,16 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 
 	model := req.Provider + "/" + req.Model
 	what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
-	text := what
-	if req.Effort != "" {
-		text += ", effort " + req.Effort
+	effort := req.Effort
+	if effort == "" {
+		effort = "the provider's default"
+		if req.Provider == "codex" {
+			effort = "low"
+		}
 	}
-	text += "\n" + req.File
+	text := fmt.Sprintf("den map: %d items\n\nModel: %s\nEffort: %s\nAt once: %d\nFile: %s", req.Items, model, effort, req.Workers, req.File)
 	if task := firstSentence(req.Instructions); task != "" {
-		text += "\n" + task
+		text += "\nTask: " + task
 	}
 	q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
 	waiting, err := d.ask.Later(d.ctx, q, func(err error) { d.mapLater(req, what, err) })
@@ -65,7 +68,7 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 }
 
 func sameRun(a, b MapRequest) bool {
-	return a.Provider == b.Provider && a.Model == b.Model && a.Effort == b.Effort &&
+	return a.Provider == b.Provider && a.Model == b.Model && a.Effort == b.Effort && a.Workers == b.Workers &&
 		a.Items == b.Items && a.File == b.File && a.Instructions == b.Instructions
 }
 
