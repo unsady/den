@@ -51,10 +51,13 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 			effort = "low"
 		}
 	}
-	text := fmt.Sprintf("🗂 den map: %d items\n⚙︎ %s · %s\n%s\n%d at once\n%s", req.Items, req.Model, effort, req.Provider, req.Workers, req.File)
+	// What the run does comes first, then what it runs on; the file is the
+	// agent's business.
+	text := fmt.Sprintf("🗂 Run a model on %d items", req.Items)
 	if task := firstSentence(req.Instructions); task != "" {
 		text += "\n" + task
 	}
+	text += fmt.Sprintf("\n\n⚙︎ %s · %s\nProvider: %s\nThreads: %d", req.Model, effort, req.Provider, req.Workers)
 	q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
 	waiting, err := d.ask.Later(d.ctx, q, func(err error) { d.mapLater(req, what, err) })
 	switch {
