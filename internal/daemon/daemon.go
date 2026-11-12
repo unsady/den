@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ import (
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/search"
 	"github.com/unsady/den/internal/seed"
+	"github.com/unsady/den/internal/sessions"
 	"github.com/unsady/den/internal/transcribe"
 	"github.com/unsady/den/internal/usage"
 )
@@ -136,6 +138,7 @@ func Serve(cfg config.Config) error {
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
 	d.chat = chat.New(cfg, d, d.usage)
+	d.runs.Forget = d.forgetSession
 	d.google = google.New(cfg)
 	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
 	d.fetch = fetch.New(cfg, later, d.google)
@@ -382,6 +385,25 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 	}
 	d.chat.Sent(ids, run.SessionID, heading(j))
 	return true
+}
+
+// forgetSession deletes the fx session of a job run whose record den
+// dropped, unless the user went on in it from the chat.
+func (d *daemon) forgetSession(id string) {
+	list, err := sessions.List(d.cfg.Sessions, 1<<20)
+	if err != nil {
+		log.Printf("job session %s: %v", id, err)
+		return
+	}
+	i := slices.IndexFunc(list, func(s sessions.Summary) bool { return s.ID == id })
+	if i < 0 || list[i].Turns > 1 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
+	defer cancel()
+	if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
+		log.Printf("job session %s: %v", id, err)
+	}
 }
 
 // heading names the job above its reply, which would otherwise read like a

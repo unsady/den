@@ -248,6 +248,15 @@ func Offered(ctx context.Context, cfg config.Config, provider string) ([]string,
 	return list.IDs, err
 }
 
+// DeleteSession deletes a saved fx session and the subagent sessions it
+// owns. An fx from before `fx session delete` fails it.
+func DeleteSession(ctx context.Context, cfg config.Config, id string) error {
+	var deleted struct {
+		ID string `json:"id"`
+	}
+	return query(ctx, cfg, "", &deleted, "session", "delete", id, "--json")
+}
+
 // query runs a quick fx command that prints JSON and reads it into v.
 func query(ctx context.Context, cfg config.Config, provider string, v any, args ...string) error {
 	return queryWith(ctx, cfg, provider, nil, v, args...)

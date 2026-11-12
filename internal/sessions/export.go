@@ -34,6 +34,7 @@ type indexEntry struct {
 	Workspace string `json:"workspace"`
 	Created   int64  `json:"created"`
 	Updated   int64  `json:"updated"`
+	Turns     int    `json:"turns"`
 }
 
 type event struct {
@@ -354,6 +355,8 @@ type Summary struct {
 	ID      string
 	Title   string
 	Updated time.Time
+	// Turns is how many turns the session has had.
+	Turns int
 }
 
 // List returns the n most recently updated root sessions, newest first.
@@ -368,7 +371,7 @@ func List(sessionsDir string, n int) ([]Summary, error) {
 		if e.Role != "" && e.Role != "root" {
 			continue
 		}
-		list = append(list, Summary{ID: id, Title: titleOf(e), Updated: time.UnixMilli(e.Updated)})
+		list = append(list, Summary{ID: id, Title: titleOf(e), Updated: time.UnixMilli(e.Updated), Turns: e.Turns})
 	}
 	sort.Slice(list, func(a, b int) bool { return list[a].Updated.After(list[b].Updated) })
 	if len(list) > n {

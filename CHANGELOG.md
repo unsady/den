@@ -20,6 +20,7 @@ release notes.
 
 ### Fixed
 
+- A job's runs past the latest 50 showed up in `/sessions` as chat sessions, and every run's fx session stayed on disk for good. den now remembers every job run's session, and deletes it together with the run's record unless you went on in it from the chat.
 - What came of an action you allowed could get lost after `/stop`, or reach a new session's agent after `/new`. den now sends it to you instead.
 - The agent could get den's secrets or forge your approvals through links in its own fx profile: den read provider keys and settings there as root and followed the links. den now reads and writes the agent's profile as the agent.
 - A push that GitHub refused could still make a branch the agent's own, such as `main`, so later pushes to it went without a question. A branch is now the agent's only once GitHub took the push that created it, and den refuses a push with a line it cannot read.
