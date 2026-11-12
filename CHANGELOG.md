@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.3.0
+
 ### New
 
 - `den map` asks a cheap model the same question about each line of a JSONL file, one short request per item, and writes one JSON answer per item with a count of each answer, the tokens, and the cost. It says how far it is every 10 seconds, and marks the instructions for Claude models so the provider caches them. Each run needs your Allow in Telegram, asked with a short question, with Always to allow a model for good. A run of the chat's agent goes on in den's background, so you can keep talking to the agent: one message lists the runs going on and how far each is, and goes away when they end, and the agent hears what came of each in a new turn; it runs 4 items at once, at most 8, and `--effort` sets the model's reasoning effort, such as `none` for speed over care. A ChatGPT subscription works too when the model is named, such as `--model codex/gpt-6-luna`, and Codex reuses its cache of instructions longer than about 1,000 tokens. The new `map` skill tells the agent to use it for many similar items, such as job ads or emails, instead of reading them all in its own session: on 100 job ads it took 4 minutes and 0.16M tokens where the agent took 17 minutes and 11.7M.
@@ -17,6 +19,7 @@ release notes.
 - The agent no longer waits on a question in Telegram. Mail, pushes to branches the agent did not create, writes through `den fetch` that need your Allow, and `den map` runs return at once; den keeps the action, takes it once you allow it, and tells the agent what came of it in a new turn, so it can carry on, such as reporting the result. Before, the action failed when the agent's turn ended first, which some models did within a second. A question now waits up to a day instead of 15 minutes. A kept push that GitHub refuses because its branch moved meanwhile is reported, and the agent pushes again.
 - A question about a write to your own API or a GitHub repository has a **1 hour** button: it allows this request and every other write to the same API or repository, but deletes, for the next hour, so a task with many writes takes one tap.
 - `den service add --ask deletes` asks only before a delete, and lets other writes through.
+- `/compact` shows den typing while it works.
 
 ### Fixed
 
