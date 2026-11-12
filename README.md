@@ -4,7 +4,7 @@ A personal AI agent you talk to in Telegram. It runs on your own computer, in a 
 
 den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent CLI, and adds what an assistant needs beyond coding:
 
-- **Small.** Idle, den takes about 20 MB of memory. Nothing stays loaded between messages: whisper, Python, and the browser start only when a task needs them.
+- **Small.** Idle, den is one small process waiting for your messages. Nothing stays loaded between messages: whisper, Python, and the browser start only when a task needs them.
 - **Safe with your accounts.** The agent never sees a password, token, or key. den holds them and adds them to the agent's requests itself, and anything that reaches other people or cannot be undone waits for your tap in Telegram.
 - **Works out of the box.** One command installs it; the setup asks for a Telegram bot and a model key, and the agent is ready.
 
