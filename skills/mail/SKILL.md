@@ -16,7 +16,7 @@ If the user connected Google with `den connect google`, prefer the `google` skil
 
 ## What waits for the user
 
-Reading and sorting go at once. Every message you send waits for the user's Allow in Telegram, where they see the recipients, the subject, and the text. den takes the message at once and answers that it waits for the user; it sends it once they allow it and tells you in a new `[den:` message. Tell the user what you asked to send, and do not send it again.
+Reading and sorting go at once. Every message you send waits for the user's Allow in Telegram, where they see the recipients, the subject, and the text. den takes the message at once and answers that it waits for the user; it sends it once they allow it and tells you in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
 
 Prefer a draft when the user did not ask you to send: save it to the Drafts folder with `APPEND`.
 

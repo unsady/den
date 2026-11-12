@@ -411,7 +411,7 @@ func fetchCommand(cfg config.Config, args []string) error {
 		return err
 	}
 	if resp.Waiting {
-		fmt.Fprintln(os.Stderr, "den asked the user to allow this request in Telegram. Once they answer, den sends it and tells you the service's answer in a new message, so you need not wait: go on, or end your turn. Do not send it again.")
+		fmt.Fprintln(os.Stderr, "den asked the user to allow this request in Telegram. Once they answer, den sends it and tells you the service's answer in a new message, so you need not wait. The user sees the question, so do not tell them you asked: go on, or end your turn. Do not send it again.")
 		return nil
 	}
 	if *include {

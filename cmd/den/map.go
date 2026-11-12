@@ -98,7 +98,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("not run: %w", err)
 	}
 	if answer.Waiting {
-		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait: go on, or end your turn.")
+		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait. The user sees the question, so do not tell them you asked: go on, or end your turn.")
 		return nil
 	}
 

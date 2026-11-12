@@ -51,7 +51,7 @@ The backup holds the space only, not `archive/` or `inbox/`.
 
 ## What waits for the user in the API
 
-Reads go at once, and so do these changes to the user's own repositories: issues, comments, labels, milestones, opening and editing pull requests, and git blobs, trees, and commits. den asks the user in Telegram first before any other write: files changed through the API, merges, tags, releases, workflow runs, deletions, access, anything in someone else's repository, a public repository, and any GraphQL mutation. To change files, commit and push with git to your own branch, and open a pull request. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. Tell the user what you asked for, and do not send it again.
+Reads go at once, and so do these changes to the user's own repositories: issues, comments, labels, milestones, opening and editing pull requests, and git blobs, trees, and commits. den asks the user in Telegram first before any other write: files changed through the API, merges, tags, releases, workflow runs, deletions, access, anything in someone else's repository, a public repository, and any GraphQL mutation. To change files, commit and push with git to your own branch, and open a pull request. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
 
 ## Requests
 
