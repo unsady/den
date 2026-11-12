@@ -241,7 +241,7 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			c.listJobs(ctx, telegram, cb.Message)
 		}
 
-	case "ok", "no", "al":
+	case "ok", "no", "al", "hr":
 		// The answer to a question den asked, such as whether to send a
 		// request. The message shrinks to the action's one line and the
 		// answer, so answered questions take little room.
@@ -251,6 +251,8 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			outcome, result = approve.Denied, "\n✗ Denied"
 		case "al":
 			outcome, result = approve.Always, "\n✓ Always allowed. /log lists what you always allow."
+		case "hr":
+			outcome, result = approve.ForHour, "\n✓ Allowed, with the same kind for an hour"
 		}
 		answer = "This question has expired."
 		if question, found := c.den.Answer(ref, outcome); found {

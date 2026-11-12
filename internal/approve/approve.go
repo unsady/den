@@ -43,6 +43,10 @@ type Question struct {
 	// Label names the rule for the user, such as "crm: PATCH /api/deals/*";
 	// empty uses What.
 	Label string
+	// Scope names a wider kind of action the user can allow for an hour,
+	// such as every write to one service but deletes. Empty offers no
+	// such choice.
+	Scope string
 }
 
 // The outcomes of an action in the log.
@@ -51,6 +55,8 @@ const (
 	Allowed = "allowed by you"
 	ByRule  = "allowed by your rule"
 	Always  = "allowed for good"
+	ForHour = "allowed for an hour"
+	ByHour  = "allowed for the hour you gave"
 	Denied  = "denied"
 	Expired = "expired"
 )
@@ -62,6 +68,28 @@ type Asker struct {
 
 	mu      sync.Mutex
 	pending map[string]*question
+	// hours are when each scope the user allowed for an hour ends.
+	hours map[string]time.Time
+}
+
+// Hour is how long ForHour allows a question's scope.
+var Hour = time.Hour
+
+// before says how the user allowed q already, by a rule or for an hour, or
+// "" when den has to ask.
+func (a *Asker) before(q Question) string {
+	if q.Rule != "" && a.allowed(q.Rule) {
+		return ByRule
+	}
+	if q.Scope != "" {
+		a.mu.Lock()
+		until := a.hours[q.Scope]
+		a.mu.Unlock()
+		if time.Now().Before(until) {
+			return ByHour
+		}
+	}
+	return ""
 }
 
 type question struct {
@@ -70,15 +98,15 @@ type question struct {
 }
 
 func New(cfg config.Config) *Asker {
-	return &Asker{cfg: cfg, pending: map[string]*question{}}
+	return &Asker{cfg: cfg, pending: map[string]*question{}, hours: map[string]time.Time{}}
 }
 
 // Ask sends the question with Allow and Deny buttons, and Always when it
 // names a rule, and waits for the user's answer. It returns nil at once for
 // a kind of action the user allowed for good, and when the user allows it.
 func (a *Asker) Ask(ctx context.Context, q Question) error {
-	if q.Rule != "" && a.allowed(q.Rule) {
-		a.Note(q.What, ByRule)
+	if how := a.before(q); how != "" {
+		a.Note(q.What, how)
 		return nil
 	}
 
@@ -96,8 +124,8 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 // then with the answer, nil when the user allows it, once they give one or
 // LaterWait passes. ctx bounds the wait, such as den's own lifetime.
 func (a *Asker) Later(ctx context.Context, q Question, then func(error)) (bool, error) {
-	if q.Rule != "" && a.allowed(q.Rule) {
-		a.Note(q.What, ByRule)
+	if how := a.before(q); how != "" {
+		a.Note(q.What, how)
 		return false, nil
 	}
 
@@ -144,6 +172,9 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 	buttons := []notify.Button{{Text: "Allow", Data: "ok:" + id}, {Text: "Deny", Data: "no:" + id}}
 	if q.Rule != "" {
 		buttons = append(buttons, notify.Button{Text: "Always", Data: "al:" + id})
+	}
+	if q.Scope != "" {
+		buttons = append(buttons, notify.Button{Text: "1 hour", Data: "hr:" + id})
 	}
 	call, cancel := context.WithTimeout(ctx, time.Minute)
 	message, err := telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
@@ -212,6 +243,15 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 		return "", false
 	}
 
+	if outcome == ForHour {
+		if p.Scope == "" {
+			outcome = Allowed
+		} else {
+			a.mu.Lock()
+			a.hours[p.Scope] = time.Now().Add(Hour)
+			a.mu.Unlock()
+		}
+	}
 	if outcome == Always {
 		if p.Rule == "" {
 			outcome = Allowed

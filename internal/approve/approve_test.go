@@ -142,6 +142,31 @@ func TestAsk(t *testing.T) {
 		t.Fatalf("later by rule: %v %v", waiting, err)
 	}
 
+	// 1 hour allows the question's scope, and then den asks again.
+	Hour = 100 * time.Millisecond
+	scoped := Question{Text: "Post it?", What: "crm: POST /api/a", Scope: "fetch crm"}
+	go a.Ask(context.Background(), scoped)
+	got := <-sent
+	if !strings.Contains(got, " hr:") {
+		t.Fatalf("no 1 hour button: %q", got)
+	}
+	_, id, _ := strings.Cut(strings.Fields(got)[2], ":")
+	a.Answer(id, ForHour)
+	other := Question{Text: "Patch it?", What: "crm: PATCH /api/b/1", Scope: "fetch crm"}
+	if err := a.Ask(context.Background(), other); err != nil {
+		t.Fatalf("within the hour: %v", err)
+	}
+	select {
+	case got := <-sent:
+		t.Fatalf("asked within the hour: %q", got)
+	default:
+	}
+	time.Sleep(150 * time.Millisecond)
+	go a.Ask(context.Background(), other)
+	if got := <-sent; !strings.HasPrefix(got, "Patch it?") {
+		t.Fatalf("after the hour: %q", got)
+	}
+
 	// A question too long for one message is not asked, rather than cut.
 	long := Question{Text: "Push to me/repo?\n\n• " + strings.Repeat("a", 5000) + "\n• main", What: "Push"}
 	if err := a.Ask(context.Background(), long); err == nil || !strings.Contains(err.Error(), "too long") {

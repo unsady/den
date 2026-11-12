@@ -198,6 +198,11 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 			q.Rule = "fetch " + req.Secret + " " + method + " " + pathPattern(u.Path)
 			q.Label = s.label + ": " + method + " " + pathPattern(u.Path)
 		}
+		var scope string
+		q.Scope, scope = hourScope(s, req.Secret, method, u)
+		if q.Scope != "" {
+			q.Text += "\n\n1 hour also allows " + scope + " for the next hour."
+		}
 		// The request does not wait for the answer: den sends it once the
 		// user allows it, and tells the agent what came of it.
 		waiting, err := f.later(q, func(err error) { f.sendLater(s, req, method, u, what, seen, err) })
@@ -345,6 +350,27 @@ func show(body []byte) string {
 		text = fmt.Sprintf("%s…\n(%d more characters not shown)", string(runes[:1500]), len(runes)-1500)
 	}
 	return text
+}
+
+// hourScope is the kind of request the user can allow for an hour with
+// this one: writes to the same service, or for GitHub to the same
+// repository, but never deletes. A service that asks about every request,
+// and Google, whose questions are about mail and other people, offer none.
+// It returns the scope and how the question names it.
+func hourScope(s service, secret, method string, u *url.URL) (string, string) {
+	if !s.always || method == http.MethodDelete {
+		return "", ""
+	}
+	if secret != "github" {
+		return "fetch " + secret, "every write to " + s.label + " but deletes"
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	// Handing a repository to someone else is never one of many.
+	if len(parts) < 4 || parts[0] != "repos" || parts[3] == "transfer" {
+		return "", ""
+	}
+	repo := strings.ToLower(parts[1] + "/" + parts[2])
+	return "fetch github " + repo, "every API write to " + repo + " but deletes"
 }
 
 // uuid and ulid match a UUID and a ULID, which name one thing like a number

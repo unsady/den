@@ -13,6 +13,8 @@ release notes.
 ### Better
 
 - The agent no longer waits on a question in Telegram. Mail, pushes to branches the agent did not create, writes through `den fetch` that need your Allow, and `den map` runs return at once; den keeps the action, takes it once you allow it, and tells the agent what came of it in a new turn, so it can carry on, such as reporting the result. Before, the action failed when the agent's turn ended first, which some models did within a second. A question now waits up to a day instead of 15 minutes. A kept push that GitHub refuses because its branch moved meanwhile is reported, and the agent pushes again.
+- A question about a write to your own API or a GitHub repository has a **1 hour** button: it allows this request and every other write to the same API or repository, but deletes, for the next hour, so a task with many writes takes one tap.
+- `den service add --ask deletes` asks only before a delete, and lets other writes through.
 
 ### Fixed
 
