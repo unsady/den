@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,6 +91,26 @@ func TestRunSessions(t *testing.T) {
 	}
 	got := runs.Sessions()
 	if len(got) != 3 || !got["s1"] || !got["s2"] || !got["s3"] {
+		t.Fatalf("sessions %v", got)
+	}
+}
+
+func TestRunPruneForgets(t *testing.T) {
+	runs := NewRuns(t.TempDir())
+	runs.keep = 1
+	var forgot []string
+	runs.Forget = func(session string) { forgot = append(forgot, session) }
+	now := time.Now()
+	for i, id := range []string{"s1", "s2", "s3"} {
+		if err := runs.Save(Run{JobID: "a", SessionID: id, Started: now.Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Join(forgot, " ") != "s1 s2" {
+		t.Fatalf("forgot %q", forgot)
+	}
+	// A pruned run's session is still a job's.
+	if got := runs.Sessions(); len(got) != 3 || !got["s1"] {
 		t.Fatalf("sessions %v", got)
 	}
 }
