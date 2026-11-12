@@ -136,8 +136,10 @@ type entry struct {
 	image string
 	// second runs the turn on the second model, for /again.
 	second bool
-	// notice is what den tells the user instead when the entry is den's
-	// report and the agent does not get it, after /stop or a switch.
+	// report marks den's report of what came of an action, and notice is
+	// what den tells the user instead when the agent does not get it, after
+	// /stop or a switch; nothing when it is empty.
+	report bool
 	notice string
 }
 
@@ -201,7 +203,7 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 		found = found || (t.id == turn && t.generation == c.generation)
 	}
 	if found {
-		c.inbox = append(c.inbox, entry{text: text, notice: notice})
+		c.inbox = append(c.inbox, entry{text: text, report: true, notice: notice})
 	}
 	c.mu.Unlock()
 	if !found {
@@ -411,10 +413,10 @@ func (c *Chat) dropReports() []string {
 	var notices []string
 	kept := c.inbox[:0]
 	for _, e := range c.inbox {
-		if e.notice != "" {
-			notices = append(notices, e.notice)
-		} else {
+		if !e.report {
 			kept = append(kept, e)
+		} else if e.notice != "" {
+			notices = append(notices, e.notice)
 		}
 	}
 	c.inbox = kept

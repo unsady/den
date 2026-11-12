@@ -161,7 +161,7 @@ func (s *Server) sendLater(a Account, to []string, msg []byte, what, turn string
 		return
 	}
 	log.Printf("mail: sent to %s, allowed by the user", strings.Join(to, ", "))
-	report(fmt.Sprintf("[den: the user allowed %s, and den sent it.]", what), "")
+	report(fmt.Sprintf("[den: the user allowed %s, and den sent it.]", what), what+": sent")
 }
 
 // recipient takes the address from RCPT's argument, "TO:<a@b.c>".

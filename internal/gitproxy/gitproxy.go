@@ -331,7 +331,7 @@ func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, c
 	default:
 		log.Printf("git: %s: pushed, allowed by the user", what)
 		p.record(owner+"/"+repo, commands, took)
-		report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches.]", what), "")
+		report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches.]", what), what+": pushed")
 	}
 }
 

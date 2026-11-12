@@ -103,7 +103,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 		return
 	}
 	text := fmt.Sprintf("[den: the user allowed %s, and den ran it. Its output is quoted below.]\n%s", what, approve.Quote(out))
-	user := ""
+	user := "🗂 " + what + " ran"
 	if err != nil {
 		text = fmt.Sprintf("[den: the user allowed %s, and it failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(out))
 		user = fmt.Sprintf("🗂 %s failed: %v", what, err)
@@ -149,13 +149,14 @@ func tail(text string, n int) string {
 
 // report tells the chat's agent what came of an action of its turn, as a
 // new turn. When the turn was not the chat's, such as a job's, or the user
-// switched sessions since, den tells the user, with user or the agent's
-// text when user is empty.
+// switched sessions since, den tells the user user instead, and nothing
+// when it is empty, such as for an action the user denied: the question
+// already says so.
 func (d *daemon) report(turn, agent, user string) {
-	if user == "" {
-		user = agent
-	}
 	if turn != "" && d.chat.Tell(turn, agent, user) {
+		return
+	}
+	if user == "" {
 		return
 	}
 	if err := d.notify(user); err != nil {
