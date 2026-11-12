@@ -907,3 +907,17 @@ func TestReplyTarget(t *testing.T) {
 		t.Fatalf("after a restart other(5) = %q", s)
 	}
 }
+
+func TestSwitchDuringTurn(t *testing.T) {
+	_, telegram := startChat(t, nil)
+
+	// A turn the chat left with /new still answers, headed with its
+	// session, and the chat stays in the new one.
+	telegram.message(42, "slow one")
+	time.Sleep(300 * time.Millisecond)
+	telegram.message(42, "/new")
+	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
+	telegram.expect(t, "↩ Earlier session\n\nresume=none msg=slow one lines=1")
+	telegram.message(42, "next")
+	telegram.expect(t, "resume=none msg=next lines=1")
+}

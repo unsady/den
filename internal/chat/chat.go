@@ -27,6 +27,7 @@ import (
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/sessions"
 	"github.com/unsady/den/internal/usage"
 )
 
@@ -592,16 +593,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	prompt := strings.Join(texts, "\n\n")
 	c.inbox = rest
 	session := c.state.Session
-	// A reply in another session says which, since the chat stays in its
-	// own.
-	side := ""
 	if other != "" {
 		session = other
-		side = label
-		if side == "" {
-			side = "↩ Earlier session"
-		}
-		side += "\n\n"
 	}
 	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
 	// A reply from the second model says so, since the chat goes on with
@@ -670,7 +663,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = nil
 	c.turnID = ""
 	compacted := ""
-	if other == "" && generation == c.generation && reply.SessionID != "" {
+	switched := generation != c.generation
+	if other == "" && !switched && reply.SessionID != "" {
 		c.state.Session = reply.SessionID
 		c.opened(reply.SessionID)
 		if size := c.contextSize(started); size > 0 {
@@ -710,7 +704,19 @@ func (c *Chat) turn(ctx context.Context) bool {
 	case text == "":
 		text = "(no reply)"
 	}
-	text = compacted + side + header + text
+	wrote := reply.SessionID
+	if wrote == "" {
+		wrote = session
+	}
+	// A reply from a session other than the chat's, such as a reply to a
+	// job's message or a turn the chat left with /new, says which.
+	if other != "" || switched {
+		if label == "" {
+			label = c.titled(wrote)
+		}
+		text = label + "\n\n" + text
+	}
+	text = compacted + header + text
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
 		call, cancel := context.WithTimeout(ctx, time.Minute)
@@ -719,13 +725,24 @@ func (c *Chat) turn(ctx context.Context) bool {
 		if err != nil {
 			log.Printf("chat: send: %v", err)
 		}
-		wrote := reply.SessionID
-		if wrote == "" {
-			wrote = session
-		}
 		c.Sent(ids, wrote, label)
 	}
 	return true
+}
+
+// titled names session above its replies by its title, cut short.
+func (c *Chat) titled(session string) string {
+	title := "Earlier session"
+	list, err := sessions.List(c.cfg.Sessions, 1<<20)
+	if err != nil {
+		return "↩ " + title
+	}
+	for _, s := range list {
+		if s.ID == session && s.Title != "Untitled session" {
+			title = clipRunes(s.Title, 40)
+		}
+	}
+	return "↩ " + title
 }
 
 // setMenu sends the command menu and reports whether Telegram took it. A
