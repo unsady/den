@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -46,16 +47,17 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 	what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
 	effort := req.Effort
 	if effort == "" {
-		effort = "the provider's default"
+		effort = "default"
 		if req.Provider == "codex" {
 			effort = "low"
 		}
 	}
-	text := fmt.Sprintf("den map: %d items\n\nModel: %s\nEffort: %s\nAt once: %d\nFile: %s", req.Items, model, effort, req.Workers, req.File)
+	text := fmt.Sprintf("🗂 <b>den map: %d items</b>\n⚙︎ <b>%s</b> · <b>%s</b>\n%s\n%d at once\n%s",
+		req.Items, html.EscapeString(req.Model), html.EscapeString(effort), html.EscapeString(req.Provider), req.Workers, html.EscapeString(req.File))
 	if task := firstSentence(req.Instructions); task != "" {
-		text += "\nTask: " + task
+		text += "\n" + html.EscapeString(task)
 	}
-	q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
+	q := approve.Question{Text: text, HTML: true, What: what, Rule: "map " + model, Label: "den map with " + model}
 	waiting, err := d.ask.Later(d.ctx, q, func(err error) { d.mapLater(req, what, err) })
 	switch {
 	case err != nil:

@@ -47,6 +47,9 @@ type Question struct {
 	// such as every write to one service but deletes. Empty offers no
 	// such choice.
 	Scope string
+	// HTML says Text is in Telegram's HTML format, with what it quotes
+	// escaped.
+	HTML bool
 }
 
 // The outcomes of an action in the log.
@@ -177,7 +180,11 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		buttons = append(buttons, notify.Button{Text: "1 hour", Data: "hr:" + id})
 	}
 	call, cancel := context.WithTimeout(ctx, time.Minute)
-	message, err := telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
+	send := telegram.SendButtons
+	if q.HTML {
+		send = telegram.SendHTML
+	}
+	message, err := send(call, q.Text, [][]notify.Button{buttons})
 	cancel()
 	if err != nil {
 		a.forget(id)
