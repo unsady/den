@@ -924,14 +924,43 @@ func TestSwitchDuringTurn(t *testing.T) {
 
 func TestBackground(t *testing.T) {
 	_, telegram := startChat(t, nil)
+	names := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model    string `json:"model"`
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/p1/chat/completions" || body.Model != "auto" {
+			http.Error(w, "wrong model", http.StatusBadRequest)
+			return
+		}
+		name := "Сравнение моделей.\nBecause the task compares them."
+		if strings.HasPrefix(body.Messages[1].Content, "slow: fail") {
+			name = ""
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": name}}}})
+	}))
+	t.Cleanup(names.Close)
+	original := nameURL
+	nameURL = func(provider string) string { return names.URL + "/" + provider + "/chat/completions" }
+	t.Cleanup(func() { nameURL = original })
 
 	// A /bg task runs besides the chat: the chat answers first while it
-	// still runs, and its answer comes headed with its name.
+	// still runs, and its answer comes headed with the name a model gave it.
 	telegram.message(42, "/bg slow: compare two models\nwith care")
-	telegram.expect(t, "⚙ slow-compare-two runs in the background. Its answer comes here; reply to it to go on there.")
+	telegram.expect(t, "⚙ Background task started. Its answer comes here; reply to it to go on there.")
+	telegram.expectEdit(t, "7: ⚙ сравнение-моделей runs in the background. Its answer comes here; reply to it to go on there.")
 	telegram.message(42, "hi")
 	telegram.expect(t, "resume=none msg=hi lines=1")
-	telegram.expect(t, "⚙ slow-compare-two\n\nresume=none msg=slow: compare two models lines=2")
+	telegram.expect(t, "⚙ сравнение-моделей\n\nresume=none msg=slow: compare two models lines=2")
+
+	// Without a name from the model, the task's first words name it.
+	telegram.message(42, "/bg slow: fail me")
+	telegram.expect(t, "⚙ Background task started. Its answer comes here; reply to it to go on there.")
+	telegram.expectEdit(t, "7: ⚙ slow-fail-me runs in the background. Its answer comes here; reply to it to go on there.")
+	telegram.expect(t, "⚙ slow-fail-me\n\nresume=none msg=slow: fail me lines=1")
 
 	telegram.message(42, "/bg")
 	telegram.expect(t, "Send /bg with a task, such as: /bg compare these two models")
