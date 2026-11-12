@@ -9,6 +9,7 @@ release notes.
 ### New
 
 - `den map` asks a cheap model the same question about each line of a JSONL file, one short request per item, and writes one JSON answer per item with a count of each answer, the tokens, and the cost. It says how far it is every 10 seconds, and marks the instructions for Claude models so the provider caches them. Each run needs your Allow in Telegram, asked with a short question, with Always to allow a model for good. A run of the chat's agent goes on in den's background, so you can keep talking to the agent: one message lists the runs going on and how far each is, and goes away when they end, and the agent hears what came of each in a new turn; it runs 4 items at once, at most 8, and `--effort` sets the model's reasoning effort, such as `none` for speed over care. A ChatGPT subscription works too when the model is named, such as `--model codex/gpt-6-luna`, and Codex reuses its cache of instructions longer than about 1,000 tokens. The new `map` skill tells the agent to use it for many similar items, such as job ads or emails, instead of reading them all in its own session: on 100 job ads it took 4 minutes and 0.16M tokens where the agent took 17 minutes and 11.7M.
+- Reply to a job's message, or to a message from an earlier session, to go on in that session: den runs the turn there, heads the answer with the job's name or ↩ Earlier session, and the chat stays in its own session. den tells the messages apart by their Telegram ids, not their text, for the last 500 it sent.
 
 ### Better
 

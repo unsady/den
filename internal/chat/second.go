@@ -153,10 +153,10 @@ func (c *Chat) again(ctx context.Context, telegram *notify.Telegram, m notify.Me
 	case second == nil:
 		c.send(ctx, telegram, "There is no second model yet. Choose one in /model under Second model.")
 	case text != "":
-		c.queue(ctx, telegram, m.ID, entry{text: quoted(m, text), second: true})
+		c.queue(ctx, telegram, m, entry{text: quoted(m, text), second: true})
 	case session == "":
 		c.send(ctx, telegram, "There is nothing to ask again in this session yet.")
 	default:
-		c.queue(ctx, telegram, m.ID, entry{text: againNote, second: true})
+		c.queue(ctx, telegram, m, entry{text: againNote, second: true})
 	}
 }

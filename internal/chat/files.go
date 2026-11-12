@@ -45,7 +45,7 @@ func (c *Chat) receiveFile(ctx context.Context, telegram *notify.Telegram, m not
 		e.text = caption + "\n" + e.text
 	}
 	e.text = quoted(m, e.text)
-	c.queue(ctx, telegram, m.ID, e)
+	c.queue(ctx, telegram, m, e)
 }
 
 // voiceText describes a voice message saved at path with its transcript, or

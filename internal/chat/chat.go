@@ -127,7 +127,23 @@ type state struct {
 	// Second is the second model, which jobs can run on, empty until /model
 	// chooses one.
 	Second *runner.Choice `json:"second,omitempty"`
+	// Replies tie the bot's latest messages to the fx session that wrote
+	// them, oldest first, so a reply to one continues that session.
+	Replies []sent `json:"replies,omitempty"`
 }
+
+// sent is one message of the bot's and the session that wrote it.
+type sent struct {
+	Message int64  `json:"message"`
+	Session string `json:"session"`
+	// Label names the session above its replies, such as a job's heading;
+	// empty for the chat's own sessions.
+	Label string `json:"label,omitempty"`
+}
+
+// keptReplies is how many of the bot's latest messages a reply can go back
+// to.
+const keptReplies = 500
 
 // entry is one message waiting for the next turn.
 type entry struct {
@@ -141,6 +157,11 @@ type entry struct {
 	// /stop or a switch; nothing when it is empty.
 	report bool
 	notice string
+	// session is where the message goes when it is not the chat's own
+	// session, such as a reply to a job's message, and label names that
+	// session above the answer.
+	session string
+	label   string
 }
 
 // againNote asks the second model to answer the last message again.
@@ -180,6 +201,10 @@ type Chat struct {
 type turnRef struct {
 	id         string
 	generation int
+	// session and label are set for a turn in a session other than the
+	// chat's own.
+	session string
+	label   string
 }
 
 // keptTurns is how many of the latest turns Tell recognizes.
@@ -200,10 +225,12 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 	c.mu.Lock()
 	found := false
 	for _, t := range c.turns {
-		found = found || (t.id == turn && t.generation == c.generation)
-	}
-	if found {
-		c.inbox = append(c.inbox, entry{text: text, report: true, notice: notice})
+		// A switch leaves another session's turns where they are.
+		if t.id == turn && (t.session != "" || t.generation == c.generation) {
+			found = true
+			c.inbox = append(c.inbox, entry{text: text, report: true, notice: notice, session: t.session, label: t.label})
+			break
+		}
 	}
 	c.mu.Unlock()
 	if !found {
@@ -360,7 +387,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	case "/stop":
 		c.mu.Lock()
 		stop := c.stop
-		notices := c.dropReports()
+		notices := c.dropReports(true)
 		c.inbox = nil
 		c.mu.Unlock()
 		if stop == nil {
@@ -372,7 +399,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		c.tell(ctx, telegram, notices)
 
 	default:
-		c.queue(ctx, telegram, m.ID, entry{text: quoted(m, m.Text)})
+		c.queue(ctx, telegram, m, entry{text: quoted(m, m.Text)})
 	}
 }
 
@@ -397,7 +424,7 @@ func quoted(m notify.Message, text string) string {
 func (c *Chat) switchTo(session string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	notices := c.dropReports()
+	notices := c.dropReports(false)
 	c.state.Session = session
 	c.opened(session)
 	c.state.Context = 0
@@ -407,13 +434,14 @@ func (c *Chat) switchTo(session string) []string {
 	return notices
 }
 
-// dropReports takes den's reports out of the inbox and returns what to tell
-// the user about them instead. The caller holds c.mu.
-func (c *Chat) dropReports() []string {
+// dropReports takes den's reports for the chat's session, or all of them,
+// out of the inbox and returns what to tell the user about them instead.
+// The caller holds c.mu.
+func (c *Chat) dropReports(all bool) []string {
 	var notices []string
 	kept := c.inbox[:0]
 	for _, e := range c.inbox {
-		if !e.report {
+		if !e.report || (!all && e.session != "") {
 			kept = append(kept, e)
 		} else if e.notice != "" {
 			notices = append(notices, e.notice)
@@ -449,8 +477,12 @@ func (c *Chat) opened(session string) {
 
 // queue keeps a message for the next turn. While a turn runs, it marks the
 // message with 👀, so the user sees it waits.
-func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, id int64, e entry) {
+func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, e entry) {
+	id := m.ID
 	c.mu.Lock()
+	if e.session == "" {
+		e.session, e.label = c.other(m.ReplyTo)
+	}
 	c.inbox = append(c.inbox, e)
 	busy := c.stop != nil
 	c.mu.Unlock()
@@ -466,6 +498,42 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, id int64, e
 			log.Printf("chat: react: %v", err)
 		}
 	}
+}
+
+// Sent ties the bot's messages ids to session, which wrote them, so a reply
+// to one continues it. label names the session above its replies.
+func (c *Chat) Sent(ids []int64, session, label string) {
+	if session == "" || len(ids) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, id := range ids {
+		c.state.Replies = append(c.state.Replies, sent{Message: id, Session: session, Label: label})
+	}
+	if len(c.state.Replies) > keptReplies {
+		c.state.Replies = c.state.Replies[len(c.state.Replies)-keptReplies:]
+	}
+	c.save()
+}
+
+// other returns the session that wrote the bot's message id and its label,
+// when that session is not the chat's own. The caller holds c.mu.
+func (c *Chat) other(id int64) (session, label string) {
+	if id == 0 {
+		return "", ""
+	}
+	for i := len(c.state.Replies) - 1; i >= 0; i-- {
+		r := c.state.Replies[i]
+		if r.Message != id {
+			continue
+		}
+		if r.Session == c.state.Session {
+			return "", ""
+		}
+		return r.Session, r.Label
+	}
+	return "", ""
 }
 
 // work runs the waiting messages as turns, one turn at a time, and
@@ -496,17 +564,25 @@ func (c *Chat) work(ctx context.Context) {
 	}
 }
 
-// turn runs the waiting messages as one turn. It returns false when there
-// were none.
+// turn runs the waiting messages for one session as one turn. It returns
+// false when there were none.
 func (c *Chat) turn(ctx context.Context) bool {
 	c.mu.Lock()
 	if len(c.inbox) == 0 {
 		c.mu.Unlock()
 		return false
 	}
+	// Messages for another session, such as replies to a job's message,
+	// wait for a turn of their own.
+	other, label := c.inbox[0].session, c.inbox[0].label
 	var texts, images []string
+	var rest []entry
 	second := false
 	for _, e := range c.inbox {
+		if e.session != other {
+			rest = append(rest, e)
+			continue
+		}
 		texts = append(texts, e.text)
 		if e.image != "" {
 			images = append(images, e.image)
@@ -514,8 +590,19 @@ func (c *Chat) turn(ctx context.Context) bool {
 		second = second || e.second
 	}
 	prompt := strings.Join(texts, "\n\n")
-	c.inbox = nil
+	c.inbox = rest
 	session := c.state.Session
+	// A reply in another session says which, since the chat stays in its
+	// own.
+	side := ""
+	if other != "" {
+		session = other
+		side = label
+		if side == "" {
+			side = "↩ Earlier session"
+		}
+		side += "\n\n"
+	}
 	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
 	// A reply from the second model says so, since the chat goes on with
 	// the main one.
@@ -531,7 +618,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = stop
 	current := rand.Text()
 	c.turnID = current
-	c.turns = append(c.turns, turnRef{current, generation})
+	c.turns = append(c.turns, turnRef{current, generation, other, label})
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
@@ -583,7 +670,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = nil
 	c.turnID = ""
 	compacted := ""
-	if generation == c.generation && reply.SessionID != "" {
+	if other == "" && generation == c.generation && reply.SessionID != "" {
 		c.state.Session = reply.SessionID
 		c.opened(reply.SessionID)
 		if size := c.contextSize(started); size > 0 {
@@ -623,10 +710,20 @@ func (c *Chat) turn(ctx context.Context) bool {
 	case text == "":
 		text = "(no reply)"
 	}
-	text = compacted + header + text
+	text = compacted + side + header + text
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
-		c.send(ctx, telegram, text)
+		call, cancel := context.WithTimeout(ctx, time.Minute)
+		ids, err := telegram.SendIDs(call, text)
+		cancel()
+		if err != nil {
+			log.Printf("chat: send: %v", err)
+		}
+		wrote := reply.SessionID
+		if wrote == "" {
+			wrote = session
+		}
+		c.Sent(ids, wrote, label)
 	}
 	return true
 }

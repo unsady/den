@@ -288,6 +288,13 @@ func TestChat(t *testing.T) {
 
 	telegram.message(42, "/new@den_bot")
 	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
+	// A reply to a message of the old session goes on in that session,
+	// and the chat stays in the new one.
+	telegram.update(42, map[string]any{
+		"text":             "more",
+		"reply_to_message": map[string]any{"message_id": 7, "text": "resume=s1 msg=again lines=1", "from": map[string]any{"is_bot": true}},
+	})
+	telegram.expect(t, "↩ Earlier session\n\nresume=s1 msg=more lines=2")
 	telegram.message(42, "fresh")
 	telegram.expect(t, "resume=none msg=fresh lines=1")
 
@@ -369,8 +376,8 @@ func TestChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"offset":17`) {
-		t.Fatalf("state %s does not record offset 17", data)
+	if !strings.Contains(string(data), `"offset":18`) {
+		t.Fatalf("state %s does not record offset 18", data)
 	}
 }
 
@@ -846,7 +853,7 @@ func TestProgressNote(t *testing.T) {
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State))
-	c.turns = []turnRef{{"t1", 0}}
+	c.turns = []turnRef{{"t1", 0, "", ""}, {"t2", 0, "job1", "⏰ news"}}
 
 	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
@@ -864,5 +871,39 @@ func TestTell(t *testing.T) {
 	}
 	if c.Tell("t1", "[den: done]", "done") {
 		t.Fatal("a turn of the old session took the note")
+	}
+
+	// A turn in another session, such as a reply to a job's message, gets
+	// its note whatever session the chat is in.
+	c.inbox = nil
+	if !c.Tell("t2", "[den: sent]", "sent") || c.inbox[0].session != "job1" || c.inbox[0].label != "⏰ news" {
+		t.Fatalf("inbox %+v", c.inbox)
+	}
+	if notices := c.switchTo(""); len(notices) != 0 || len(c.inbox) != 1 {
+		t.Fatalf("notices %q, inbox %+v", notices, c.inbox)
+	}
+}
+
+func TestReplyTarget(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, usage.Open(cfg.State))
+	c.state.Session = "main"
+	c.Sent([]int64{5, 6}, "job1", "⏰ news")
+	c.Sent([]int64{8}, "main", "")
+
+	if s, l := c.other(6); s != "job1" || l != "⏰ news" {
+		t.Fatalf("other(6) = %q, %q", s, l)
+	}
+	if s, _ := c.other(8); s != "" {
+		t.Fatalf("a reply in the chat's own session went to %q", s)
+	}
+	if s, _ := c.other(9); s != "" {
+		t.Fatalf("an unknown message went to %q", s)
+	}
+
+	// The ids last across restarts.
+	c = New(cfg, nil, usage.Open(cfg.State))
+	if s, _ := c.other(5); s != "job1" {
+		t.Fatalf("after a restart other(5) = %q", s)
 	}
 }

@@ -48,6 +48,14 @@ func Load(cfg config.Config) (*Telegram, error) {
 // Send sends text to the user's chat, split into several messages when long,
 // with its ``` blocks and `inline code` shown as code that a tap copies.
 func (t *Telegram) Send(ctx context.Context, text string) error {
+	_, err := t.SendIDs(ctx, text)
+	return err
+}
+
+// SendIDs is Send that returns the ids of the messages it sent, so a reply
+// to any of them can be told apart.
+func (t *Telegram) SendIDs(ctx context.Context, text string) ([]int64, error) {
+	var ids []int64
 	for _, chunk := range split(strings.TrimSpace(text), maxMessage) {
 		chunk, entities := code(chunk)
 		body := map[string]any{
@@ -58,12 +66,15 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 		if len(entities) > 0 {
 			body["entities"] = entities
 		}
-		err := t.call(ctx, "sendMessage", body, nil)
-		if err != nil {
-			return err
+		var sent struct {
+			ID int64 `json:"message_id"`
 		}
+		if err := t.call(ctx, "sendMessage", body, &sent); err != nil {
+			return ids, err
+		}
+		ids = append(ids, sent.ID)
 	}
-	return nil
+	return ids, nil
 }
 
 // Post sends text as one message, cut to Telegram's limit, and returns its
@@ -257,6 +268,8 @@ type Message struct {
 	// the bot's.
 	Quote     string
 	QuotesBot bool
+	// ReplyTo is the id of the message this one replies to, or 0.
+	ReplyTo int64
 	// Callback is set for a button press instead of a message.
 	Callback *Callback
 	// File is the photo or document the message carries, if any.
@@ -344,6 +357,7 @@ func (t *Telegram) Updates(ctx context.Context, offset int64, wait int) (message
 			}
 			msg.Quote = strings.TrimSpace(quote)
 			msg.QuotesBot = r.From.IsBot
+			msg.ReplyTo = r.ID
 		}
 		switch {
 		case len(m.Photo) > 0:
@@ -387,6 +401,7 @@ type incoming struct {
 	Audio    *document `json:"audio"`
 	Voice    *document `json:"voice"`
 	Reply    *struct {
+		ID      int64  `json:"message_id"`
 		Text    string `json:"text"`
 		Caption string `json:"caption"`
 		From    struct {

@@ -374,10 +374,13 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 		text += "\n\n" + run.Output
 	}
 
-	if err := d.notify(text); err != nil {
+	// A reply to the job's message continues its session in the chat.
+	ids, err := d.send(text)
+	if err != nil {
 		log.Printf("job %s: deliver: %v", j.Label(), err)
 		return false
 	}
+	d.chat.Sent(ids, run.SessionID, heading(j))
 	return true
 }
 
@@ -396,15 +399,21 @@ func heading(j jobs.Job) string {
 }
 
 func (d *daemon) notify(text string) error {
+	_, err := d.send(text)
+	return err
+}
+
+// send is notify that returns the ids of the messages it sent.
+func (d *daemon) send(text string) ([]int64, error) {
 	// Secrets are read on each send, so they can be added after den starts.
 	telegram, err := notify.Load(d.cfg)
 	if err != nil {
 		log.Printf("notify (not sent): %s", text)
-		return err
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
 	defer cancel()
-	return telegram.Send(ctx, text)
+	return telegram.SendIDs(ctx, text)
 }
 
 // AddRequest is the body of POST /jobs.
