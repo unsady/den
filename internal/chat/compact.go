@@ -66,7 +66,11 @@ func (c *Chat) compactNow(ctx context.Context) string {
 			tokens(used), tokens(window), compactPercent)
 	}
 
+	// It takes a while, so the chat shows den typing meanwhile.
+	done := make(chan struct{})
+	go c.showTyping(ctx, done)
 	after, err := c.squeezeSession(ctx)
+	close(done)
 	if err == nil {
 		// The user asked for this one, so the next reply need not tell them.
 		c.mu.Lock()
