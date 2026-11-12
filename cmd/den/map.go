@@ -98,8 +98,12 @@ func mapCommand(cfg config.Config, args []string) error {
 	if err := client.New(cfg).Wait(2*time.Minute).Do(http.MethodPost, "/map", ask, &answer); err != nil {
 		return fmt.Errorf("not run: %w", err)
 	}
-	if answer.Waiting {
+	switch {
+	case answer.Waiting:
 		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait. The user sees the question, so do not tell them you asked: go on, or end your turn.")
+		return nil
+	case answer.Started:
+		fmt.Println("den runs this in its background and shows the user how far it is. It tells you what came of it in a new message, so do not wait or check on it: go on, or end your turn.")
 		return nil
 	}
 
@@ -114,7 +118,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		Workers:      *workers,
 		Resume:       *resume,
 		Wait:         5 * time.Second,
-		Progress:     mapProgress(cfg),
+		Progress:     mapProgress(cfg, *run),
 		Every:        10 * time.Second,
 	}
 	fmt.Fprintf(os.Stderr, "Asking %s/%s about each item of %s…\n", provider.name, provider.model, rest[0])
@@ -125,9 +129,14 @@ func mapCommand(cfg config.Config, args []string) error {
 
 // mapProgress prints how far a run is for the agent, and has den show it
 // under the step in the user's chat.
-func mapProgress(cfg config.Config) func(mapper.Status) {
+func mapProgress(cfg config.Config, run string) func(mapper.Status) {
 	return func(s mapper.Status) {
 		fmt.Fprintf(os.Stderr, "den map: %d of %d done, %d failed, $%.4f so far\n", s.Done, s.Total, s.Failed, s.Cost)
+		// A run in den's background shows in den's message about runs.
+		if run != "" {
+			_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Run: run, Done: s.Done, Total: s.Total, Failed: s.Failed}, nil)
+			return
+		}
 		text := fmt.Sprintf("🗂 %d of %d items", s.Done, s.Total)
 		if s.Failed > 0 {
 			text += fmt.Sprintf(", %d failed", s.Failed)

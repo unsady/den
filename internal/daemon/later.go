@@ -65,6 +65,12 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, err)
 	case waiting:
 		reply(w, http.StatusAccepted, MapReply{Waiting: true})
+	case req.Turn != "":
+		// A run of the chat's agent goes on in den's background even when a
+		// rule allows it, so the user can talk to the agent meanwhile. A
+		// job's agent has no chat to hear back in, so it runs its own.
+		go d.mapLater(req, what, nil)
+		reply(w, http.StatusAccepted, MapReply{Started: true})
 	default:
 		reply(w, http.StatusOK, MapReply{Allowed: true})
 	}
@@ -95,17 +101,19 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 		delete(d.grants, run)
 		d.mu.Unlock()
 	}()
+	d.runStarted(run, req.Model, req.Items)
 
 	d.wg.Add(1)
 	defer d.wg.Done()
 	out, summary, err := d.agentCommand(d.ctx, req.Dir, append([]string{"map", "--run", run}, req.Args...)...)
+	d.runEnded(run)
 	if d.ctx.Err() != nil {
 		return
 	}
-	text := fmt.Sprintf("[den: the user allowed %s, and den ran it. Its output is quoted below.]\n%s", what, approve.Quote(out))
+	text := fmt.Sprintf("[den: %s ran. Its output is quoted below.]\n%s", what, approve.Quote(out))
 	user := "🗂 " + what + " ran"
 	if err != nil {
-		text = fmt.Sprintf("[den: the user allowed %s, and it failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(out))
+		text = fmt.Sprintf("[den: %s failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(out))
 		user = fmt.Sprintf("🗂 %s failed: %v", what, err)
 	} else if first, _, _ := strings.Cut(summary, "\n"); first != "" {
 		// The summary's first line says how many items it answered; the

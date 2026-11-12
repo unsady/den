@@ -64,7 +64,12 @@ type daemon struct {
 	// grants are the den map runs the user allowed, by the grant den
 	// started each with.
 	grants map[string]MapRequest
-	wg     sync.WaitGroup
+	// maps are the den map runs going on in den's background, by grant,
+	// and mapsChanged says the chat's message about them is out of date.
+	maps        map[string]*mapRun
+	mapsChanged bool
+	mapsShown   bool
+	wg          sync.WaitGroup
 }
 
 func Serve(cfg config.Config) error {
@@ -126,6 +131,7 @@ func Serve(cfg config.Config) error {
 		ask:     approve.New(cfg),
 		running: map[string]bool{},
 		grants:  map[string]MapRequest{},
+		maps:    map[string]*mapRun{},
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
@@ -427,6 +433,13 @@ type ProgressRequest struct {
 	// Turn is the DEN_TURN den gave the chat's agent.
 	Turn string `json:"turn"`
 	Text string `json:"text"`
+
+	// Run is the grant of a den map run in den's background, and the rest
+	// say how far it is.
+	Run    string `json:"run,omitempty"`
+	Done   int    `json:"done,omitempty"`
+	Total  int    `json:"total,omitempty"`
+	Failed int    `json:"failed,omitempty"`
 }
 
 // MapRequest is the body of POST /map: a den map run the user allows before
@@ -456,6 +469,9 @@ type MapRequest struct {
 type MapReply struct {
 	Allowed bool `json:"allowed,omitempty"`
 	Waiting bool `json:"waiting,omitempty"`
+	// Started says den runs it in its background for the chat's agent, and
+	// tells the agent what came of it.
+	Started bool `json:"started,omitempty"`
 }
 
 // SendRequest is the body of POST /send. The CLI reads the file as the
@@ -595,7 +611,11 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		d.chat.Note(req.Turn, req.Text)
+		if req.Run != "" {
+			d.runProgress(req.Run, req.Done, req.Total, req.Failed)
+		} else {
+			d.chat.Note(req.Turn, req.Text)
+		}
 		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
 
