@@ -117,7 +117,7 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
 		return "451 " + oneLine(err)
 	}
 
-	text := "Mail: sends an email"
+	text := "✉︎ Email"
 	if shown := letter.Show(msg, to); shown != "" {
 		text += "\n\n" + shown
 	} else {

@@ -175,7 +175,7 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 
 	what := fmt.Sprintf("%s: %s %s", s.label, method, u.Path)
 	if why := s.review(ctx, f, s, method, u, req.Body); why != "" {
-		text := fmt.Sprintf("%s: %s %s\n%s", s.label, method, u.RequestURI(), why)
+		text := fmt.Sprintf("↗︎ %s: %s %s\n%s", s.label, method, u.RequestURI(), why)
 		display := show
 		if s.show != nil {
 			display = s.show

@@ -206,7 +206,7 @@ func (p *Proxy) question(repo string, commands []command) *approve.Question {
 		return nil
 	}
 
-	q := approve.Question{Text: "Push to " + repo + "?\n\n" + strings.Join(asked, "\n"), What: pushName(repo, commands)}
+	q := approve.Question{Text: "⇡ Push to " + repo + "\n\n" + strings.Join(asked, "\n"), What: pushName(repo, commands)}
 	if lasting {
 		slices.Sort(names)
 		q.Rule = "push " + repo + " " + strings.Join(names, ",")

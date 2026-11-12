@@ -98,7 +98,7 @@ func TestPush(t *testing.T) {
 	if err == nil || !strings.Contains(out, "den: waiting for the user in Telegram") {
 		t.Fatalf("held push: %v\n%s", err, out)
 	}
-	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Push to me/repo?\n\n• main: ") {
+	if len(asked) != 1 || !strings.HasPrefix(asked[0], "⇡ Push to me/repo\n\n• main: ") {
 		t.Fatalf("asked %q", asked)
 	}
 	then(approve.ErrDenied)

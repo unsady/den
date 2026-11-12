@@ -132,7 +132,7 @@ func TestFetch(t *testing.T) {
 	if len(reports) != 16 || !strings.HasPrefix(reports[0], " [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200, quoted below") || !strings.Contains(reports[0], ">\nok\n</quoted ") {
 		t.Fatalf("reports %q", reports)
 	}
-	if len(asked) != 16 || !strings.HasPrefix(asked[0], "GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
+	if len(asked) != 16 || !strings.HasPrefix(asked[0], "↗︎ GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
 		t.Fatalf("asked %q", asked)
 	}
 

@@ -69,7 +69,7 @@ func TestCustomService(t *testing.T) {
 	if _, err := f.Do(context.Background(), Request{Secret: "crm", Method: "POST", URL: server.URL + "/api/events", Body: []byte(`{"title":"x"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 1 || !strings.HasPrefix(asked[0], "crm: POST /api/events\nIt may change data on 127.0.0.1.") {
+	if len(asked) != 1 || !strings.HasPrefix(asked[0], "↗︎ crm: POST /api/events\nIt may change data on 127.0.0.1.") {
 		t.Fatalf("asked %q", asked)
 	}
 
@@ -88,7 +88,7 @@ func TestCustomService(t *testing.T) {
 	if resp, err := f.Do(context.Background(), Request{Secret: "shop", Method: "DELETE", URL: server.URL + "/api/products/1"}); err != nil || !resp.Waiting {
 		t.Fatalf("delete: %+v %v", resp, err)
 	}
-	if len(asked) != 2 || !strings.HasPrefix(asked[1], "shop: DELETE /api/products/1") {
+	if len(asked) != 2 || !strings.HasPrefix(asked[1], "↗︎ shop: DELETE /api/products/1") {
 		t.Fatalf("asked %q", asked)
 	}
 
