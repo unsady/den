@@ -52,6 +52,7 @@ var commands = []notify.Command{
 	{Name: "sessions", Description: "Switch to a recent session, or find one: /sessions <words>"},
 	{Name: "model", Description: "Choose the model and provider"},
 	{Name: "effort", Description: "Choose how hard the model thinks"},
+	{Name: "bg", Description: "Run a task in the background, in a session of its own: /bg <task>"},
 	{Name: "again", Description: "Ask the second model about your last message, or a new one"},
 	{Name: "stop", Description: "Stop the current turn"},
 	{Name: "compact", Description: "Shrink the session to a summary"},
@@ -197,6 +198,10 @@ type Chat struct {
 	// tell the agent of the session a turn ran in what came of a command
 	// it started.
 	turns []turnRef
+	// bg stops each turn that /bg runs, by its ID, while it runs, and
+	// background waits for them to end.
+	bg         map[string]context.CancelFunc
+	background sync.WaitGroup
 }
 
 type turnRef struct {
@@ -206,16 +211,30 @@ type turnRef struct {
 	// chat's own.
 	session string
 	label   string
+	// bg marks a /bg turn, whose session is known only once it ends;
+	// reports for it wait in pending until then.
+	bg      bool
+	pending []entry
 }
 
 // keptTurns is how many of the latest turns Tell recognizes.
 const keptTurns = 100
 
-// Current is the running turn's ID, or "" between turns.
+// Current is the running turn's ID, or "" between turns. While /bg turns
+// run besides it, den cannot tell which agent asked, so it is "" and what
+// came of the action goes to the user.
 func (c *Chat) Current() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.turnID
+	switch {
+	case len(c.bg) == 0:
+		return c.turnID
+	case c.turnID == "" && len(c.bg) == 1:
+		for id := range c.bg {
+			return id
+		}
+	}
+	return ""
 }
 
 // Tell gives the agent text as a new turn, such as what came of a command
@@ -224,25 +243,36 @@ func (c *Chat) Current() string {
 // job's, and the caller tells the user instead.
 func (c *Chat) Tell(turn, text, notice string) bool {
 	c.mu.Lock()
-	found := false
-	for _, t := range c.turns {
-		// A switch leaves another session's turns where they are.
-		if t.id == turn && (t.session != "" || t.generation == c.generation) {
-			found = true
-			c.inbox = append(c.inbox, entry{text: text, report: true, notice: notice, session: t.session, label: t.label})
-			break
+	found, wake := false, false
+	for i, t := range c.turns {
+		if t.id != turn {
+			continue
 		}
+		e := entry{text: text, report: true, notice: notice, session: t.session, label: t.label}
+		switch {
+		case t.bg && t.session == "":
+			found = true
+			c.turns[i].pending = append(t.pending, e)
+		// A switch leaves another session's turns where they are.
+		case t.session != "" || t.generation == c.generation:
+			found, wake = true, true
+			c.inbox = append(c.inbox, e)
+		}
+		break
 	}
 	c.mu.Unlock()
-	if !found {
-		return false
+	if wake {
+		c.poke()
 	}
+	return found
+}
 
+// poke wakes the worker to run what waits in the inbox.
+func (c *Chat) poke() {
 	select {
 	case c.wake <- struct{}{}:
 	default:
 	}
-	return true
 }
 
 func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
@@ -254,6 +284,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 		wake:    make(chan struct{}, 1),
 		squeeze: make(chan struct{}, 1),
 		notes:   make(chan string, 1),
+		bg:      map[string]context.CancelFunc{},
 	}
 
 	data, err := os.ReadFile(c.path)
@@ -272,6 +303,7 @@ func (c *Chat) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { c.work(ctx) })
 	defer wg.Wait()
+	defer c.background.Wait()
 
 	for ctx.Err() == nil {
 		// Secrets are read on each poll, so they can be added after den starts.
@@ -318,6 +350,11 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	}
 	if m.File != nil {
 		c.receiveFile(ctx, telegram, m)
+		return
+	}
+
+	if task, ok := bgTask(m.Text); ok {
+		c.runBackground(ctx, telegram, task)
 		return
 	}
 
@@ -390,11 +427,20 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		stop := c.stop
 		notices := c.dropReports(true)
 		c.inbox = nil
+		var stops []context.CancelFunc
+		for _, s := range c.bg {
+			stops = append(stops, s)
+		}
 		c.mu.Unlock()
-		if stop == nil {
+		if stop != nil {
+			stops = append(stops, stop)
+		}
+		if len(stops) == 0 {
 			c.send(ctx, telegram, "Nothing is running.")
 		} else {
-			stop()
+			for _, s := range stops {
+				s()
+			}
 			c.send(ctx, telegram, "Stopped.")
 		}
 		c.tell(ctx, telegram, notices)
@@ -611,7 +657,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = stop
 	current := rand.Text()
 	c.turnID = current
-	c.turns = append(c.turns, turnRef{current, generation, other, label})
+	c.turns = append(c.turns, turnRef{id: current, generation: generation, session: other, label: label})
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
@@ -691,19 +737,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 		return true
 	}
 
-	text := reply.Output
-	switch {
-	case reply.Error != "":
-		text = "fx failed: " + reply.Error
-		if line := lastLine(reply.Stderr); line != "" {
-			text += "\n" + line
-		}
-		if session != "" {
-			text += "\nSend /new if this session cannot continue."
-		}
-	case text == "":
-		text = "(no reply)"
-	}
+	text := answer(reply, session != "")
 	wrote := reply.SessionID
 	if wrote == "" {
 		wrote = session
@@ -728,6 +762,24 @@ func (c *Chat) turn(ctx context.Context) bool {
 		c.Sent(ids, wrote, label)
 	}
 	return true
+}
+
+// answer is what the user sees of reply: its text, or why fx failed.
+func answer(reply runner.Reply, resumed bool) string {
+	switch {
+	case reply.Error != "":
+		text := "fx failed: " + reply.Error
+		if line := lastLine(reply.Stderr); line != "" {
+			text += "\n" + line
+		}
+		if resumed {
+			text += "\nSend /new if this session cannot continue."
+		}
+		return text
+	case reply.Output == "":
+		return "(no reply)"
+	}
+	return reply.Output
 }
 
 // titled names session above its replies by its title, cut short.

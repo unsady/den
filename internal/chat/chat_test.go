@@ -853,7 +853,7 @@ func TestProgressNote(t *testing.T) {
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State))
-	c.turns = []turnRef{{"t1", 0, "", ""}, {"t2", 0, "job1", "⏰ news"}}
+	c.turns = []turnRef{{id: "t1"}, {id: "t2", session: "job1", label: "⏰ news"}}
 
 	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
@@ -920,4 +920,56 @@ func TestSwitchDuringTurn(t *testing.T) {
 	telegram.expect(t, "↩ Earlier session\n\nresume=none msg=slow one lines=1")
 	telegram.message(42, "next")
 	telegram.expect(t, "resume=none msg=next lines=1")
+}
+
+func TestBackground(t *testing.T) {
+	_, telegram := startChat(t, nil)
+
+	// A /bg task runs besides the chat: the chat answers first while it
+	// still runs, and its answer comes headed with its name.
+	telegram.message(42, "/bg slow: compare two models\nwith care")
+	telegram.expect(t, "⚙ slow-compare-two runs in the background. Its answer comes here; reply to it to go on there.")
+	telegram.message(42, "hi")
+	telegram.expect(t, "resume=none msg=hi lines=1")
+	telegram.expect(t, "⚙ slow-compare-two\n\nresume=none msg=slow: compare two models lines=2")
+
+	telegram.message(42, "/bg")
+	telegram.expect(t, "Send /bg with a task, such as: /bg compare these two models")
+}
+
+func TestBackgroundReports(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, usage.Open(cfg.State))
+	c.turns = []turnRef{{id: "b1", label: "⚙ task", bg: true}}
+	c.bg["b1"] = func() {}
+
+	// While the turn runs its session is not known, so the report waits.
+	if !c.Tell("b1", "[den: done]", "done") || len(c.inbox) != 0 || len(c.turns[0].pending) != 1 {
+		t.Fatalf("inbox %+v, turns %+v", c.inbox, c.turns)
+	}
+	if c.Current() != "b1" {
+		t.Fatalf("current %q with only a background turn running", c.Current())
+	}
+	c.turnID = "main"
+	if c.Current() != "" {
+		t.Fatalf("current %q with two turns running", c.Current())
+	}
+}
+
+func TestBgName(t *testing.T) {
+	for task, want := range map[string]string{
+		"Compare GLM and DeepSeek, please": "compare-glm-and",
+		"сравни две модели":                "сравни-две-модели",
+		"!!!":                              "task",
+	} {
+		if got := bgName(task); got != want {
+			t.Errorf("bgName(%q) = %q, want %q", task, got, want)
+		}
+	}
+	if task, ok := bgTask("/bg@den_bot do it\nnow"); !ok || task != "do it\nnow" {
+		t.Errorf("bgTask = %q, %v", task, ok)
+	}
+	if _, ok := bgTask("/bgx do it"); ok {
+		t.Error("/bgx is not /bg")
+	}
 }
