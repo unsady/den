@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -847,16 +848,21 @@ func TestTell(t *testing.T) {
 	c := New(cfg, nil, usage.Open(cfg.State))
 	c.turns = []turnRef{{"t1", 0}}
 
-	if c.Tell("job", "[den: done]") {
+	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
 	}
-	if !c.Tell("t1", "[den: done]") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" {
+	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" {
 		t.Fatalf("inbox %+v", c.inbox)
 	}
 
-	// A new session is not the one the command's turn ran in.
-	c.switchTo("")
-	if c.Tell("t1", "[den: done]") {
+	// A new session is not the one the command's turn ran in: a report
+	// still waiting goes to the user, and the user's own message stays.
+	c.inbox = append(c.inbox, entry{text: "hi"})
+	notices := c.switchTo("")
+	if !slices.Equal(notices, []string{"done"}) || len(c.inbox) != 1 || c.inbox[0].text != "hi" {
+		t.Fatalf("notices %q, inbox %+v", notices, c.inbox)
+	}
+	if c.Tell("t1", "[den: done]", "done") {
 		t.Fatal("a turn of the old session took the note")
 	}
 }

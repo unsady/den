@@ -146,11 +146,11 @@ func tail(text string, n int) string {
 // switched sessions since, den tells the user, with user or the agent's
 // text when user is empty.
 func (d *daemon) report(turn, agent, user string) {
-	if turn != "" && d.chat.Tell(turn, agent) {
-		return
-	}
 	if user == "" {
 		user = agent
+	}
+	if turn != "" && d.chat.Tell(turn, agent, user) {
+		return
 	}
 	if err := d.notify(user); err != nil {
 		log.Printf("report: %v", err)

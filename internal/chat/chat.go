@@ -136,6 +136,9 @@ type entry struct {
 	image string
 	// second runs the turn on the second model, for /again.
 	second bool
+	// notice is what den tells the user instead when the entry is den's
+	// report and the agent does not get it, after /stop or a switch.
+	notice string
 }
 
 // againNote asks the second model to answer the last message again.
@@ -191,14 +194,14 @@ func (c *Chat) Current() string {
 // that waited for the user after the agent's turn ended. It returns false
 // when turn is not one of the chat's in its current session, such as a
 // job's, and the caller tells the user instead.
-func (c *Chat) Tell(turn, text string) bool {
+func (c *Chat) Tell(turn, text, notice string) bool {
 	c.mu.Lock()
 	found := false
 	for _, t := range c.turns {
 		found = found || (t.id == turn && t.generation == c.generation)
 	}
 	if found {
-		c.inbox = append(c.inbox, entry{text: text})
+		c.inbox = append(c.inbox, entry{text: text, notice: notice})
 	}
 	c.mu.Unlock()
 	if !found {
@@ -297,7 +300,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		c.send(ctx, telegram, help())
 
 	case "/new":
-		c.switchTo("")
+		c.tell(ctx, telegram, c.switchTo(""))
 		text := "✦ New session"
 		if model := c.modelName(ctx); model != "" {
 			text += " · " + model
@@ -355,14 +358,16 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	case "/stop":
 		c.mu.Lock()
 		stop := c.stop
+		notices := c.dropReports()
 		c.inbox = nil
 		c.mu.Unlock()
 		if stop == nil {
 			c.send(ctx, telegram, "Nothing is running.")
-			return
+		} else {
+			stop()
+			c.send(ctx, telegram, "Stopped.")
 		}
-		stop()
-		c.send(ctx, telegram, "Stopped.")
+		c.tell(ctx, telegram, notices)
 
 	default:
 		c.queue(ctx, telegram, m.ID, entry{text: quoted(m, m.Text)})
@@ -385,15 +390,42 @@ func quoted(m notify.Message, text string) string {
 
 // switchTo makes the next turn continue session, or start a new one when it
 // is empty. A turn that is running then does not put its own session back.
-func (c *Chat) switchTo(session string) {
+// It returns what den's waiting reports would have told the old session's
+// agent, for the user.
+func (c *Chat) switchTo(session string) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	notices := c.dropReports()
 	c.state.Session = session
 	c.opened(session)
 	c.state.Context = 0
 	c.state.Compacted = 0
 	c.generation++
 	c.save()
+	return notices
+}
+
+// dropReports takes den's reports out of the inbox and returns what to tell
+// the user about them instead. The caller holds c.mu.
+func (c *Chat) dropReports() []string {
+	var notices []string
+	kept := c.inbox[:0]
+	for _, e := range c.inbox {
+		if e.notice != "" {
+			notices = append(notices, e.notice)
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	c.inbox = kept
+	return notices
+}
+
+// tell sends the user den's reports their agent did not get.
+func (c *Chat) tell(ctx context.Context, telegram *notify.Telegram, notices []string) {
+	for _, n := range notices {
+		c.send(ctx, telegram, n)
+	}
 }
 
 // openedSessions is how many sessions the chat remembers using.

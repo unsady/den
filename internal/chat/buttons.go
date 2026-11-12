@@ -160,7 +160,7 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 		for _, s := range list {
 			if s.ID == ref {
 				// The list turns into the one line that names the choice.
-				c.switchTo(s.ID)
+				c.tell(ctx, telegram, c.switchTo(s.ID))
 				answer = " "
 				line := "↺ " + html.EscapeString(s.Title)
 				if model := c.modelName(ctx); model != "" {
