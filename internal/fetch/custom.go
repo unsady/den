@@ -24,9 +24,10 @@ const CustomFile = "services.json"
 
 // Ask modes say which requests to a service wait for the user.
 const (
-	AskWrites = "writes"
-	AskNever  = "never"
-	AskAlways = "always"
+	AskWrites  = "writes"
+	AskDeletes = "deletes"
+	AskNever   = "never"
+	AskAlways  = "always"
 )
 
 // Custom is a service the user added: an API den sends a token to.
@@ -70,9 +71,9 @@ func NewCustom(name, address, header, ask, about string) (Custom, error) {
 	switch ask {
 	case "":
 		ask = AskWrites
-	case AskWrites, AskNever, AskAlways:
+	case AskWrites, AskDeletes, AskNever, AskAlways:
 	default:
-		return Custom{}, fmt.Errorf("--ask takes writes, never, or always, not %q", ask)
+		return Custom{}, fmt.Errorf("--ask takes writes, deletes, never, or always, not %q", ask)
 	}
 	return Custom{Name: name, Host: strings.ToLower(u.Hostname()), Header: header, Ask: ask, About: strings.TrimSpace(about)}, nil
 }
@@ -129,6 +130,8 @@ func (c Custom) service() service {
 			case c.Ask == AskAlways:
 				return "You asked to allow every request to " + c.Name + "."
 			case method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions:
+				return ""
+			case c.Ask == AskDeletes && method != http.MethodDelete:
 				return ""
 			}
 			return "It may change data on " + c.Host + "."

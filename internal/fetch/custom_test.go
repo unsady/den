@@ -46,11 +46,13 @@ func TestCustomService(t *testing.T) {
 	os.MkdirAll(cfg.State, 0o700)
 	crm, _ := NewCustom("crm", server.URL, "", "", "")
 	keyed, _ := NewCustom("keyed", server.URL, "X-Api-Key", AskNever, "")
-	if err := SaveCustom(cfg, []Custom{crm, keyed}); err != nil {
+	shop, _ := NewCustom("shop", server.URL, "", AskDeletes, "")
+	if err := SaveCustom(cfg, []Custom{crm, keyed, shop}); err != nil {
 		t.Fatal(err)
 	}
 	os.WriteFile(filepath.Join(cfg.Secrets, "crm_token"), []byte("tok\n"), 0o600)
 	os.WriteFile(filepath.Join(cfg.Secrets, "keyed_token"), []byte("key\n"), 0o600)
+	os.WriteFile(filepath.Join(cfg.Secrets, "shop_token"), []byte("shop\n"), 0o600)
 
 	var asked []string
 	f := New(cfg, func(q approve.Question, then func(error)) (bool, error) {
@@ -77,6 +79,17 @@ func TestCustomService(t *testing.T) {
 	}
 	if strings.Join(got, "|") != "GET Bearer tok |DELETE  key" {
 		t.Fatalf("sent %q", got)
+	}
+
+	// A service that asks only about deletes takes other writes at once.
+	if resp, err := f.Do(context.Background(), Request{Secret: "shop", Method: "PATCH", URL: server.URL + "/api/products/1", Body: []byte(`{}`)}); err != nil || resp.Waiting {
+		t.Fatalf("patch: %+v %v", resp, err)
+	}
+	if resp, err := f.Do(context.Background(), Request{Secret: "shop", Method: "DELETE", URL: server.URL + "/api/products/1"}); err != nil || !resp.Waiting {
+		t.Fatalf("delete: %+v %v", resp, err)
+	}
+	if len(asked) != 2 || !strings.HasPrefix(asked[1], "shop: DELETE /api/products/1") {
+		t.Fatalf("asked %q", asked)
 	}
 
 	if _, err := f.Do(context.Background(), Request{Secret: "crm", URL: "https://evil.example/x"}); !errors.Is(err, ErrRequest) {

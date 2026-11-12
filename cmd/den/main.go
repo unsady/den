@@ -57,7 +57,7 @@ Usage:
                                 How each model provider answered: silence before the
                                 first token, stalls, speed, and failures
   den service ls                The APIs den sends a token to, for den fetch --secret
-  den service add [--header <name>] [--ask writes|never|always] [--about <text>] <name> <https-url>
+  den service add [--header <name>] [--ask writes|deletes|never|always] [--about <text>] <name> <https-url>
                                 Add an API with its token on stdin (root only)
   den service rm <name>
   den login [--model <id>] [--base-url <url>] <provider>

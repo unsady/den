@@ -283,7 +283,7 @@ func serviceCommand(cfg config.Config, args []string) error {
 		}
 		fs := flag.NewFlagSet("service add", flag.ContinueOnError)
 		header := fs.String("header", "", "send the token as it is in this header, instead of Authorization: Bearer")
-		ask := fs.String("ask", fetch.AskWrites, "which requests wait for the user: writes, never, or always")
+		ask := fs.String("ask", fetch.AskWrites, "which requests wait for the user: writes, deletes, never, or always")
 		about := fs.String("about", "", "what the API does and where its docs are, for the agent")
 		rest, err := parse(fs, args[1:])
 		if err != nil {
@@ -353,6 +353,8 @@ func askText(ask string) string {
 		return "asks the user about nothing"
 	case fetch.AskAlways:
 		return "asks the user before every request"
+	case fetch.AskDeletes:
+		return "asks the user before requests that delete"
 	}
 	return "asks the user before requests that write"
 }
