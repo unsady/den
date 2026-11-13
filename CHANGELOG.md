@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.4.1
+
 ### Better
 
 - Notes hold one file per topic, never reports of runs. The nightly reflection folds such reports into their topic, stops jobs that write one on every run, and shortens skills over about 4,000 characters.
@@ -15,7 +17,7 @@ release notes.
 ### Fixed
 
 - A message that needs no answer, such as "ok", gets none. The chat used to send the word SILENT.
-- `den update` removes the image it replaces. Each update used to leave the old image on disk, about 1.4 GB each with Apple's container.
+- `den update` removes the image it replaces. Each update used to leave the old image on disk, about 1.4 GB each with Apple's container. The fix is in the `den` command itself, so run the install script again to get it.
 
 ## v0.4.0
 
