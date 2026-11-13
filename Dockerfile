@@ -101,6 +101,14 @@ ENV FX_TEST_OPENAI_CODEX_RESPONSES_URL=http://127.0.0.1:4100/codex/responses \
     FX_TEST_OPENAI_CODEX_MODELS_URL=http://127.0.0.1:4100/codex/models \
     FX_TEST_CHATGPT_TOKEN_URL=http://127.0.0.1:4100/codex-auth/oauth/token
 
+# The same for a Grok subscription.
+ENV FX_TEST_XAI_GROK_RESPONSES_URL=http://127.0.0.1:4100/grok/responses \
+    FX_TEST_XAI_GROK_MODELS_URL=http://127.0.0.1:4100/grok/models \
+    FX_TEST_XAI_GROK_MODALITIES_URL=http://127.0.0.1:4100/grok/language-models \
+    FX_TEST_GROK_TOKEN_URL=http://127.0.0.1:4100/grok-auth/oauth2/token \
+    FX_TEST_GROK_USERINFO_URL=http://127.0.0.1:4100/grok-auth/oauth2/userinfo \
+    FX_TEST_GROK_REVOKE_URL=http://127.0.0.1:4100/grok-auth/oauth2/revoke
+
 ENV DEN_STATE=/var/lib/den \
     DEN_SPACE=/home/agent/space \
     DEN_ARCHIVE=/home/agent/archive \

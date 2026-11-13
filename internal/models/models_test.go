@@ -358,3 +358,60 @@ func TestMeterTakesCodexWholeUsage(t *testing.T) {
 		t.Fatalf("peak %d, want 5200", got)
 	}
 }
+
+func TestGrokGetsTheRealToken(t *testing.T) {
+	var got []*http.Request
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r)
+		w.Write([]byte(`{"usage":{"input_tokens":77}}`))
+	}))
+	defer upstream.Close()
+
+	root := t.TempDir()
+	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
+	os.MkdirAll(cfg.Secrets, 0o700)
+	os.WriteFile(filepath.Join(cfg.Secrets, "grok"), []byte(`{"access_token":"real","refresh_token":"r","expiry":"2100-01-01T00:00:00Z","account_id":"user-1"}`), 0o600)
+	m := New(cfg)
+	m.grokAPI = upstream.URL + "/grok/v1"
+	m.xaiAPI = upstream.URL + "/xai/v1"
+	proxy := httptest.NewServer(m)
+	defer proxy.Close()
+
+	for _, path := range []string{"/grok/responses", "/grok/models", "/grok/language-models"} {
+		req, _ := http.NewRequest(http.MethodPost, proxy.URL+path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer den")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+	}
+	want := []string{"/grok/v1/responses", "/grok/v1/models", "/xai/v1/language-models"}
+	for i, r := range got {
+		if r.URL.Path != want[i] || r.Header.Get("Authorization") != "Bearer real" {
+			t.Fatalf("sent %s with %q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+	}
+
+	// The token reaches nothing else.
+	resp, _ := http.Get(proxy.URL + "/grok/files")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound || len(got) != 3 {
+		t.Fatalf("other path %d", resp.StatusCode)
+	}
+
+	// fx's own sign-in calls get the stand-in and the real account.
+	resp, _ = http.Post(proxy.URL+"/grok-auth/oauth2/token", "application/x-www-form-urlencoded", strings.NewReader("grant_type=refresh_token"))
+	data, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(data), `"access_token":"den"`) || strings.Contains(string(data), "real") {
+		t.Fatalf("refresh %s", data)
+	}
+	resp, _ = http.Get(proxy.URL + "/grok-auth/oauth2/userinfo")
+	data, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(data), `"sub":"user-1"`) {
+		t.Fatalf("userinfo %s", data)
+	}
+}

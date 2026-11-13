@@ -34,6 +34,7 @@ import (
 
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/proc"
 )
 
@@ -57,6 +58,11 @@ type Models struct {
 	codex *codex.Codex
 	// chatgpt is ChatGPT's Codex API; tests change it.
 	chatgpt string
+	// grok holds the Grok account, when den has one.
+	grok *grok.Grok
+	// grokAPI is the subscription's model API and xaiAPI xAI's own, which
+	// fx asks for the models' modalities; tests change them.
+	grokAPI, xaiAPI string
 
 	mu sync.Mutex
 	// prompts are the prompt sizes of recent requests, oldest first.
@@ -114,7 +120,7 @@ var promptTokens = regexp.MustCompile(`"(?:prompt|input)_tokens"\s*:\s*(\d+)`)
 
 func New(cfg config.Config) *Models {
 	// The sessions live at ~/.fx/sessions/v2.
-	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex"}
+	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex", grok: grok.New(cfg), grokAPI: "https://cli-chat-proxy.grok.com/v1", xaiAPI: "https://api.x.ai/v1"}
 	m.loadCalls()
 	return m
 }
@@ -168,6 +174,12 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "codex-auth":
 		m.standToken(w)
+		return
+	case "grok":
+		m.serveGrok(w, r, rest)
+		return
+	case "grok-auth":
+		m.standGrok(w, rest)
 		return
 	}
 	p, err := m.load(name)
@@ -542,6 +554,59 @@ func (m *Models) standToken(w http.ResponseWriter) {
 	jwt := codex.Stand(account)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"access_token": jwt, "refresh_token": "den", "id_token": jwt, "expires_in": int(time.Until(codex.Never).Seconds())})
+}
+
+// serveGrok passes fx's Grok requests on to xAI with the account's token
+// in place of the stand-in fx sends. The token opens all of the account's
+// API; fx needs only its responses and its list of models.
+func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) {
+	base := map[string]string{"responses": m.grokAPI, "models": m.grokAPI, "language-models": m.xaiAPI}[rest]
+	if base == "" {
+		http.Error(w, "den passes on only Grok's responses and models", http.StatusNotFound)
+		return
+	}
+	access, err := m.grok.Token(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	target, _ := url.Parse(base + "/" + rest)
+	target.RawQuery = r.URL.RawQuery
+	start := time.Now()
+	body, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(out *httputil.ProxyRequest) {
+			out.Out.URL = target
+			out.Out.Host = target.Host
+			out.Out.Header.Del("Cookie")
+			out.Out.Header.Set("Authorization", "Bearer "+access)
+		},
+		FlushInterval: -1,
+		Transport:     m.transport,
+	}
+	m.watch(proxy, rest, "grok", requestModel(body), start)
+	proxy.ServeHTTP(w, r)
+}
+
+// standGrok answers fx's own calls to xAI's sign-in: a refresh gets
+// another stand-in, since den keeps the real tokens fresh itself, the
+// account question gets the real account, and a sign-out is a no-op.
+func (m *Models) standGrok(w http.ResponseWriter, rest string) {
+	w.Header().Set("Content-Type", "application/json")
+	switch rest {
+	case "oauth2/token":
+		json.NewEncoder(w).Encode(map[string]any{"access_token": grok.Stand, "refresh_token": grok.Stand, "token_type": "Bearer", "expires_in": int(time.Until(grok.Never).Seconds())})
+	case "oauth2/userinfo":
+		json.NewEncoder(w).Encode(map[string]string{"sub": m.grok.Account()})
+	case "oauth2/revoke":
+		w.Write([]byte("{}"))
+	default:
+		http.Error(w, "not one of xAI's sign-in calls fx makes", http.StatusNotFound)
+	}
 }
 
 // Default gives provider a model of its own in fx's settings when it has
