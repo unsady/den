@@ -110,10 +110,12 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 	if d.ctx.Err() != nil {
 		return
 	}
-	text := fmt.Sprintf("[den: %s ran. Its output is quoted below.]\n%s", what, approve.Quote(out))
+	// The agent gets the run's summary alone: the progress lines only told
+	// the user how far it was.
+	text := fmt.Sprintf("[den: %s ran. Its output is quoted below.]\n%s", what, approve.Quote(summary))
 	user := "🗂 " + what + " ran"
 	if err != nil {
-		text = fmt.Sprintf("[den: %s failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(out))
+		text = fmt.Sprintf("[den: %s failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(withoutProgress(out)))
 		user = fmt.Sprintf("🗂 %s failed: %v", what, err)
 	} else if first, _, _ := strings.Cut(summary, "\n"); first != "" {
 		// The summary's first line says how many items it answered; the
@@ -170,4 +172,16 @@ func (d *daemon) report(turn, agent, user string) {
 	if err := d.notify(user); err != nil {
 		log.Printf("report: %v", err)
 	}
+}
+
+// withoutProgress drops den map's progress lines from its output.
+func withoutProgress(out string) string {
+	var kept []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.HasPrefix(line, "den map: ") || strings.HasPrefix(line, "Asking ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
