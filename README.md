@@ -217,7 +217,7 @@ The agent's files live in that folder on your computer. den's state and secrets 
   .agents/skills/        links to the built-in skills
   .local/bin/            tools the agent installs, such as yt-dlp
   space/                 the agent's workspace, a git repository
-    AGENTS.md            persona, rules, and memory
+    AGENTS.md            memory: the user and the environment
     .fx/skills/          the skills the agent writes
     notes/               lasting results, one file per topic
   archive/               past sessions as markdown

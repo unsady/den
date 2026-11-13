@@ -9,6 +9,7 @@ release notes.
 ### Better
 
 - Notes hold one file per topic, never reports of runs. The nightly reflection folds such reports into their topic, stops jobs that write one on every run, and shortens skills over about 4,000 characters.
+- den's rules for the agent all live in the file den rewrites on each start, so every install gets new ones. A new space's `AGENTS.md` starts as just the memory sections, and an existing one keeps its old copy of the rules until you delete them.
 - Lightpanda 1.0.4. The image now checks the browser download against its checksum.
 
 ### Fixed
