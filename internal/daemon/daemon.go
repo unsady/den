@@ -313,7 +313,7 @@ func (d *daemon) start(j jobs.Job) bool {
 	return true
 }
 
-// ListJobs, StartJob, and RemoveJob serve the chat's /jobs.
+// ListJobs and StartJob serve the chat's /jobs.
 func (d *daemon) ListJobs() []jobs.Job { return d.store.List() }
 
 func (d *daemon) StartJob(ref string) (jobs.Job, error) {
@@ -326,10 +326,6 @@ func (d *daemon) StartJob(ref string) (jobs.Job, error) {
 	}
 	return j, nil
 }
-
-func (d *daemon) RemoveJob(ref string) (jobs.Job, error) { return d.store.Remove(ref) }
-
-func (d *daemon) SetJobSlot(ref, slot string) (jobs.Job, error) { return d.store.SetSlot(ref, slot) }
 
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }

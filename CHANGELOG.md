@@ -8,6 +8,7 @@ release notes.
 
 ### Better
 
+- `/jobs` is a plain list of the jobs, when each runs next, and how its last run went, with a button to run each now. Its Remove and model buttons, which did not say which job they were for, are gone: ask the agent to change, move, or remove a job.
 - When the main model's provider fails a chat turn, den no longer answers with the second model by itself: it says what failed, with a button that asks the second model. Jobs still move to the second model on their own.
 - The agent answers like an assistant, not a coding tool: den gives fx a base prompt of its own, so a reply is the result, such as the jobs it found or that there are none, without how it got there, what is done and what is not, Markdown tables, or headings.
 - A screening the agent repeats, such as new job ads every day, stays one quick `den map` pass: the `map` skill now has a recipe for it, with the criteria in one prompt file and a reply that lists only the matches. When a result is wrong, the agent fixes the rule instead of adding review steps, and the nightly review shortens skills that grow past about 4,000 characters.

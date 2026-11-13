@@ -76,8 +76,6 @@ const recentSessions = 8
 type Daemon interface {
 	ListJobs() []jobs.Job
 	StartJob(ref string) (jobs.Job, error)
-	RemoveJob(ref string) (jobs.Job, error)
-	SetJobSlot(ref, slot string) (jobs.Job, error)
 	// Answer passes the user's answer to question id, one of approve's
 	// outcomes, and returns the question, or false when it is no longer
 	// waiting.

@@ -109,8 +109,8 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 	c.show(ctx, telegram, edit, text, append(rows, last))
 }
 
-// listJobs lists the jobs in a new message, or in place of edit. A job can
-// move between the main and the second model once there is a second one.
+// listJobs lists the jobs in a new message, or in place of edit, with a
+// button to run each now. The agent changes, moves, and removes jobs.
 func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int64) {
 	list := c.den.ListJobs()
 	if len(list) == 0 {
@@ -122,28 +122,17 @@ func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int
 	text := "Jobs:\n"
 	var rows [][]notify.Button
 	for _, j := range list {
-		last := "never ran"
+		text += fmt.Sprintf("\n<b>%s</b> · next %s", html.EscapeString(j.Label()), j.NextRun.Format("Mon 2 Jan 15:04"))
 		if j.LastRun != nil {
-			last = "last " + j.LastStatus + " " + ago(*j.LastRun)
+			text += " · last " + j.LastStatus + " " + ago(*j.LastRun)
 		}
-		text += fmt.Sprintf("\n<b>%s</b>: %s, next %s, %s", html.EscapeString(j.Label()), html.EscapeString(j.Schedule), j.NextRun.Format("Mon 2 Jan 15:04"), last)
-		if j.Slot == jobs.Second {
-			text += ", on the second model"
+		if j.Slot == jobs.Second && second {
+			text += " · second model"
 		}
-		text += "\n" + html.EscapeString(clipRunes(j.Prompt, 100)) + "\n"
-
-		row := []notify.Button{
-			{Text: "Run " + clipRunes(j.Label(), 20), Data: "jr:" + j.ID},
-			{Text: "Remove", Data: "jd:" + j.ID},
-		}
-		switch {
-		case j.Slot == jobs.Second:
-			row = append(row, notify.Button{Text: "→ main", Data: "jm:" + j.ID})
-		case second:
-			row = append(row, notify.Button{Text: "→ second", Data: "js:" + j.ID})
-		}
-		rows = append(rows, row)
+		text += "\n" + html.EscapeString(clipRunes(j.Prompt, 80)) + "\n"
+		rows = append(rows, []notify.Button{{Text: "▶ Run " + clipRunes(j.Label(), 30), Data: "jr:" + j.ID}})
 	}
+	text += "\nTo change, move, or remove a job, ask the agent."
 	c.show(ctx, telegram, edit, text, append(rows, []notify.Button{closeButton}))
 }
 
@@ -229,18 +218,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			c.editHTML(ctx, telegram, cb.Message, chosen, nil)
 		}
 
-	case "js", "jm":
-		slot := jobs.Second
-		if kind == "jm" {
-			slot = jobs.Main
-		}
-		if j, err := c.den.SetJobSlot(ref, slot); err != nil {
-			answer = err.Error()
-		} else {
-			answer = j.Label() + " runs on the " + slot + " model"
-			c.listJobs(ctx, telegram, cb.Message)
-		}
-
 	case "ok", "no", "al", "hr":
 		// The answer to a question den asked, such as whether to send a
 		// request. The message shrinks to the action's one line and the
@@ -274,23 +251,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			answer, text = "Started", "Started job "+j.Label()+". Its reply comes when it finishes."
 		}
 
-	case "jd":
-		answer = "That job no longer exists."
-		for _, j := range c.den.ListJobs() {
-			if j.ID == ref {
-				answer = " "
-				text = "Remove job " + j.Label() + "?\n" + clipRunes(j.Prompt, 200)
-				rows = [][]notify.Button{{{Text: "Remove", Data: "jx:" + j.ID}, {Text: "Keep", Data: "k:"}}}
-			}
-		}
-
-	case "jx":
-		if j, err := c.den.RemoveJob(ref); err != nil {
-			answer = err.Error()
-		} else {
-			answer, text = "Removed", "Removed job "+j.Label()+"."
-		}
-
 	case "rs":
 		c.mu.Lock()
 		retry := c.retry
@@ -304,9 +264,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			answer = "Asking " + second.Model
 			c.queue(ctx, telegram, notify.Message{}, *retry)
 		}
-
-	case "k":
-		answer = "Kept"
 
 	case "x":
 		// The list goes away, so it does not stay in the chat.

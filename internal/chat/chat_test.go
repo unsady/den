@@ -479,30 +479,6 @@ func (f *fakeDaemon) StartJob(ref string) (jobs.Job, error) {
 	return jobs.Job{}, fmt.Errorf("no job %s", ref)
 }
 
-func (f *fakeDaemon) SetJobSlot(ref, slot string) (jobs.Job, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for i, j := range f.list {
-		if j.ID == ref {
-			f.list[i].Slot = strings.TrimPrefix(slot, jobs.Main)
-			return f.list[i], nil
-		}
-	}
-	return jobs.Job{}, fmt.Errorf("no job %s", ref)
-}
-
-func (f *fakeDaemon) RemoveJob(ref string) (jobs.Job, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for i, j := range f.list {
-		if j.ID == ref {
-			f.list = append(f.list[:i], f.list[i+1:]...)
-			return j, nil
-		}
-	}
-	return jobs.Job{}, fmt.Errorf("no job %s", ref)
-}
-
 func (f *fakeTelegram) expectPrefix(t *testing.T, want string) string {
 	t.Helper()
 	select {
@@ -565,22 +541,13 @@ func TestChatControls(t *testing.T) {
 		t.Fatalf("prompt %q, want %q", prompt, want)
 	}
 
-	// /jobs offers to run and, after a confirmation, remove each job.
+	// /jobs lists the jobs with a button to run each; the agent changes them.
 	telegram.message(42, "/jobs")
-	telegram.expectPrefix(t, "Jobs:\n\n<b>reflect</b>: 0 4 * * *, next Tue 10 Nov 04:00, never ran\nUse the reflect skill.")
-	telegram.expectButtons(t, "jr:j1", "jd:j1", "x:")
+	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nTo change, move, or remove a job, ask the agent.")
+	telegram.expectButtons(t, "jr:j1", "x:")
 	telegram.press("jr:j1")
 	telegram.expectAnswer(t, "Started")
 	telegram.expect(t, "Started job reflect. Its reply comes when it finishes.")
-	telegram.press("jd:j1")
-	telegram.expectAnswer(t, "")
-	telegram.expect(t, "Remove job reflect?\nUse the reflect skill.")
-	telegram.expectButtons(t, "jx:j1", "k:")
-	telegram.press("jx:j1")
-	telegram.expectAnswer(t, "Removed")
-	telegram.expect(t, "Removed job reflect.")
-	telegram.message(42, "/jobs")
-	telegram.expect(t, "No jobs. Ask the agent to schedule one.")
 	if strings.Join(scheduler.ran, ",") != "j1" {
 		t.Fatalf("ran %v", scheduler.ran)
 	}
