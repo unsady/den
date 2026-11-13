@@ -4,6 +4,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,14 @@ import (
 	"github.com/unsady/den/internal/proc"
 	"github.com/unsady/den/internal/sessions"
 )
+
+// systemPrompt takes the place of fx's own base prompt, which is written
+// for a coding agent: it asks for status reports and Markdown, where the
+// user wants an assistant's result in plain text. fx keeps its tool, skill,
+// project, and runtime context.
+//
+//go:embed system.md
+var systemPrompt string
 
 // Silent is the reply that tells den a job has nothing to deliver.
 const Silent = "SILENT"
@@ -120,7 +129,7 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 	ctx, cancel := context.WithTimeout(ctx, cfg.JobTimeout)
 	defer cancel()
 
-	args := []string{"ask", "--full-access", "--json", "--no-color"}
+	args := []string{"ask", "--full-access", "--json", "--no-color", "--system", systemPrompt}
 	if req.Provider != "" {
 		args = append(args, "--provider", req.Provider)
 	}

@@ -6,6 +6,11 @@ release notes.
 
 ## Unreleased
 
+### Better
+
+- The agent answers like an assistant, not a coding tool: den gives fx a base prompt of its own, so a reply is the result, such as the jobs it found or that there are none, without how it got there, what is done and what is not, Markdown tables, or headings.
+- You hear from the agent once its work is done. After a `den map` run it started, or den's word that one ended, the agent goes on without a message about each step, and the agent gets only the run's summary instead of every progress line.
+
 ## v0.3.0
 
 ### New
