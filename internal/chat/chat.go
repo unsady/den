@@ -624,12 +624,15 @@ func (c *Chat) turn(ctx context.Context) bool {
 	other, label := c.inbox[0].session, c.inbox[0].label
 	var texts, images []string
 	var rest []entry
-	second := false
+	// A turn started by den's reports alone, such as that a den map run
+	// ended, may end without a word to the user.
+	second, reports := false, true
 	for _, e := range c.inbox {
 		if e.session != other {
 			rest = append(rest, e)
 			continue
 		}
+		reports = reports && e.report
 		texts = append(texts, e.text)
 		if e.image != "" {
 			images = append(images, e.image)
@@ -675,13 +678,14 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}()
 	ask := func(provider, model, effort, resume string) runner.Reply {
 		return runner.Ask(turn, c.cfg, runner.Request{
-			Prompt:   prompt,
-			Provider: provider,
-			Model:    model,
-			Effort:   effort,
-			Resume:   resume,
-			Images:   images,
-			Turn:     current,
+			Prompt:     prompt,
+			Provider:   provider,
+			Model:      model,
+			Effort:     effort,
+			Resume:     resume,
+			Images:     images,
+			Turn:       current,
+			MaySilence: reports,
 			Progress: func(line string) {
 				select {
 				case steps <- line:
@@ -734,6 +738,10 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	if turn.Err() == context.Canceled {
 		// /stop already answered, or den is shutting down.
+		return true
+	}
+	if reports && reply.Error == "" && strings.TrimSpace(reply.Output) == runner.Silent {
+		log.Printf("chat: a report's turn had nothing to tell")
 		return true
 	}
 

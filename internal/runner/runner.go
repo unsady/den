@@ -89,6 +89,9 @@ type Request struct {
 	// Turn, when set, names the chat turn to the commands the agent runs, as
 	// DEN_TURN, so what they report shows in that turn's progress message.
 	Turn string
+	// MaySilence keeps a reply of Silent as it is, for a turn that need not
+	// answer, instead of taking the session's last answer in its place.
+	MaySilence bool
 	// Progress, when set, receives each line fx writes to stderr while it
 	// works, such as "Reading notes/todo.md" before a tool runs.
 	Progress func(line string)
@@ -171,7 +174,7 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 	result, parseErr := parse(stdout.Bytes())
 	reply.Output = result.output()
 	reply.SessionID = result.SessionID
-	if reply.Output == Silent || reply.Output == "Done." {
+	if (reply.Output == Silent && !req.MaySilence) || reply.Output == "Done." {
 		// A subagent's report came after the answer and took the last word;
 		// the answer is in the session.
 		if answer := sessions.Answer(cfg.Sessions, reply.SessionID, reply.Started); answer != "" {

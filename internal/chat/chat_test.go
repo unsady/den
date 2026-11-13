@@ -49,6 +49,7 @@ lines=$(printf '%s\n' "$*" | grep -c .)
 case "$first" in
 slow*) sleep 1 ;;
 steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
+"[den: quiet"*) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
 quota*) case "$image" in *effort=low*) ;; *) echo "fx ask: API request failed · HTTP 402 · out of credits" >&2; exit 1 ;; esac ;;
 esac
 printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"s1","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image"
@@ -219,6 +220,13 @@ func (f *fakeTelegram) expectAnswer(t *testing.T, want string) {
 // test ends.
 func startChat(t *testing.T, den Daemon) (config.Config, *fakeTelegram) {
 	t.Helper()
+	cfg, telegram, _ := startChatWith(t, den)
+	return cfg, telegram
+}
+
+// startChatWith is startChat that also returns the running chat.
+func startChatWith(t *testing.T, den Daemon) (config.Config, *fakeTelegram, *Chat) {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Config{
 		State:      filepath.Join(dir, "state"),
@@ -254,15 +262,16 @@ func startChat(t *testing.T, den Daemon) (config.Config, *fakeTelegram) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	c := New(cfg, den, usage.Open(cfg.State))
 	go func() {
-		New(cfg, den, usage.Open(cfg.State)).Run(ctx)
+		c.Run(ctx)
 		close(done)
 	}()
 	t.Cleanup(func() {
 		cancel()
 		<-done
 	})
-	return cfg, telegram
+	return cfg, telegram, c
 }
 
 func TestChat(t *testing.T) {
@@ -1001,4 +1010,27 @@ func TestBgName(t *testing.T) {
 	if _, ok := bgTask("/bgx do it"); ok {
 		t.Error("/bgx is not /bg")
 	}
+}
+
+func TestSilentReport(t *testing.T) {
+	_, telegram, c := startChatWith(t, nil)
+	telegram.message(42, "hello")
+	telegram.expect(t, "resume=none msg=hello lines=1")
+	c.mu.Lock()
+	turn := c.turns[len(c.turns)-1].id
+	c.mu.Unlock()
+
+	// A turn den's report started may end without a word to the user.
+	if !c.Tell(turn, "[den: quiet run ended]", "") {
+		t.Fatal("the chat's turn did not take the report")
+	}
+	select {
+	case text := <-telegram.sent:
+		t.Fatalf("sent %q", text)
+	case <-time.After(time.Second):
+	}
+
+	// A user's message is always answered.
+	telegram.message(42, "and you?")
+	telegram.expect(t, "resume=s1 msg=and you? lines=1")
 }
