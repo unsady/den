@@ -10,7 +10,7 @@ description: Schedule jobs and reminders, send the user a notification or a file
 ## Notify the user
 
 ```bash
-den notify "The report is ready: notes/report.md"
+den notify "The flight to Lisbon moved to 14:20"
 ```
 
 The message goes to the user's Telegram. Send one only when the user asked for it or a job needs to report something. If it fails because Telegram is not configured, tell the user; do not retry.
@@ -18,7 +18,7 @@ The message goes to the user's Telegram. Send one only when the user asked for i
 ## Send the user a file
 
 ```bash
-den send notes/report.pdf
+den send invoice.pdf
 den send --caption "Sales by month" chart.png
 ```
 
@@ -26,7 +26,7 @@ An image goes as a photo, anything else as a file, up to 50 MB. Send a file when
 
 ## Schedule a job
 
-A job runs fx later in a fresh session in this folder, with this file and the space's memory but without the current chat. Its final reply is sent to the user, unless the reply is exactly `SILENT` or the job is `--silent`.
+A job runs fx later in a fresh session in this folder, with den's rules and the space's memory but without the current chat. Its final reply is sent to the user, unless the reply is exactly `SILENT` or the job is `--silent`.
 
 ```bash
 den job add --schedule "in 30m" "Remind the user to call the bank."
