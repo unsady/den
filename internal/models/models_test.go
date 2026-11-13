@@ -363,12 +363,16 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 	var got []*http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = append(got, r)
+		if strings.HasSuffix(r.URL.Path, "/grok/v1/models") {
+			w.Write([]byte(`{"data":[{"id":"grok-4.7","context_window":256000,"reasoning_efforts":[{"value":"high"},{"value":"low"}]}]}`))
+			return
+		}
 		w.Write([]byte(`{"usage":{"input_tokens":77}}`))
 	}))
 	defer upstream.Close()
 
 	root := t.TempDir()
-	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
+	cfg := config.Config{State: root, Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
 	os.MkdirAll(cfg.Secrets, 0o700)
 	os.WriteFile(filepath.Join(cfg.Secrets, "grok"), []byte(`{"access_token":"real","refresh_token":"r","expiry":"2100-01-01T00:00:00Z","account_id":"user-1"}`), 0o600)
 	m := New(cfg)
@@ -392,6 +396,11 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 		if r.URL.Path != want[i] || r.Header.Get("Authorization") != "Bearer real" {
 			t.Fatalf("sent %s with %q", r.URL.Path, r.Header.Get("Authorization"))
 		}
+	}
+
+	// den keeps the models' effort levels and windows from the list.
+	if levels := Efforts(cfg, "grok", "grok-4.7"); len(levels) != 2 || levels[0] != "high" || Window(cfg, "grok", "grok-4.7") != 256000 {
+		t.Fatalf("efforts %v, window %d", levels, Window(cfg, "grok", "grok-4.7"))
 	}
 
 	// The token reaches nothing else.

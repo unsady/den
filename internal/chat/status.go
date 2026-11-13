@@ -110,7 +110,7 @@ func (c *Chat) window(provider, model string) int {
 }
 
 // efforts reads the model's reasoning effort levels from fx's catalog of
-// the provider, or from the ones den keeps for Codex, none when neither
+// the provider, or from the ones den keeps for a subscription, none when neither
 // says.
 func (c *Chat) efforts(provider, model string) []string {
 	home := filepath.Dir(filepath.Dir(c.cfg.Sessions))

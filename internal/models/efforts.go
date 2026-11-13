@@ -12,9 +12,10 @@ import (
 	"github.com/unsady/den/internal/config"
 )
 
-// Codex's models come from ChatGPT, not from models.dev, so fx's catalogs
-// have neither effort levels nor context windows for them. The list fx
-// fetches through the proxy has both, and den keeps them from it.
+// A subscription's models, Codex's and Grok's, come from the subscription,
+// not from models.dev, so fx's catalogs have neither effort levels nor
+// context windows for them. The list fx fetches through the proxy has
+// both, and den keeps them from it.
 
 // effortsFile is where den keeps a provider's effort levels by model.
 func effortsFile(cfg config.Config, provider string) string {
@@ -33,18 +34,24 @@ func Efforts(cfg config.Config, provider, model string) []string {
 	return levels[model]
 }
 
-// keepCodexEfforts reads the effort levels from Codex's models list as it
-// passes, and leaves the list for fx.
-func (m *Models) keepCodexEfforts(resp *http.Response) {
+// listBody reads a models list as it passes, and leaves it for fx.
+func listBody(resp *http.Response) []byte {
 	if resp.StatusCode != http.StatusOK {
-		return
+		return nil
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	if err != nil {
-		return
+		return nil
 	}
+	return body
+}
+
+// keepCodexEfforts keeps the effort levels and windows from Codex's
+// models list.
+func (m *Models) keepCodexEfforts(resp *http.Response) {
+	body := listBody(resp)
 
 	var list struct {
 		Models []struct {
@@ -71,6 +78,38 @@ func (m *Models) keepCodexEfforts(resp *http.Response) {
 	}
 	keep(effortsFile(m.cfg, "codex"), levels)
 	keep(windowsFile(m.cfg, "codex"), windows)
+}
+
+// keepGrokEfforts keeps the effort levels and windows from Grok's models
+// list.
+func (m *Models) keepGrokEfforts(resp *http.Response) {
+	body := listBody(resp)
+
+	var list struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Context int    `json:"context_window"`
+			Levels  []struct {
+				Value string `json:"value"`
+			} `json:"reasoning_efforts"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &list) != nil || len(list.Data) == 0 {
+		return
+	}
+
+	levels := map[string][]string{}
+	windows := map[string]int{}
+	for _, model := range list.Data {
+		for _, l := range model.Levels {
+			levels[model.ID] = append(levels[model.ID], l.Value)
+		}
+		if model.Context > 0 {
+			windows[model.ID] = model.Context
+		}
+	}
+	keep(effortsFile(m.cfg, "grok"), levels)
+	keep(windowsFile(m.cfg, "grok"), windows)
 }
 
 func keep(path string, v any) {

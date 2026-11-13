@@ -589,6 +589,13 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 		Transport:     m.transport,
 	}
 	m.watch(proxy, rest, "grok", requestModel(body), start)
+	if rest == "models" {
+		watched := proxy.ModifyResponse
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			m.keepGrokEfforts(resp)
+			return watched(resp)
+		}
+	}
 	proxy.ServeHTTP(w, r)
 }
 
