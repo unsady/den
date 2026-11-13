@@ -47,4 +47,13 @@ If a run stops, `--resume` asks only about the items without an answer. The mode
 
 ## 4. Check before you trust it
 
-Spot-check a few answers of each value against their items, and check any quotes are really in the item. Look at the items you would act on yourself, and tell the user how many items the model judged and how many you checked.
+Spot-check a few answers of each value against their items, and check any quotes are really in the item. Look at the items you would act on yourself.
+
+## 5. A screening that repeats
+
+When the same screening runs again and again, such as new job ads every day, keep it to one pass so it stays fast and its reply stays short:
+
+- Keep the user's criteria in one prompt file, such as `notes/<task>/prompt.md`, and pass it with `-p @`.
+- Run one model over the new items only, never the whole history again. Spot-check when you set it up, not on every run.
+- Let a small script turn the answers into what the user gets and save what must be kept. The reply lists only the items that match, or says there are none.
+- When an answer was wrong, fix the criteria in the prompt file. Do not add a second model, a critic, more verdicts, or a round of reading items yourself: each makes every run slower and every reply harder to read, and the user can ask to see the unclear items.

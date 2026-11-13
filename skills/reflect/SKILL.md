@@ -58,6 +58,8 @@ Sessions may have saved a skill or a finding already, so check before you add on
 - Write steps in order with the concrete commands. Attach each pitfall to its step as a rule with a short reason.
 - Fix a wrong sentence in place instead of adding a correction below it.
 - Give the skill a `description` that says when to use it. It is all a future session sees before it opens the skill.
+- A wrong result is fixed in the rule or step that caused it, not with a new step that checks the old one.
+- Keep a skill under about 4,000 characters: it is a recipe, not a log of past runs. Check with `wc -c .fx/skills/*/SKILL.md`, and rewrite one that is longer: merge rules, and drop history, dates, and numbers from past runs.
 
 ## Do not save
 
