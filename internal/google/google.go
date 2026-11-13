@@ -11,9 +11,6 @@ package google
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +24,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/signin"
 )
 
 const (
@@ -62,7 +60,7 @@ var (
 var ErrClient = errors.New("Google is not set up: the user connects it with `den connect google` on their computer")
 
 // ErrNotSignin means a message is not a sign-in's address.
-var ErrNotSignin = errors.New("not a sign-in address")
+var ErrNotSignin = signin.ErrNotSignin
 
 // ErrNotConnected means there is no account, or Google revoked it.
 var ErrNotConnected = errors.New("Google is not connected: the user connects it with `den connect google` on their computer")
@@ -85,12 +83,12 @@ type Google struct {
 	http *http.Client
 
 	mu sync.Mutex
-	// pending are the sign-ins waiting for their address, by state.
-	pending map[string]chan url.Values
+	// pending are the sign-ins waiting for their address.
+	pending *signin.Pending
 }
 
 func New(cfg config.Config) *Google {
-	return &Google{cfg: cfg, http: &http.Client{Timeout: 30 * time.Second}, pending: map[string]chan url.Values{}}
+	return &Google{cfg: cfg, http: &http.Client{Timeout: 30 * time.Second}, pending: &signin.Pending{Who: "Google", Redirect: Redirect, Again: "den connect google"}}
 }
 
 // Signin is one sign-in the user has yet to finish.
@@ -111,15 +109,14 @@ func (g *Google) Begin() (*Signin, error) {
 		return nil, err
 	}
 
-	s := &Signin{client: c, state: random(), verifier: random(), redirect: Redirect}
-	challenge := sha256.Sum256([]byte(s.verifier))
+	s := &Signin{client: c, state: signin.Random(), verifier: signin.Random(), redirect: Redirect}
 	q := url.Values{
 		"client_id":             {c.ID},
 		"redirect_uri":          {s.redirect},
 		"response_type":         {"code"},
 		"scope":                 {strings.Join(Scopes, " ")},
 		"state":                 {s.state},
-		"code_challenge":        {base64.RawURLEncoding.EncodeToString(challenge[:])},
+		"code_challenge":        {signin.Challenge(s.verifier)},
 		"code_challenge_method": {"S256"},
 		"access_type":           {"offline"},
 		// Google sends a refresh token only on consent.
@@ -135,7 +132,7 @@ func (g *Google) Finish(ctx context.Context, s *Signin) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, Wait)
 	defer cancel()
 
-	code, err := g.wait(ctx, s.state)
+	code, err := g.pending.Wait(ctx, s.state)
 	if err != nil {
 		return "", err
 	}
@@ -167,68 +164,12 @@ func (g *Google) Finish(ctx context.Context, s *Signin) (string, error) {
 	return t.Email, g.save(t)
 }
 
-// wait waits for Deliver to bring the address Google sent state to.
-func (g *Google) wait(ctx context.Context, state string) (string, error) {
-	ch := make(chan url.Values, 1)
-	g.mu.Lock()
-	g.pending[state] = ch
-	g.mu.Unlock()
-	defer func() {
-		g.mu.Lock()
-		delete(g.pending, state)
-		g.mu.Unlock()
-	}()
-
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", errors.New("the sign-in was not finished in time")
-		}
-		return "", ctx.Err()
-	case q := <-ch:
-		switch e := q.Get("error"); {
-		case e == "access_denied":
-			return "", errors.New("the sign-in was cancelled")
-		case e != "":
-			return "", fmt.Errorf("Google answered %s", e)
-		case q.Get("code") == "":
-			return "", errors.New("the address has no code: send the whole address")
-		}
-		return q.Get("code"), nil
-	}
-}
-
 // Deliver hands a sign-in the address that the user sent from the browser.
 // It returns ErrNotSignin when text is not such an address, so the message
 // can go on to the agent, and an error when the sign-in is no longer
 // waiting.
 func (g *Google) Deliver(text string) error {
-	link := ""
-	for _, field := range strings.Fields(text) {
-		if strings.HasPrefix(field, Redirect) {
-			link = field
-		}
-	}
-	if link == "" {
-		return ErrNotSignin
-	}
-	u, err := url.Parse(link)
-	if err != nil {
-		return errors.New("this address is cut: send the whole address")
-	}
-	q := u.Query()
-
-	g.mu.Lock()
-	ch, ok := g.pending[q.Get("state")]
-	g.mu.Unlock()
-	if !ok {
-		return errors.New("this sign-in has expired: run den connect google again")
-	}
-	select {
-	case ch <- q:
-	default:
-	}
-	return nil
+	return g.pending.Deliver(text)
 }
 
 // Token returns an access token for the connected account, refreshed when
@@ -410,12 +351,8 @@ func (g *Google) client() (client, error) {
 }
 
 func (g *Google) load() (token, error) {
-	data, err := os.ReadFile(g.path(TokenFile))
-	if err != nil {
-		return token{}, ErrNotConnected
-	}
 	var t token
-	if err := json.Unmarshal(data, &t); err != nil || t.Refresh == "" {
+	if !signin.Load(g.path(TokenFile), &t) || t.Refresh == "" {
 		return token{}, ErrNotConnected
 	}
 	return t, nil
@@ -423,27 +360,9 @@ func (g *Google) load() (token, error) {
 
 // save writes the tokens readable by den alone.
 func (g *Google) save(t token) error {
-	data, err := json.Marshal(t)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(g.cfg.Secrets, 0o700); err != nil {
-		return err
-	}
-
-	tmp := g.path(TokenFile + ".tmp")
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, g.path(TokenFile))
+	return signin.Save(g.path(TokenFile), t)
 }
 
 func (g *Google) path(name string) string {
 	return filepath.Join(g.cfg.Secrets, name)
-}
-
-func random() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
 }

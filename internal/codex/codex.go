@@ -11,8 +11,6 @@ package codex
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -28,6 +26,7 @@ import (
 
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/signin"
 )
 
 const (
@@ -56,7 +55,7 @@ var (
 )
 
 // ErrNotSignin means a line is not a sign-in's address.
-var ErrNotSignin = errors.New("not a sign-in address")
+var ErrNotSignin = signin.ErrNotSignin
 
 // ErrNotConnected means there is no account, or OpenAI revoked it.
 var ErrNotConnected = errors.New("ChatGPT is not connected: the user connects it with `den connect codex` on their computer")
@@ -76,7 +75,7 @@ type Codex struct {
 	home string
 
 	mu      sync.Mutex
-	pending map[string]chan url.Values
+	pending *signin.Pending
 }
 
 func New(cfg config.Config) *Codex {
@@ -84,7 +83,7 @@ func New(cfg config.Config) *Codex {
 		cfg:     cfg,
 		http:    &http.Client{Timeout: 30 * time.Second},
 		home:    filepath.Dir(filepath.Dir(cfg.Sessions)),
-		pending: map[string]chan url.Values{},
+		pending: &signin.Pending{Who: "OpenAI", Redirect: Redirect, Again: "den connect codex"},
 	}
 }
 
@@ -99,14 +98,13 @@ type Signin struct {
 
 // Begin starts a sign-in.
 func (c *Codex) Begin() *Signin {
-	s := &Signin{state: random(), verifier: random()}
-	challenge := sha256.Sum256([]byte(s.verifier))
+	s := &Signin{state: signin.Random(), verifier: signin.Random()}
 	q := url.Values{
 		"response_type":              {"code"},
 		"client_id":                  {clientID},
 		"redirect_uri":               {Redirect},
 		"scope":                      {scope},
-		"code_challenge":             {base64.RawURLEncoding.EncodeToString(challenge[:])},
+		"code_challenge":             {signin.Challenge(s.verifier)},
 		"code_challenge_method":      {"S256"},
 		"id_token_add_organizations": {"true"},
 		"codex_cli_simplified_flow":  {"true"},
@@ -123,7 +121,7 @@ func (c *Codex) Finish(ctx context.Context, s *Signin) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, Wait)
 	defer cancel()
 
-	code, err := c.wait(ctx, s.state)
+	code, err := c.pending.Wait(ctx, s.state)
 	if err != nil {
 		return "", err
 	}
@@ -152,65 +150,10 @@ func (c *Codex) Finish(ctx context.Context, s *Signin) (string, error) {
 	return t.Email, nil
 }
 
-func (c *Codex) wait(ctx context.Context, state string) (string, error) {
-	ch := make(chan url.Values, 1)
-	c.mu.Lock()
-	c.pending[state] = ch
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		delete(c.pending, state)
-		c.mu.Unlock()
-	}()
-
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return "", errors.New("the sign-in was not finished in time")
-		}
-		return "", ctx.Err()
-	case q := <-ch:
-		switch e := q.Get("error"); {
-		case e == "access_denied":
-			return "", errors.New("the sign-in was cancelled")
-		case e != "":
-			return "", fmt.Errorf("OpenAI answered %s", e)
-		case q.Get("code") == "":
-			return "", errors.New("the address has no code: paste the whole address")
-		}
-		return q.Get("code"), nil
-	}
-}
-
 // Deliver hands a sign-in the address the browser came back to. It returns
 // ErrNotSignin when text holds no such address.
 func (c *Codex) Deliver(text string) error {
-	link := ""
-	for _, field := range strings.Fields(text) {
-		if strings.HasPrefix(field, Redirect) {
-			link = field
-		}
-	}
-	if link == "" {
-		return ErrNotSignin
-	}
-	u, err := url.Parse(link)
-	if err != nil {
-		return errors.New("this address is cut: paste the whole address")
-	}
-	q := u.Query()
-
-	c.mu.Lock()
-	ch, ok := c.pending[q.Get("state")]
-	c.mu.Unlock()
-	if !ok {
-		return errors.New("this sign-in has expired: run den connect codex again")
-	}
-	select {
-	case ch <- q:
-	default:
-	}
-	return nil
+	return c.pending.Deliver(text)
 }
 
 // Token returns an access token and the ChatGPT account, refreshed when the
@@ -396,34 +339,13 @@ func decode(jwt string) (claims, error) {
 func (c *Codex) path() string { return filepath.Join(c.cfg.Secrets, File) }
 
 func (c *Codex) load() (token, error) {
-	data, err := os.ReadFile(c.path())
-	if err != nil {
-		return token{}, ErrNotConnected
-	}
 	var t token
-	if err := json.Unmarshal(data, &t); err != nil || t.Refresh == "" {
+	if !signin.Load(c.path(), &t) || t.Refresh == "" {
 		return token{}, ErrNotConnected
 	}
 	return t, nil
 }
 
 func (c *Codex) save(t token) error {
-	data, err := json.Marshal(t)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(c.cfg.Secrets, 0o700); err != nil {
-		return err
-	}
-	path := c.path()
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
-}
-
-func random() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	return signin.Save(c.path(), t)
 }
