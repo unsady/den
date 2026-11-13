@@ -6,14 +6,20 @@ release notes.
 
 ## Unreleased
 
+## v0.4.0
+
 ### Better
 
-- Job replies no longer wake you: the nightly review always arrives without a sound, and so does any other repeating job's reply between 23:00 and 8:00 your time. A one-time reminder still rings.
-- `/jobs` is a plain list of the jobs, when each runs next, and how its last run went, with a button to run each now. Its Remove and model buttons, which did not say which job they were for, are gone: ask the agent to change, move, or remove a job.
-- When the main model's provider fails a chat turn, den no longer answers with the second model by itself: it says what failed, with a button that asks the second model. Jobs still move to the second model on their own.
 - The agent answers like an assistant, not a coding tool: den gives fx a base prompt of its own, so a reply is the result, such as the jobs it found or that there are none, without how it got there, what is done and what is not, Markdown tables, or headings.
-- A screening the agent repeats, such as new job ads every day, stays one quick `den map` pass: the `map` skill now has a recipe for it, with the criteria in one prompt file and a reply that lists only the matches. When a result is wrong, the agent fixes the rule instead of adding review steps, and the nightly review shortens skills that grow past about 4,000 characters.
 - You hear from the agent once its work is done. After a `den map` run it started, or den's word that one ended, the agent goes on without a message about each step, and the agent gets only the run's summary instead of every progress line.
+- A screening the agent repeats, such as new job ads every day, stays one quick `den map` pass: the `map` skill now has a recipe for it, with the criteria in one prompt file and a reply that lists only the matches. When a result is wrong, the agent fixes the rule instead of adding review steps, and the nightly review shortens skills that grow past about 4,000 characters.
+- When the main model's provider fails a chat turn, den no longer answers with the second model by itself: it says what failed, with a button that asks the second model. Jobs still move to the second model on their own.
+- `/jobs` is a plain list of the jobs, when each runs next, and how its last run went, with a button to run each now. Its Remove and model buttons, which did not say which job they were for, are gone: ask the agent to change, move, or remove a job.
+- Job replies no longer wake you: the nightly review always arrives without a sound, and so does any other repeating job's reply between 23:00 and 8:00 your time. A one-time reminder still rings.
+
+### Fixed
+
+- A turn on some models, such as Qwen on OpenCode Go, failed with `InvalidChunk` as soon as the model called a tool. It works now.
 
 ## v0.3.0
 
