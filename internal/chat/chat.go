@@ -746,15 +746,19 @@ func (c *Chat) turn(ctx context.Context) bool {
 		// /stop already answered, or den is shutting down.
 		return true
 	}
-	// A turn may end without a word when den's report started it, or when
-	// it left work going on that den shows the user anyway. A user's
-	// question gets an answer otherwise.
+	// A turn may end without a word, such as one den's report started, or
+	// one that answers a plain "ok". When a subagent's report took the
+	// last word, the answer before it is in the session.
 	if reply.Error == "" && strings.TrimSpace(reply.Output) == runner.Silent {
-		if reports || (c.den != nil && c.den.Busy(current)) {
+		earlier := ""
+		if !reports && (c.den == nil || !c.den.Busy(current)) {
+			earlier = sessions.Answer(c.cfg.Sessions, reply.SessionID, started)
+		}
+		if earlier == "" || strings.TrimSpace(earlier) == runner.Silent {
 			log.Printf("chat: the turn had nothing to tell")
 			return true
 		}
-		reply.Output = sessions.Answer(c.cfg.Sessions, reply.SessionID, started)
+		reply.Output = earlier
 	}
 
 	text := answer(reply, session != "")

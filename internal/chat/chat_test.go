@@ -49,7 +49,7 @@ lines=$(printf '%s\n' "$*" | grep -c .)
 case "$first" in
 slow*) sleep 1 ;;
 steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
-"[den: quiet"*) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
+"[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
 quota*) case "$image" in *effort=low*) ;; *) echo "fx ask: API request failed · HTTP 402 · out of credits" >&2; exit 1 ;; esac ;;
 esac
 printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"s1","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image"
@@ -1006,7 +1006,14 @@ func TestSilentReport(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 
-	// A user's message is always answered.
+	// A user's message that needs no answer gets none, never the word.
+	telegram.message(42, "ok")
+	select {
+	case text := <-telegram.sent:
+		t.Fatalf("sent %q", text)
+	case <-time.After(time.Second):
+	}
+
 	telegram.message(42, "and you?")
 	telegram.expect(t, "resume=s1 msg=and you? lines=1")
 }
