@@ -3,6 +3,7 @@ package daemon
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unsady/den/internal/jobs"
 )
@@ -36,5 +37,24 @@ func TestFirstSentence(t *testing.T) {
 	}
 	if got := firstSentence(strings.Repeat("word ", 60)); len([]rune(got)) != 161 {
 		t.Errorf("long line not cut: %d runes", len([]rune(got)))
+	}
+}
+
+func TestQuietly(t *testing.T) {
+	day := time.Date(2026, 11, 13, 14, 0, 0, 0, time.Local)
+	night := time.Date(2026, 11, 13, 3, 0, 0, 0, time.Local)
+	for _, c := range []struct {
+		job  jobs.Job
+		when time.Time
+		want bool
+	}{
+		{jobs.Job{Name: "news"}, day, false},
+		{jobs.Job{Name: "news"}, night, true},
+		{jobs.Job{Name: "reflect"}, day, true},
+		{jobs.Job{Once: true}, night, false},
+	} {
+		if got := quietly(c.job, c.when); got != c.want {
+			t.Errorf("quietly(%+v, %s) = %v", c.job, c.when.Format("15:04"), got)
+		}
 	}
 }

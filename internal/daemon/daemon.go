@@ -374,7 +374,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 	}
 
 	// A reply to the job's message continues its session in the chat.
-	ids, err := d.send(text)
+	ids, err := d.send(text, quietly(j, time.Now()))
 	if err != nil {
 		log.Printf("job %s: deliver: %v", j.Label(), err)
 		return false
@@ -417,12 +417,27 @@ func heading(j jobs.Job) string {
 }
 
 func (d *daemon) notify(text string) error {
-	_, err := d.send(text)
+	_, err := d.send(text, false)
 	return err
 }
 
-// send is notify that returns the ids of the messages it sent.
-func (d *daemon) send(text string) ([]int64, error) {
+// quietly says whether a job's reply arrives without a sound: the nightly
+// review always, and other repeating jobs at night. A one-time reminder
+// rings, since the user asked for it at that time.
+func quietly(j jobs.Job, now time.Time) bool {
+	switch {
+	case j.Once:
+		return false
+	case j.Name == "reflect":
+		return true
+	}
+	hour := now.Hour()
+	return hour >= 23 || hour < 8
+}
+
+// send is notify that returns the ids of the messages it sent, quiet ones
+// without a sound.
+func (d *daemon) send(text string, quiet bool) ([]int64, error) {
 	// Secrets are read on each send, so they can be added after den starts.
 	telegram, err := notify.Load(d.cfg)
 	if err != nil {
@@ -431,6 +446,9 @@ func (d *daemon) send(text string) ([]int64, error) {
 	}
 	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
 	defer cancel()
+	if quiet {
+		return telegram.SendQuiet(ctx, text)
+	}
 	return telegram.SendIDs(ctx, text)
 }
 

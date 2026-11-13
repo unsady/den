@@ -55,6 +55,16 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 // SendIDs is Send that returns the ids of the messages it sent, so a reply
 // to any of them can be told apart.
 func (t *Telegram) SendIDs(ctx context.Context, text string) ([]int64, error) {
+	return t.send(ctx, text, false)
+}
+
+// SendQuiet is SendIDs whose messages arrive without a sound, such as a
+// job's reply at night.
+func (t *Telegram) SendQuiet(ctx context.Context, text string) ([]int64, error) {
+	return t.send(ctx, text, true)
+}
+
+func (t *Telegram) send(ctx context.Context, text string, quiet bool) ([]int64, error) {
 	var ids []int64
 	for _, chunk := range split(strings.TrimSpace(text), maxMessage) {
 		chunk, entities := code(chunk)
@@ -65,6 +75,9 @@ func (t *Telegram) SendIDs(ctx context.Context, text string) ([]int64, error) {
 		}
 		if len(entities) > 0 {
 			body["entities"] = entities
+		}
+		if quiet {
+			body["disable_notification"] = true
 		}
 		var sent struct {
 			ID int64 `json:"message_id"`

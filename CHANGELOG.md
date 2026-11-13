@@ -8,6 +8,7 @@ release notes.
 
 ### Better
 
+- Job replies no longer wake you: the nightly review always arrives without a sound, and so does any other repeating job's reply between 23:00 and 8:00 your time. A one-time reminder still rings.
 - `/jobs` is a plain list of the jobs, when each runs next, and how its last run went, with a button to run each now. Its Remove and model buttons, which did not say which job they were for, are gone: ask the agent to change, move, or remove a job.
 - When the main model's provider fails a chat turn, den no longer answers with the second model by itself: it says what failed, with a button that asks the second model. Jobs still move to the second model on their own.
 - The agent answers like an assistant, not a coding tool: den gives fx a base prompt of its own, so a reply is the result, such as the jobs it found or that there are none, without how it got there, what is done and what is not, Markdown tables, or headings.
