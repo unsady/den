@@ -29,9 +29,18 @@ RUN git clone --depth 1 --branch "$WHISPER_VERSION" https://github.com/ggml-org/
 FROM debian:trixie-slim AS downloads
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
-ARG LIGHTPANDA_VERSION=1.0.3
-RUN curl -fsSL -o /lightpanda \
-        "https://github.com/lightpanda-io/browser/releases/download/$LIGHTPANDA_VERSION/lightpanda-$(uname -m)-linux" && \
+ARG LIGHTPANDA_VERSION=1.0.4
+ARG LIGHTPANDA_SHA256_AARCH64=f021d49a0b66d07bf2633f8e00870b9075293516f872695b0ca4aeb5848b6ea8
+ARG LIGHTPANDA_SHA256_X86_64=7d22651129901203abdb95c64f49069c49e88f5211f4d8c4c6828c123c4adab4
+RUN arch=$(uname -m); \
+    case "$arch" in \
+        aarch64) sum=$LIGHTPANDA_SHA256_AARCH64 ;; \
+        x86_64) sum=$LIGHTPANDA_SHA256_X86_64 ;; \
+        *) echo "no Lightpanda release for $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /lightpanda \
+        "https://github.com/lightpanda-io/browser/releases/download/$LIGHTPANDA_VERSION/lightpanda-$arch-linux" && \
+    echo "$sum  /lightpanda" | sha256sum -c - && \
     chmod 755 /lightpanda
 
 # fx is the agent. den needs a few changes fx does not have yet, so the

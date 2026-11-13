@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Better
+
+- Lightpanda 1.0.4. The image now checks the browser download against its checksum.
+
 ### Fixed
 
 - `den update` removes the image it replaces. Each update used to leave the old image on disk, about 1.4 GB each with Apple's container.
