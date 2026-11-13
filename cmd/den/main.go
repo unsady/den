@@ -147,7 +147,7 @@ func run(args []string) error {
 
 func jobCommand(cfg config.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("job needs a subcommand: add, ls, rm, run, or log")
+		return fmt.Errorf("job needs a subcommand: add, ls, slot, rm, run, or log")
 	}
 	c := client.New(cfg)
 	sub, args := args[0], args[1:]
