@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // On the host, den runs its container with one of three tools: Apple's
@@ -73,4 +74,32 @@ func openBrowser(link string) {
 		name = "open"
 	}
 	exec.Command(name, link).Run()
+}
+
+// removeImage removes the image tag. The tool frees the image's space
+// only when no other tag names it, and Docker and Podman keep an image a
+// container still uses.
+func (e engine) removeImage(image string) *exec.Cmd {
+	if e == appleContainer {
+		return e.command("image", "delete", image)
+	}
+	return e.command("image", "rm", image)
+}
+
+// previous is the tag that holds the image an update replaces, until the
+// new one runs: den:latest becomes den:previous. An image pinned by
+// digest has none.
+func previous(image string) string {
+	if strings.Contains(image, "@") {
+		return ""
+	}
+
+	repo := image
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		repo = image[:i]
+	}
+	if repo+":previous" == image {
+		return ""
+	}
+	return repo + ":previous"
 }

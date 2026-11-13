@@ -31,3 +31,19 @@ func TestPickEngine(t *testing.T) {
 		t.Errorf("a saved runtime wins, got %s", got)
 	}
 }
+
+func TestPrevious(t *testing.T) {
+	cases := map[string]string{
+		"den:latest":                       "den:previous",
+		"den":                              "den:previous",
+		"ghcr.io/unsady/den:v0.4.0":        "ghcr.io/unsady/den:previous",
+		"localhost:5000/den":               "localhost:5000/den:previous",
+		"den:previous":                     "",
+		"ghcr.io/unsady/den@sha256:04a0a9": "",
+	}
+	for image, want := range cases {
+		if got := previous(image); got != want {
+			t.Errorf("previous(%q) = %q, want %q", image, got, want)
+		}
+	}
+}

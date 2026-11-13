@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- `den update` removes the image it replaces. Each update used to leave the old image on disk, about 1.4 GB each with Apple's container.
+
 ## v0.4.0
 
 ### Better

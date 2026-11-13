@@ -330,10 +330,35 @@ func update(c hostConfig) error {
 	if err := updateCommand(c); err != nil {
 		return err
 	}
+	old := keepPrevious(c)
 	if err := pullOrBuild(c); err != nil {
 		return err
 	}
-	return launch(c, "Restarting den", recreate)
+
+	if err := launch(c, "Restarting den", recreate); err != nil {
+		return err
+	}
+	if old != "" {
+		c.engine().removeImage(old).Run()
+	}
+	return nil
+}
+
+// keepPrevious tags the image den runs now with its previous tag and
+// returns that tag, or "" when there is no image yet. After a new build
+// or pull takes the image's own tag, the old image would otherwise stay
+// on disk with no name to remove it by: Apple's container keeps a whole
+// unpacked copy of every image.
+func keepPrevious(c hostConfig) string {
+	old := previous(c.Image)
+	if old == "" || !c.exists("image", "inspect", c.Image) {
+		return ""
+	}
+
+	if c.engine().command("image", "tag", c.Image, old).Run() != nil {
+		return ""
+	}
+	return old
 }
 
 // pullOrBuild gets den's image under a spinner.
