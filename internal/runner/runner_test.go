@@ -17,3 +17,19 @@ func TestProviderFailed(t *testing.T) {
 		}
 	}
 }
+
+func TestIsSilent(t *testing.T) {
+	for reply, want := range map[string]bool{
+		"SILENT":                         true,
+		"  SILENT\n":                     true,
+		"All sources healthy.\n\nSILENT": true,
+		"No new jobs.":                   false,
+		"SILENT means nothing to send.":  false,
+		"Say SILENT to skip.\nOK":        false,
+		"":                               false,
+	} {
+		if got := IsSilent(reply); got != want {
+			t.Errorf("IsSilent(%q) = %v", reply, got)
+		}
+	}
+}

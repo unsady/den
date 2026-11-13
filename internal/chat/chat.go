@@ -749,12 +749,12 @@ func (c *Chat) turn(ctx context.Context) bool {
 	// A turn may end without a word, such as one den's report started, or
 	// one that answers a plain "ok". When a subagent's report took the
 	// last word, the answer before it is in the session.
-	if reply.Error == "" && strings.TrimSpace(reply.Output) == runner.Silent {
+	if reply.Error == "" && runner.IsSilent(reply.Output) {
 		earlier := ""
 		if !reports && (c.den == nil || !c.den.Busy(current)) {
 			earlier = sessions.Answer(c.cfg.Sessions, reply.SessionID, started)
 		}
-		if earlier == "" || strings.TrimSpace(earlier) == runner.Silent {
+		if earlier == "" || runner.IsSilent(earlier) {
 			log.Printf("chat: the turn had nothing to tell")
 			return true
 		}

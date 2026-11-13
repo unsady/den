@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- A reply that ends with SILENT on its own line sends nothing. A job used to send its status with the word SILENT under it.
+
 ## v0.4.1
 
 ### Better

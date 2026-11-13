@@ -35,6 +35,15 @@ var systemPrompt string
 // Silent is the reply that tells den a job has nothing to deliver.
 const Silent = "SILENT"
 
+// IsSilent reports whether a reply asks den to send nothing: Silent alone,
+// or Silent on the reply's last line after a status the model was told to
+// leave out.
+func IsSilent(reply string) bool {
+	reply = strings.TrimSpace(reply)
+	last := reply[strings.LastIndex(reply, "\n")+1:]
+	return strings.TrimSpace(last) == Silent
+}
+
 const deliveredNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
 	"Reply with exactly " + Silent + " when there is nothing worth sending."
@@ -189,6 +198,9 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 		if answer := sessions.Answer(cfg.Sessions, reply.SessionID, reply.Started); answer != "" {
 			reply.Output = answer
 		}
+	}
+	if IsSilent(reply.Output) {
+		reply.Output = Silent
 	}
 	if result.Usage != nil {
 		reply.InputTokens = value(result.Usage.Input)
