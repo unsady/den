@@ -95,6 +95,9 @@ type Daemon interface {
 	LastContext(since time.Time) int
 	// JobSessions are the sessions of the job runs den keeps.
 	JobSessions() map[string]bool
+	// Busy says whether work that a chat turn started, such as a den map
+	// run, still goes on in den's background.
+	Busy(turn string) bool
 }
 
 func help() string {
@@ -685,7 +688,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 			Resume:     resume,
 			Images:     images,
 			Turn:       current,
-			MaySilence: reports,
+			MaySilence: true,
 			Progress: func(line string) {
 				select {
 				case steps <- line:
@@ -740,9 +743,15 @@ func (c *Chat) turn(ctx context.Context) bool {
 		// /stop already answered, or den is shutting down.
 		return true
 	}
-	if reports && reply.Error == "" && strings.TrimSpace(reply.Output) == runner.Silent {
-		log.Printf("chat: a report's turn had nothing to tell")
-		return true
+	// A turn may end without a word when den's report started it, or when
+	// it left work going on that den shows the user anyway. A user's
+	// question gets an answer otherwise.
+	if reply.Error == "" && strings.TrimSpace(reply.Output) == runner.Silent {
+		if reports || (c.den != nil && c.den.Busy(current)) {
+			log.Printf("chat: the turn had nothing to tell")
+			return true
+		}
+		reply.Output = sessions.Answer(c.cfg.Sessions, reply.SessionID, started)
 	}
 
 	text := answer(reply, session != "")

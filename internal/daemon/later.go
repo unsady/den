@@ -101,7 +101,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 		delete(d.grants, run)
 		d.mu.Unlock()
 	}()
-	d.runStarted(run, req.Model, req.Items)
+	d.runStarted(run, req.Turn, req.Model, req.Items)
 
 	d.wg.Add(1)
 	defer d.wg.Done()

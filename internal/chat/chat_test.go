@@ -422,6 +422,8 @@ func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
 
 func (f *fakeDaemon) LastContext(since time.Time) int { return f.context / 4 }
 
+func (f *fakeDaemon) Busy(turn string) bool { return false }
+
 func (f *fakeDaemon) JobSessions() map[string]bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
