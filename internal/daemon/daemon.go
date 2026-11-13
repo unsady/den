@@ -28,6 +28,7 @@ import (
 	"github.com/unsady/den/internal/fetch"
 	"github.com/unsady/den/internal/gitproxy"
 	"github.com/unsady/den/internal/google"
+	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/mail"
 	"github.com/unsady/den/internal/models"
@@ -165,9 +166,15 @@ func Serve(cfg config.Config) error {
 	if err := codex.New(cfg).Stand(); err != nil {
 		log.Printf("codex: %v", err)
 	}
+	if err := grok.New(cfg).Stand(); err != nil {
+		log.Printf("grok: %v", err)
+	}
 	d.models = models.New(cfg)
 	if codex.New(cfg).Connected() {
-		go codexModel(ctx, cfg, d.models)
+		go subscriptionModel(ctx, cfg, d.models, "codex")
+	}
+	if grok.New(cfg).Connected() {
+		go subscriptionModel(ctx, cfg, d.models, "grok")
 	}
 	go func() {
 		if err := d.models.Serve(ctx.Done()); err != nil {
@@ -760,12 +767,13 @@ func fail(w http.ResponseWriter, status int, err error) {
 	reply(w, status, map[string]string{"error": err.Error()})
 }
 
-// codexModel gives Codex a model in fx's settings once its account is
-// connected, so fx lists and uses it.
-func codexModel(ctx context.Context, cfg config.Config, m *models.Models) {
-	err := m.Default("codex", func() ([]string, error) { return runner.Offered(ctx, cfg, "codex") })
+// subscriptionModel gives a subscription's provider, codex or grok, a
+// model in fx's settings once its account is connected, so fx lists and
+// uses it.
+func subscriptionModel(ctx context.Context, cfg config.Config, m *models.Models, provider string) {
+	err := m.Default(provider, func() ([]string, error) { return runner.Offered(ctx, cfg, provider) })
 	if err != nil {
-		log.Printf("codex: %v", err)
+		log.Printf("%s: %v", provider, err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"github.com/unsady/den/internal/codex"
+	"github.com/unsady/den/internal/grok"
 )
 
 // account is a way to pay for den's model that setup offers by name, so a
@@ -28,6 +29,7 @@ var accounts = []account{
 	{"xAI", "pay as you go, Grok models", "xai", "grok-4.7", "https://console.x.ai"},
 	{"Vercel AI Gateway", "pay as you go, models of many providers", "vercel", "deepseek/deepseek-v4-pro", "https://vercel.com/ai-gateway"},
 	{"ChatGPT Plus or Pro", "your subscription, signed in in the browser", "codex", "", ""},
+	{"SuperGrok", "your Grok subscription, signed in in the browser", "grok", "", ""},
 	{"Another provider", "any of models.dev's", "", "", ""},
 }
 
@@ -50,6 +52,12 @@ func chooseAccount(c hostConfig) error {
 			return err
 		}
 		done("ChatGPT connected; /model in Telegram picks its model")
+		return nil
+	case "grok":
+		if err := connectHost(c, "grok", grok.Redirect, "Grok"); err != nil {
+			return err
+		}
+		done("Grok connected; /model in Telegram picks its model")
 		return nil
 	case "":
 		cat, err := catalog()

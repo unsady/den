@@ -110,9 +110,9 @@ func online(c hostConfig) error {
 }
 
 // hasProvider reports whether den has a model to use: a provider's key, or
-// a ChatGPT subscription.
+// a ChatGPT or Grok subscription.
 func hasProvider(have map[string]bool) bool {
-	if have["codex"] {
+	if have["codex"] || have["grok"] {
 		return true
 	}
 	for name := range have {

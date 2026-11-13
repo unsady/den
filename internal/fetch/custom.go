@@ -51,7 +51,7 @@ var (
 )
 
 // reserved are names den itself uses.
-var reserved = []string{"github", "google", "codex", "mail", "telegram", "provider"}
+var reserved = []string{"github", "google", "codex", "grok", "mail", "telegram", "provider"}
 
 // NewCustom checks a service the user describes, from the API's address.
 func NewCustom(name, address, header, ask, about string) (Custom, error) {

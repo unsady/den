@@ -20,6 +20,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/fetch"
 	"github.com/unsady/den/internal/google"
+	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/mail"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/runner"
@@ -148,6 +149,13 @@ func connectCommand(cfg config.Config, args []string) error {
 		}
 		// fx refuses a provider without a model of its own.
 		return models.New(cfg).Default("codex", func() ([]string, error) { return runner.Offered(context.Background(), cfg, "codex") })
+	case "grok":
+		g := grok.New(cfg)
+		s := g.Begin()
+		if err := relay(s.URL, func() (string, error) { return g.Finish(context.Background(), s) }, g.Deliver, grok.ErrNotSignin); err != nil {
+			return err
+		}
+		return models.New(cfg).Default("grok", func() ([]string, error) { return runner.Offered(context.Background(), cfg, "grok") })
 	case "mail":
 		text, err := io.ReadAll(io.LimitReader(os.Stdin, 64<<10))
 		if err != nil {
@@ -166,7 +174,7 @@ func connectCommand(cfg config.Config, args []string) error {
 		fmt.Printf("connected %s\n", a.Address)
 		return nil
 	}
-	return fmt.Errorf("den connects google, codex, or mail, not %q", service)
+	return fmt.Errorf("den connects google, codex, grok, or mail, not %q", service)
 }
 
 // connectGoogle signs in over stdio: it prints the sign-in address as
@@ -247,10 +255,12 @@ func disconnectCommand(cfg config.Config, args []string) error {
 		return google.New(cfg).Disconnect(context.Background())
 	case "codex":
 		return codex.New(cfg).Disconnect()
+	case "grok":
+		return grok.New(cfg).Disconnect()
 	case "mail":
 		return os.Remove(filepath.Join(cfg.Secrets, mail.File))
 	}
-	return fmt.Errorf("den disconnects google, codex, or mail, not %q", service)
+	return fmt.Errorf("den disconnects google, codex, grok, or mail, not %q", service)
 }
 
 // serviceCommand adds, lists, and removes the APIs den sends a token to.

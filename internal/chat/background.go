@@ -80,7 +80,7 @@ func (c *Chat) nameTask(ctx context.Context, task string) string {
 			model = setup.Model
 		}
 	}
-	if provider == "" || provider == "codex" || model == "" {
+	if provider == "" || provider == "codex" || provider == "grok" || model == "" {
 		return ""
 	}
 

@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/unsady/den/main/install.sh | sh
 The script puts `den` in `~/.local/bin`, checks its digest, and runs `den setup`. The setup gets den's image, starts the container, and asks for two things:
 
 - A Telegram bot's token, from @BotFather. You then send the bot any message, and den takes your chat from it. The bot answers only that chat.
-- The account that pays for the model: OpenCode Go, OpenRouter, DeepSeek, a ChatGPT Plus or Pro subscription, or any other provider on [models.dev](https://models.dev). den starts with a good model for it, which Enter keeps, and asks for its API key; a ChatGPT subscription signs in in the browser instead.
+- The account that pays for the model: OpenCode Go, OpenRouter, DeepSeek, a ChatGPT Plus or Pro or a SuperGrok subscription, or any other provider on [models.dev](https://models.dev). den starts with a good model for it, which Enter keeps, and asks for its API key; a subscription signs in in the browser instead.
 
 Then write to the bot. Run `den setup` again to finish a setup that stopped halfway; it skips what is done.
 
@@ -113,7 +113,7 @@ With a second model set, it also stands in for the main one. When the main model
 
 ## Models
 
-The setup adds one account, and `/model` in Telegram picks any of its models. `den login <provider>` adds another or changes its key, and its models appear in `/model`. `den connect codex` signs in to a ChatGPT subscription in your browser for its Codex models; den keeps the tokens and refreshes them.
+The setup adds one account, and `/model` in Telegram picks any of its models. `den login <provider>` adds another or changes its key, and its models appear in `/model`. `den connect codex` signs in to a ChatGPT subscription in your browser for its Codex models; `den connect grok` does the same for a Grok subscription. den keeps the tokens and refreshes them; the agent gets only a stand-in.
 
 fx reaches every provider through den's proxy, which also measures each request. `den stats` shows how long each provider stayed silent before the first token, whether the answer stalled, how fast it wrote, and what failed, and the agent reads the same numbers when you ask it why it was slow today.
 
@@ -194,7 +194,7 @@ What the agent learns about a built-in skill goes to `notes/skills/<name>.md`, w
 | `den start`, `den stop`, `den restart` | The container |
 | `den status`, `den logs [-f]` | The container and the secrets den has; den's log |
 | `den login <provider>` | Adds a model provider or changes its key |
-| `den connect google`, `mail`, `codex` | Gmail and Calendar, a mailbox, a ChatGPT subscription |
+| `den connect google`, `mail`, `codex`, `grok` | Gmail and Calendar, a mailbox, a ChatGPT or Grok subscription |
 | `den service add`, `ls`, `rm` | Your own APIs |
 | `den secret set <name>`, `ls`, `rm` | Any other secret, such as `github_token`; asks for its value |
 | `den stats [--since 2h] [--json]` | How the model providers did |

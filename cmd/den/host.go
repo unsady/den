@@ -20,6 +20,7 @@ import (
 
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/google"
+	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/mail"
 )
 
@@ -51,8 +52,9 @@ Usage:
   den connect google [<client JSON>]
                                 Connect Gmail and Calendar in this machine's browser
   den connect codex             Connect a ChatGPT subscription for Codex models
+  den connect grok              Connect a Grok subscription for Grok models
   den connect mail              Connect a mailbox with an app password
-  den disconnect google | codex | mail
+  den disconnect google | codex | grok | mail
   den secret set <name> | ls | rm <name>
                                 Keep a secret, such as github_token; asks for it
   den service add [--header <name>] [--ask writes|never|always] [--about <text>] <name> <https-url>
@@ -480,7 +482,7 @@ func login(c hostConfig, provider, model, baseURL string) error {
 
 func hostConnect(c hostConfig, args []string) error {
 	if len(args) == 0 {
-		return errors.New("connect google, codex, or mail")
+		return errors.New("connect google, codex, grok, or mail")
 	}
 	switch args[0] {
 	case "mail":
@@ -500,8 +502,10 @@ func hostConnect(c hostConfig, args []string) error {
 		return connectHost(c, "google", google.Redirect, "Google")
 	case "codex":
 		return connectHost(c, "codex", codex.Redirect, "ChatGPT")
+	case "grok":
+		return connectHost(c, "grok", grok.Redirect, "Grok")
 	}
-	return fmt.Errorf("den connects google, codex, or mail, not %q", args[0])
+	return fmt.Errorf("den connects google, codex, grok, or mail, not %q", args[0])
 }
 
 func connectMail(c hostConfig) error {
