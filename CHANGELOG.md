@@ -8,7 +8,7 @@ release notes.
 
 ### Better
 
-- The nightly reflection now shortens skills over about 4,000 characters and stops jobs that write a new report file on every run.
+- Notes hold one file per topic, never reports of runs. The nightly reflection folds such reports into their topic, stops jobs that write one on every run, and shortens skills over about 4,000 characters.
 - Lightpanda 1.0.4. The image now checks the browser download against its checksum.
 
 ### Fixed

@@ -36,7 +36,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
    git log --since="$(date -r .reflect-stamp)" --diff-filter=A --name-only --format= | sort
    ```
 
-   When a job adds a file on every run, such as a report nobody reads back, change its skill or prompt so it stops, and delete those files. A job's decisions and state belong where its tool already keeps them.
+   Notes hold topics, not logs or reports of runs. When a job adds a file on every run, change its skill or prompt so it stops. Fold what still matters from such files, and from one-off reports, into the topic's note, and delete them.
 
 7. Commit and stamp:
 
@@ -53,7 +53,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
 - The Notes section of `AGENTS.md`: facts about the environment that matter in every session.
 - A skill in `.fx/skills/<name>/SKILL.md`: how to do a kind of task for this user, including the steps, the commands that work, the user's preferences for the result, and pitfalls.
 - `notes/skills/<name>.md`: what a built-in skill, one in `~/.agents/skills`, lacks or gets wrong here. Built-in skills are read-only, and a skill of your own must never share a built-in's name.
-- `notes/`: results the user will want again, such as decisions, plans, and lists.
+- `notes/`: one file per topic with what you know, such as decisions, plans, and lists, kept current in place.
 
 One fact goes to one place. Keep the memory sections within their limits by merging or deleting stale lines.
 
