@@ -201,6 +201,9 @@ type Chat struct {
 	// tell the agent of the session a turn ran in what came of a command
 	// it started.
 	turns []turnRef
+	// retry is the last turn whose model's provider failed, which a button
+	// under the failure can ask the second model again.
+	retry *entry
 	// bg stops each turn that /bg runs, by its ID, while it runs, and
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
@@ -699,15 +702,17 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	reply := ask(provider, model, effort, session)
 	// When the main model's provider refuses or fails, such as when its
-	// quota runs out, the second model takes the turn once.
+	// quota runs out, a button offers the second model. It does not take
+	// over by itself: the user may want this model's answer, not any.
+	var offer [][]notify.Button
 	if reply.Error != "" && turn.Err() == nil && fallback != nil && runner.ProviderFailed(reply.Stderr) {
-		log.Printf("chat: %s failed, asking %s", model, fallback.Model)
-		header = fmt.Sprintf("↻ %s · %s failed: %s\n\n", fallback.Model, model, clipRunes(lastLine(reply.Stderr), 120))
-		resume := session
-		if reply.SessionID != "" {
-			resume = reply.SessionID
+		offer = [][]notify.Button{{{Text: "↻ Ask " + fallback.Model, Data: "rs:"}}}
+		c.mu.Lock()
+		c.retry = &entry{text: prompt, second: true, session: other, label: label}
+		if len(images) > 0 {
+			c.retry.image = images[0]
 		}
-		reply = ask(fallback.Provider, fallback.Model, fallback.Effort, resume)
+		c.mu.Unlock()
 	}
 	close(done)
 	<-shown
@@ -755,6 +760,9 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 
 	text := answer(reply, session != "")
+	if offer != nil {
+		text = fmt.Sprintf("%s failed: %s", model, clipRunes(lastLine(reply.Stderr), 200))
+	}
 	wrote := reply.SessionID
 	if wrote == "" {
 		wrote = session
@@ -771,7 +779,14 @@ func (c *Chat) turn(ctx context.Context) bool {
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
 		call, cancel := context.WithTimeout(ctx, time.Minute)
-		ids, err := telegram.SendIDs(call, text)
+		var ids []int64
+		if offer != nil {
+			var id int64
+			id, err = telegram.SendButtons(call, text, offer)
+			ids = []int64{id}
+		} else {
+			ids, err = telegram.SendIDs(call, text)
+		}
 		cancel()
 		if err != nil {
 			log.Printf("chat: send: %v", err)

@@ -109,7 +109,7 @@ Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@
 
 A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
 
-With a second model set, it also stands in for the main one. When the main model's provider refuses or fails a turn or a job, such as when its quota runs out, rate limits it, or has an outage, den runs it once more on the second model, and the reply starts with `↻` and why.
+With a second model set, it also stands in for the main one. When the main model's provider refuses or fails a turn, such as when its quota runs out, rate limits it, or has an outage, den says so with a button that asks the second model instead. A job runs once more on the second model by itself, since nobody waits for it, and its reply starts with `↻` and why.
 
 ## Models
 

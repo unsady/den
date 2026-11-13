@@ -653,9 +653,16 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "and coffee")
 	telegram.expect(t, "resume=s1 msg=and coffee lines=1 provider=p2 model=big-p2 effort=high")
 
-	// When the main model's provider fails, the second one answers.
+	// When the main model's provider fails, a button offers the second
+	// one, which answers once pressed.
 	telegram.message(42, "quota is gone")
-	telegram.expect(t, "↻ big-p2 · big-p2 failed: fx ask: API request failed · HTTP 402 · out of credits\n\nresume=s1 msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
+	telegram.expect(t, "big-p2 failed: fx ask: API request failed · HTTP 402 · out of credits")
+	telegram.expectButtons(t, "rs:")
+	telegram.press("rs:")
+	telegram.expectAnswer(t, "Asking big-p2")
+	telegram.expect(t, "↻ big-p2\n\nresume=s1 msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
+	telegram.press("rs:")
+	telegram.expectAnswer(t, "This button is out of date.")
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>big-p2</b> · p2 · effort high")
 	telegram.message(42, "/effort default")

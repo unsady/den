@@ -291,6 +291,20 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			answer, text = "Removed", "Removed job "+j.Label()+"."
 		}
 
+	case "rs":
+		c.mu.Lock()
+		retry := c.retry
+		c.retry = nil
+		second := c.state.Second
+		c.mu.Unlock()
+		switch {
+		case retry == nil || second == nil:
+			answer = "This button is out of date."
+		default:
+			answer = "Asking " + second.Model
+			c.queue(ctx, telegram, notify.Message{}, *retry)
+		}
+
 	case "k":
 		answer = "Kept"
 
