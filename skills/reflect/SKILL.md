@@ -30,14 +30,22 @@ You learn from past sessions here. Most days there is little or nothing to save,
    - Is it a method that worked, and not a setup failure, a tool that "does not work", or a story of one session?
    - Is it new, and not already in a built-in skill or another note?
 
-6. Commit and stamp:
+6. Tidy what grew. Rewrite each skill over about 4,000 characters, which `wc -c .fx/skills/*/SKILL.md` shows: merge rules, and drop history, dates, and numbers from past runs. Then list the files added since the last review:
+
+   ```bash
+   git log --since="$(date -r .reflect-stamp)" --diff-filter=A --name-only --format= | sort
+   ```
+
+   When a job adds a file on every run, such as a report nobody reads back, change its skill or prompt so it stops, and delete those files. A job's decisions and state belong where its tool already keeps them.
+
+7. Commit and stamp:
 
    ```bash
    git add -A && git commit -m "reflect: <what changed>"
    touch .reflect-stamp
    ```
 
-7. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, reply `SILENT`.
+8. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, reply `SILENT`.
 
 ## Where a lesson goes
 
@@ -59,7 +67,7 @@ Sessions may have saved a skill or a finding already, so check before you add on
 - Fix a wrong sentence in place instead of adding a correction below it.
 - Give the skill a `description` that says when to use it. It is all a future session sees before it opens the skill.
 - A wrong result is fixed in the rule or step that caused it, not with a new step that checks the old one.
-- Keep a skill under about 4,000 characters: it is a recipe, not a log of past runs. Check with `wc -c .fx/skills/*/SKILL.md`, and rewrite one that is longer: merge rules, and drop history, dates, and numbers from past runs.
+- Keep a skill under about 4,000 characters: it is a recipe, not a log of past runs.
 
 ## Do not save
 

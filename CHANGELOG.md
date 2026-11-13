@@ -8,6 +8,7 @@ release notes.
 
 ### Better
 
+- The nightly reflection now shortens skills over about 4,000 characters and stops jobs that write a new report file on every run.
 - Lightpanda 1.0.4. The image now checks the browser download against its checksum.
 
 ### Fixed
