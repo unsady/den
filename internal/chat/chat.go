@@ -94,6 +94,8 @@ type Daemon interface {
 	LastContext(since time.Time) int
 	// JobSessions are the sessions of the job runs den keeps.
 	JobSessions() map[string]bool
+	// DeleteSession deletes a session and makes the chat forget it.
+	DeleteSession(id string) error
 	// Busy says whether work that a chat turn started, such as a den map
 	// run, still goes on in den's background.
 	Busy(turn string) bool

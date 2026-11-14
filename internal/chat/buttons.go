@@ -96,7 +96,10 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 			line += "  ← current"
 		}
 		text += line
-		rows = append(rows, []notify.Button{{Text: fmt.Sprintf("%d. %s", i+1, clipRunes(s.Title, 40)), Data: "s:" + s.ID}})
+		rows = append(rows, []notify.Button{
+			{Text: fmt.Sprintf("%d. %s", i+1, clipRunes(s.Title, 40)), Data: "s:" + s.ID},
+			{Text: "🗑", Data: "sx:" + s.ID},
+		})
 	}
 
 	last := []notify.Button{{Text: "⏰ Job runs", Data: "sj:"}, closeButton}
@@ -158,6 +161,26 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 				c.editHTML(ctx, telegram, cb.Message, line, nil)
 			}
 		}
+
+	case "sx":
+		// The list asks before it deletes, which cannot be undone.
+		list, _ := sessions.List(c.cfg.Sessions, 1<<20)
+		answer = "That session no longer exists."
+		for _, s := range list {
+			if s.ID == ref {
+				answer = " "
+				c.show(ctx, telegram, cb.Message, "Delete “"+html.EscapeString(s.Title)+"”? This cannot be undone.", [][]notify.Button{
+					{{Text: "🗑 Delete", Data: "sd:" + s.ID}, {Text: "Cancel", Data: "sc:"}},
+				})
+			}
+		}
+
+	case "sd":
+		answer = "Deleted"
+		if err := c.den.DeleteSession(ref); err != nil {
+			answer = err.Error()
+		}
+		c.listSessions(ctx, telegram, "", false, cb.Message)
 
 	case "sj", "sc":
 		answer = " "

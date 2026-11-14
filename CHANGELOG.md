@@ -12,6 +12,8 @@ release notes.
 
 - `den sessions rm <id>` deletes a session, and the chat forgets it: if it was the chat's own session, the next message starts a new one. `den sessions ls` lists the latest sessions with their ids.
 
+- `/sessions` has a 🗑 button beside each session, which asks before it deletes the session.
+
 ### Better
 
 - The agent writes a rule you give it as one plain line in your words, with no exception left to its own judgment, and replaces the line when you correct it. Weaker models used to add loopholes that let a later chat skip the rule.

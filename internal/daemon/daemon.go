@@ -340,6 +340,35 @@ func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) 
 // JobSessions serves the chat's /sessions, which keeps job runs apart.
 func (d *daemon) JobSessions() map[string]bool { return d.runs.Sessions() }
 
+// DeleteSession deletes a session, for the chat's buttons.
+func (d *daemon) DeleteSession(id string) error {
+	_, err := d.deleteSession(d.ctx, id)
+	return err
+}
+
+// deleteSession deletes the fx session id and makes the chat forget it. On
+// an error it returns the HTTP status that suits it.
+func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {
+	list, err := sessions.List(d.cfg.Sessions, 1<<20)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id }) {
+		return http.StatusNotFound, fmt.Errorf("no session %s", id)
+	}
+
+	if err := d.chat.Forget(id); err != nil {
+		return http.StatusConflict, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return http.StatusOK, nil
+}
+
 // LastContext serves the chat's /compact.
 func (d *daemon) LastContext(since time.Time) int { return d.models.Last(since) }
 
@@ -642,25 +671,8 @@ func (d *daemon) routes() http.Handler {
 
 	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		list, err := sessions.List(d.cfg.Sessions, 1<<20)
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id }) {
-			fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
-			return
-		}
-
-		if err := d.chat.Forget(id); err != nil {
-			fail(w, http.StatusConflict, err)
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
-		defer cancel()
-		if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
-			fail(w, http.StatusInternalServerError, err)
+		if status, err := d.deleteSession(r.Context(), id); err != nil {
+			fail(w, status, err)
 			return
 		}
 		reply(w, http.StatusOK, map[string]string{"id": id})
