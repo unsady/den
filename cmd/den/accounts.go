@@ -12,8 +12,8 @@ import (
 type account struct {
 	name  string
 	about string
-	// provider is the models.dev id, codex for a ChatGPT subscription, or
-	// "" for one the user picks from models.dev.
+	// provider is the models.dev id, codex, grok or claude for a
+	// subscription, or "" for one the user picks from models.dev.
 	provider string
 	// model is the one den suggests; /model in Telegram changes it.
 	model string
@@ -30,6 +30,7 @@ var accounts = []account{
 	{"Vercel AI Gateway", "pay as you go, models of many providers", "vercel", "deepseek/deepseek-v4-pro", "https://vercel.com/ai-gateway"},
 	{"ChatGPT Plus or Pro", "your subscription, signed in in the browser", "codex", "", ""},
 	{"SuperGrok", "your Grok subscription, signed in in the browser", "grok", "", ""},
+	{"Claude Pro or Max", "your subscription, through Claude Code's token", "claude", "", ""},
 	{"Another provider", "any of models.dev's", "", "", ""},
 }
 
@@ -58,6 +59,12 @@ func chooseAccount(c hostConfig) error {
 			return err
 		}
 		done("Grok connected; /model in Telegram picks its model")
+		return nil
+	case "claude":
+		if err := connectClaude(c); err != nil {
+			return err
+		}
+		note("/model in Telegram picks Claude's model")
 		return nil
 	case "":
 		cat, err := catalog()

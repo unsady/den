@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
@@ -59,6 +60,11 @@ func mapCommand(cfg config.Config, args []string) error {
 	if *workers > maxWorkers {
 		fmt.Fprintf(os.Stderr, "den map runs at most %d items at once.\n", maxWorkers)
 		*workers = maxWorkers
+	}
+	// Each item runs its own claude, and den's container holds two.
+	if provider.name == claude.Provider && *workers > claudeWorkers {
+		fmt.Fprintf(os.Stderr, "den map asks Claude about at most %d items at once.\n", claudeWorkers)
+		*workers = claudeWorkers
 	}
 
 	data, err := os.ReadFile(rest[0])
@@ -160,12 +166,16 @@ func chatNote(cfg config.Config, text string) {
 // does not refuse them as too many.
 const maxWorkers = 8
 
+// claudeWorkers bounds a run on a Claude subscription, whose every request
+// runs a claude command of about 230 MB.
+const claudeWorkers = 2
+
 type mapTarget struct {
 	name, model, url string
 }
 
 // mapProvider picks the provider and model from fx's settings: those den
-// proxies with the chat completions API. A ChatGPT subscription's Codex
+// proxies with the chat completions API. A ChatGPT or Claude subscription
 // serves only when named with its model, so a run does not spend the
 // subscription on its strongest model by default.
 func mapProvider(settingsPath, model string) (mapTarget, error) {
@@ -174,6 +184,12 @@ func mapProvider(settingsPath, model string) (mapTarget, error) {
 			return mapTarget{}, errors.New("name the Codex model, such as --model codex/gpt-6-luna; `fx models` lists them")
 		}
 		return mapTarget{"codex", m, "http://" + models.Proxy + "/codex/responses"}, nil
+	}
+	if m, ok := strings.CutPrefix(model, claude.Provider+"/"); ok {
+		if m == "" {
+			return mapTarget{}, errors.New("name the Claude model, such as --model claude/haiku")
+		}
+		return mapTarget{claude.Provider, m, "http://" + models.Proxy + "/" + claude.Provider + "/chat/completions"}, nil
 	}
 
 	var settings struct {
@@ -194,13 +210,13 @@ func mapProvider(settingsPath, model string) (mapTarget, error) {
 
 	var usable []string
 	for name, p := range settings.Providers {
-		if p.Protocol == "openai-chat-completions" && strings.HasPrefix(p.BaseURL, "http://"+models.Proxy+"/") {
+		if name != claude.Provider && p.Protocol == "openai-chat-completions" && strings.HasPrefix(p.BaseURL, "http://"+models.Proxy+"/") {
 			usable = append(usable, name)
 		}
 	}
 	slices.Sort(usable)
 	if len(usable) == 0 {
-		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go, or a Codex model named with --model codex/<model>, such as codex/gpt-6-luna")
+		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go, or a subscription's model named with --model, such as codex/gpt-6-luna or claude/haiku")
 	}
 
 	name := settings.Provider

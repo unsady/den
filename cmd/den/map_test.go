@@ -15,6 +15,7 @@ func TestMapProvider(t *testing.T) {
 		"providers": {
 			"opencode-go": {"base_url": "http://127.0.0.1:4100/opencode-go", "protocol": "openai-chat-completions"},
 			"zen": {"base_url": "http://127.0.0.1:4100/zen/", "protocol": "openai-chat-completions"},
+			"claude": {"base_url": "http://127.0.0.1:4100/claude", "protocol": "openai-chat-completions"},
 			"anthropic": {"base_url": "http://127.0.0.1:4100/anthropic", "protocol": "anthropic-messages"}
 		}
 	}`), 0o600)
@@ -42,6 +43,14 @@ func TestMapProvider(t *testing.T) {
 	}
 	if _, err := mapProvider(path, "codex/"); err == nil {
 		t.Error("codex without a model was taken")
+	}
+
+	got, err = mapProvider(path, "claude/haiku")
+	if err != nil || got.name != "claude" || got.model != "haiku" || got.url != "http://127.0.0.1:4100/claude/chat/completions" {
+		t.Errorf("claude: %+v, %v", got, err)
+	}
+	if _, err := mapProvider(path, "claude/"); err == nil {
+		t.Error("claude without a model was taken")
 	}
 
 	if _, err := mapProvider(path, "anthropic/haiku"); err == nil || !strings.Contains(err.Error(), "opencode-go, zen") {
