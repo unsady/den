@@ -238,6 +238,7 @@ Set these in `env` in `~/.config/den/config.json`.
 | `DEN_TRANSCRIBE_URL` | none: no transcription service |
 | `DEN_TRANSCRIBE_MODEL` | none: the service picks |
 | `DEN_JOB_TIMEOUT` | `30m`, for a job or a chat turn |
+| `DEN_JOBS` | `2`: how many jobs run at once; the rest wait |
 
 ### Building it yourself
 

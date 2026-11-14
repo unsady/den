@@ -7,6 +7,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -47,6 +48,8 @@ type Config struct {
 	WhisperLanguage string
 	// JobTimeout bounds one job run.
 	JobTimeout time.Duration
+	// Jobs is how many jobs run at once; zero takes the default.
+	Jobs int
 }
 
 func Load() Config {
@@ -80,7 +83,18 @@ func Load() Config {
 		}
 	}
 
+	c.Jobs = positive("DEN_JOBS")
+
 	return c
+}
+
+// positive is the positive integer in the variable, or 0.
+func positive(key string) int {
+	n, err := strconv.Atoi(os.Getenv(key))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func env(key, fallback string) string {

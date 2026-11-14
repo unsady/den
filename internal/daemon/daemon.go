@@ -73,6 +73,8 @@ type daemon struct {
 	mapsChanged bool
 	mapsShown   bool
 	wg          sync.WaitGroup
+	// slots limit how many jobs run at once.
+	slots chan struct{}
 }
 
 func Serve(cfg config.Config) error {
@@ -135,6 +137,7 @@ func Serve(cfg config.Config) error {
 		running: map[string]bool{},
 		grants:  map[string]MapRequest{},
 		maps:    map[string]*mapRun{},
+		slots:   make(chan struct{}, jobSlots(cfg)),
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
@@ -268,10 +271,36 @@ func (d *daemon) runDue() {
 	}
 }
 
+// jobSlots is how many jobs may run at once.
+func jobSlots(cfg config.Config) int {
+	if cfg.Jobs > 0 {
+		return cfg.Jobs
+	}
+	return 2
+}
+
 func (d *daemon) isRunning(id string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.running[id]
+}
+
+// acquire waits for a free slot to run j, and says false when den stops
+// first.
+func (d *daemon) acquire(j jobs.Job) bool {
+	select {
+	case d.slots <- struct{}{}:
+		return true
+	default:
+	}
+
+	log.Printf("job %s: waiting for a free slot (%d running)", j.Label(), len(d.slots))
+	select {
+	case d.slots <- struct{}{}:
+		return true
+	case <-d.ctx.Done():
+		return false
+	}
 }
 
 // start runs j in the background unless it is already running.
@@ -292,6 +321,12 @@ func (d *daemon) start(j jobs.Job) bool {
 			delete(d.running, j.ID)
 			d.mu.Unlock()
 		}()
+
+		// The job counts as running while it waits, so it does not start twice.
+		if !d.acquire(j) {
+			return
+		}
+		defer func() { <-d.slots }()
 
 		log.Printf("job %s: started", j.Label())
 		choice := d.chat.Choice(d.ctx, j.Slot)
