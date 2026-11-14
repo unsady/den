@@ -10,6 +10,8 @@ release notes.
 
 - `den connect grok` connects a Grok subscription, such as SuperGrok, in your browser, and its models appear in `/model` with their effort levels. den keeps the tokens and refreshes them; the agent gets only a stand-in, as with ChatGPT.
 
+- `den sessions rm <id>` deletes a session, and the chat forgets it: if it was the chat's own session, the next message starts a new one. `den sessions ls` lists the latest sessions with their ids.
+
 ### Better
 
 - The agent writes a rule you give it as one plain line in your words, with no exception left to its own judgment, and replaces the line when you correct it. Weaker models used to add loopholes that let a later chat skip the rule.

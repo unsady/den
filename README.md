@@ -200,7 +200,7 @@ What the agent learns about a built-in skill goes to `notes/skills/<name>.md`, w
 | `den stats [--since 2h] [--json]` | How the model providers did |
 | `den fx`, `den shell` | fx or a shell as the agent |
 
-Any other command, such as `den job ls`, runs inside the container. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
+Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
 
 The agent's files live in that folder on your computer. den's state and secrets live in the volume `den`, which keeps file permissions and survives `den update`. A shared folder may not keep permissions inside the container, so never put secrets in it.
 
