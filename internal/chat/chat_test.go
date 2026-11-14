@@ -893,6 +893,53 @@ func TestReplyTarget(t *testing.T) {
 	}
 }
 
+func TestForget(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, usage.Open(cfg.State))
+	c.state.Session = "main"
+	c.state.Opened = []string{"main", "old", "job1"}
+	c.Sent([]int64{5}, "old", "")
+	c.Sent([]int64{6}, "job1", "⏰ news")
+
+	// A session the chat does not hold goes from the lists and nothing else.
+	if err := c.Forget("old"); err != nil {
+		t.Fatal(err)
+	}
+	if c.state.Session != "main" || !slices.Equal(c.state.Opened, []string{"main", "job1"}) {
+		t.Fatalf("after forgetting old: session %q, opened %v", c.state.Session, c.state.Opened)
+	}
+	if s, _ := c.other(5); s != "" {
+		t.Fatalf("a reply stayed tied to the deleted session: %q", s)
+	}
+	if s, _ := c.other(6); s != "job1" {
+		t.Fatalf("a reply of another session went to %q", s)
+	}
+
+	// While a turn runs in the chat's session, it stays.
+	c.stop = func() {}
+	if err := c.Forget("main"); err == nil {
+		t.Fatal("forgot the session a turn runs in")
+	}
+	if c.state.Session != "main" {
+		t.Fatalf("session = %q", c.state.Session)
+	}
+
+	// The chat's own session ends, and the next turn starts a new one.
+	c.stop = nil
+	if err := c.Forget("main"); err != nil {
+		t.Fatal(err)
+	}
+	if c.state.Session != "" || !slices.Equal(c.state.Opened, []string{"job1"}) {
+		t.Fatalf("after forgetting main: session %q, opened %v", c.state.Session, c.state.Opened)
+	}
+
+	// The state lasts across restarts.
+	c = New(cfg, nil, usage.Open(cfg.State))
+	if c.state.Session != "" || len(c.state.Replies) != 1 {
+		t.Fatalf("after a restart: session %q, replies %v", c.state.Session, c.state.Replies)
+	}
+}
+
 func TestSwitchDuringTurn(t *testing.T) {
 	_, telegram := startChat(t, nil)
 

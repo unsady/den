@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -483,6 +484,29 @@ func (c *Chat) switchTo(session string) []string {
 	c.generation++
 	c.save()
 	return notices
+}
+
+// Forget drops a session that was deleted from what the chat remembers: its
+// place among the opened sessions and the replies tied to it. When it is the
+// chat's own session, the next turn starts a new one, as after /new. It
+// refuses while a turn runs in the chat's session, which the user can /stop.
+func (c *Chat) Forget(session string) error {
+	c.mu.Lock()
+	current := c.state.Session == session
+	if current && c.stop != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("the chat is working in this session; send /stop first")
+	}
+	c.state.Opened = slices.DeleteFunc(c.state.Opened, func(id string) bool { return id == session })
+	c.state.Replies = slices.DeleteFunc(c.state.Replies, func(r sent) bool { return r.Session == session })
+	c.save()
+	c.mu.Unlock()
+
+	if current {
+		// The reports den held for the deleted session go with it.
+		c.switchTo("")
+	}
+	return nil
 }
 
 // dropReports takes den's reports for the chat's session, or all of them,

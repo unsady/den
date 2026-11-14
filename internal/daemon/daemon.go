@@ -640,6 +640,32 @@ func (d *daemon) routes() http.Handler {
 		reply(w, http.StatusOK, runs)
 	})
 
+	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		list, err := sessions.List(d.cfg.Sessions, 1<<20)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id }) {
+			fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
+			return
+		}
+
+		if err := d.chat.Forget(id); err != nil {
+			fail(w, http.StatusConflict, err)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+		defer cancel()
+		if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, http.StatusOK, map[string]string{"id": id})
+	})
+
 	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
 		var req NotifyRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
