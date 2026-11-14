@@ -10,11 +10,17 @@ release notes.
 
 - `den connect grok` connects a Grok subscription, such as SuperGrok, in your browser, and its models appear in `/model` with their effort levels. den keeps the tokens and refreshes them; the agent gets only a stand-in, as with ChatGPT.
 
+- `den connect claude` connects a Claude Pro or Max subscription with the token `claude setup-token` prints. den runs Anthropic's own `claude` command as the model, with fx's tools, and keeps the token from the agent; `/model` offers opus, sonnet and haiku with their effort levels. Setup offers it too, and `den map --model claude/haiku` runs on it. Each conversation runs a `claude` process of about 250 MB: give den's container 2G (`"memory": "2G"`) to use it for chats and jobs at once. `DEN_CLAUDE_PROCESSES` sets how many idle ones den keeps.
+
 - `den sessions rm <id>` deletes a session, and the chat forgets it: if it was the chat's own session, the next message starts a new one. `den sessions ls` lists the latest sessions with their ids.
 
 - `/sessions` has a 🗑 button beside each session, which asks before it deletes the session.
 
 ### Better
+
+- At most two jobs run at once, and the rest wait their turn. Routines set for the same morning used to start together and could take more memory than den's container has. `DEN_JOBS` changes the number.
+
+- Picker buttons stand in rows of at most three, so Telegram no longer shortens them on a phone, and the effort shows as just its level: "haiku · claude · medium".
 
 - The agent writes a rule you give it as one plain line in your words, with no exception left to its own judgment, and replaces the line when you correct it. Weaker models used to add loopholes that let a later chat skip the rule.
 
