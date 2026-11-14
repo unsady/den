@@ -10,6 +10,10 @@ release notes.
 
 - `den connect grok` connects a Grok subscription, such as SuperGrok, in your browser, and its models appear in `/model` with their effort levels. den keeps the tokens and refreshes them; the agent gets only a stand-in, as with ChatGPT.
 
+### Better
+
+- The agent writes a rule you give it as one plain line in your words, with no exception left to its own judgment, and replaces the line when you correct it. Weaker models used to add loopholes that let a later chat skip the rule.
+
 ### Fixed
 
 - A reply that ends with SILENT on its own line sends nothing. A job used to send its status with the word SILENT under it.
