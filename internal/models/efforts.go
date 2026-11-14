@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/config"
 )
 
@@ -25,6 +26,9 @@ func effortsFile(cfg config.Config, provider string) string {
 // Efforts returns the effort levels den kept for a provider's model, or
 // nil when it has none.
 func Efforts(cfg config.Config, provider, model string) []string {
+	if provider == claude.Provider {
+		return claude.Efforts
+	}
 	data, err := os.ReadFile(effortsFile(cfg, provider))
 	if err != nil {
 		return nil
@@ -127,8 +131,11 @@ func windowsFile(cfg config.Config, provider string) string {
 }
 
 // Window returns the context window den kept for a provider's model, in
-// tokens, or 0 when it has none.
+// tokens, or 0 when it has none. Claude's comes from claude itself.
 func Window(cfg config.Config, provider, model string) int {
+	if provider == claude.Provider {
+		return claude.Window(cfg, model)
+	}
 	data, err := os.ReadFile(windowsFile(cfg, provider))
 	if err != nil {
 		return 0

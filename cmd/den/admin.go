@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
@@ -156,6 +157,27 @@ func connectCommand(cfg config.Config, args []string) error {
 			return err
 		}
 		return models.New(cfg).Default("grok", func() ([]string, error) { return runner.Offered(context.Background(), cfg, "grok") })
+	case "claude":
+		token, err := io.ReadAll(io.LimitReader(os.Stdin, 64<<10))
+		if err != nil {
+			return err
+		}
+		c := claude.New(cfg)
+		if err := c.Save(string(token)); err != nil {
+			return err
+		}
+		fmt.Println("downloading Claude (about 290 MB)")
+		err = c.Install(context.Background())
+		if err == nil {
+			err = c.Check(context.Background())
+		}
+		if err != nil {
+			// A token that does not work should not stay.
+			c.Disconnect()
+			return err
+		}
+		fmt.Println("connected Claude")
+		return nil
 	case "mail":
 		text, err := io.ReadAll(io.LimitReader(os.Stdin, 64<<10))
 		if err != nil {
@@ -174,7 +196,7 @@ func connectCommand(cfg config.Config, args []string) error {
 		fmt.Printf("connected %s\n", a.Address)
 		return nil
 	}
-	return fmt.Errorf("den connects google, codex, grok, or mail, not %q", service)
+	return fmt.Errorf("den connects google, codex, grok, claude, or mail, not %q", service)
 }
 
 // connectGoogle signs in over stdio: it prints the sign-in address as
@@ -257,10 +279,12 @@ func disconnectCommand(cfg config.Config, args []string) error {
 		return codex.New(cfg).Disconnect()
 	case "grok":
 		return grok.New(cfg).Disconnect()
+	case "claude":
+		return claude.New(cfg).Disconnect()
 	case "mail":
 		return os.Remove(filepath.Join(cfg.Secrets, mail.File))
 	}
-	return fmt.Errorf("den disconnects google, codex, grok, or mail, not %q", service)
+	return fmt.Errorf("den disconnects google, codex, grok, claude, or mail, not %q", service)
 }
 
 // serviceCommand adds, lists, and removes the APIs den sends a token to.

@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/grok"
@@ -60,6 +61,8 @@ type Models struct {
 	chatgpt string
 	// grok holds the Grok account, when den has one.
 	grok *grok.Grok
+	// claude holds the Claude account, when den has one.
+	claude *claude.Claude
 	// grokAPI is the subscription's model API and xaiAPI xAI's own, which
 	// fx asks for the models' modalities; tests change them.
 	grokAPI, xaiAPI string
@@ -120,7 +123,7 @@ var promptTokens = regexp.MustCompile(`"(?:prompt|input)_tokens"\s*:\s*(\d+)`)
 
 func New(cfg config.Config) *Models {
 	// The sessions live at ~/.fx/sessions/v2.
-	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex", grok: grok.New(cfg), grokAPI: "https://cli-chat-proxy.grok.com/v1", xaiAPI: "https://api.x.ai/v1"}
+	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex", grok: grok.New(cfg), claude: claude.New(cfg), grokAPI: "https://cli-chat-proxy.grok.com/v1", xaiAPI: "https://api.x.ai/v1"}
 	m.loadCalls()
 	return m
 }
@@ -180,6 +183,12 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "grok-auth":
 		m.standGrok(w, rest)
+		return
+	case "claude":
+		m.serveClaude(w, r, rest)
+		return
+	case "claude-mcp":
+		m.claude.MCP(w, r, rest)
 		return
 	}
 	p, err := m.load(name)
@@ -597,6 +606,28 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 		}
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// serveClaude answers fx's Claude requests with the claude command, which
+// runs on den's own and never sees the agent.
+func (m *Models) serveClaude(w http.ResponseWriter, r *http.Request, rest string) {
+	switch {
+	case rest == "models" && r.Method == http.MethodGet:
+		var list []map[string]string
+		for _, id := range claude.Models {
+			list = append(list, map[string]string{"id": id, "object": "model"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": list})
+	case rest == "chat/completions" && r.Method == http.MethodPost:
+		body, ok := readBody(w, r)
+		if !ok {
+			return
+		}
+		m.claude.Chat(w, r, body, conversation(body), m.record)
+	default:
+		http.Error(w, "den passes on only Claude's chat completions and models", http.StatusNotFound)
+	}
 }
 
 // standGrok answers fx's own calls to xAI's sign-in: a refresh gets

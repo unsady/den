@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -53,8 +54,9 @@ Usage:
                                 Connect Gmail and Calendar in this machine's browser
   den connect codex             Connect a ChatGPT subscription for Codex models
   den connect grok              Connect a Grok subscription for Grok models
+  den connect claude            Connect a Claude Pro or Max subscription
   den connect mail              Connect a mailbox with an app password
-  den disconnect google | codex | grok | mail
+  den disconnect google | codex | grok | claude | mail
   den secret set <name> | ls | rm <name>
                                 Keep a secret, such as github_token; asks for it
   den service add [--header <name>] [--ask writes|never|always] [--about <text>] <name> <https-url>
@@ -482,7 +484,7 @@ func login(c hostConfig, provider, model, baseURL string) error {
 
 func hostConnect(c hostConfig, args []string) error {
 	if len(args) == 0 {
-		return errors.New("connect google, codex, grok, or mail")
+		return errors.New("connect google, codex, grok, claude, or mail")
 	}
 	switch args[0] {
 	case "mail":
@@ -504,8 +506,71 @@ func hostConnect(c hostConfig, args []string) error {
 		return connectHost(c, "codex", codex.Redirect, "ChatGPT")
 	case "grok":
 		return connectHost(c, "grok", grok.Redirect, "Grok")
+	case "claude":
+		return connectClaude(c)
 	}
-	return fmt.Errorf("den connects google, codex, grok, or mail, not %q", args[0])
+	return fmt.Errorf("den connects google, codex, grok, claude, or mail, not %q", args[0])
+}
+
+// connectClaude takes the token that `claude setup-token` makes. Its
+// sign-in is a terminal screen that only works here, so the user runs it
+// and pastes the token, which goes to den in the container on stdin.
+func connectClaude(c hostConfig) error {
+	note("Claude signs in with a token: run `claude setup-token` from Claude Code, sign in, and copy the token it prints.")
+	if _, err := exec.LookPath("claude"); err != nil {
+		note("Claude Code is not on this computer: install it, or run `claude setup-token` on another one.")
+	} else {
+		answer, err := choose("Run claude setup-token now?", []choice{{label: "Yes", value: "yes"}, {label: "No, I have a token", value: "no"}}, "yes")
+		if err != nil {
+			return err
+		}
+		if answer == "yes" {
+			cmd := exec.Command("claude", "setup-token")
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("claude setup-token: %v", err)
+			}
+		}
+	}
+
+	token, err := ask("Token: ", true)
+	if err != nil {
+		return err
+	}
+	if err := insideQuiet(c, token, "connect", "claude"); err != nil {
+		return err
+	}
+	done("Claude connected")
+	if bytes, ok := parseSize(c.Memory); ok && bytes < 2<<30 {
+		note(fmt.Sprintf("Claude runs a process of about 250 MB per conversation. den's container has %s; for chats and jobs at once give it 2G: set \"memory\": \"2G\" in %s and run den restart.", c.Memory, configPath()))
+	}
+	return nil
+}
+
+// parseSize reads a container memory size such as 1G, 1024M, or 512m. It
+// says false for a format it does not know.
+func parseSize(s string) (int64, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimSuffix(s, "b")
+
+	unit := int64(1)
+	switch {
+	case strings.HasSuffix(s, "k"):
+		unit = 1 << 10
+	case strings.HasSuffix(s, "m"):
+		unit = 1 << 20
+	case strings.HasSuffix(s, "g"):
+		unit = 1 << 30
+	}
+	if unit > 1 {
+		s = s[:len(s)-1]
+	}
+
+	n, err := strconv.ParseFloat(s, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return int64(n * float64(unit)), true
 }
 
 func connectMail(c hostConfig) error {

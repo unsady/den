@@ -48,6 +48,9 @@ type Config struct {
 	WhisperLanguage string
 	// JobTimeout bounds one job run.
 	JobTimeout time.Duration
+	// ClaudeProcesses is how many idle claude processes den keeps; zero
+	// takes the default.
+	ClaudeProcesses int
 	// Jobs is how many jobs run at once; zero takes the default.
 	Jobs int
 }
@@ -83,6 +86,7 @@ func Load() Config {
 		}
 	}
 
+	c.ClaudeProcesses = positive("DEN_CLAUDE_PROCESSES")
 	c.Jobs = positive("DEN_JOBS")
 
 	return c

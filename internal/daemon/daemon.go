@@ -23,6 +23,7 @@ import (
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/chat"
+	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/fetch"
@@ -121,6 +122,16 @@ func Serve(cfg config.Config) error {
 			log.Printf("transcribe: %v", err)
 		}
 	}()
+	if c := claude.New(cfg); c.Connected() {
+		if err := c.Register(); err != nil {
+			log.Printf("claude: %v", err)
+		}
+		go func() {
+			if err := c.Install(ctx); err != nil {
+				log.Printf("claude: %v", err)
+			}
+		}()
+	}
 
 	ln, err := listen(cfg.Socket)
 	if err != nil {
