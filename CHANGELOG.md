@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.5.0
+
 ### New
 
 - `den connect grok` connects a Grok subscription, such as SuperGrok, in your browser, and its models appear in `/model` with their effort levels. den keeps the tokens and refreshes them; the agent gets only a stand-in, as with ChatGPT.
