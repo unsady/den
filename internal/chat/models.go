@@ -146,11 +146,11 @@ func (c *Chat) allModels(ctx context.Context, telegram *notify.Telegram, edit in
 
 	var rows [][]notify.Button
 	if len(setup.Providers) > 1 {
-		var row []notify.Button
+		var names []notify.Button
 		for _, name := range setup.Providers {
-			row = append(row, notify.Button{Text: mark(name, name == provider), Data: p.all + name + ":0"})
+			names = append(names, notify.Button{Text: mark(name, name == provider), Data: p.all + name + ":0"})
 		}
-		rows = append(rows, row)
+		rows = grid(names, perRow)
 	}
 
 	pages := max(1, (len(models)+modelPage-1)/modelPage)
@@ -169,16 +169,15 @@ func (c *Chat) allModels(ctx context.Context, telegram *notify.Telegram, edit in
 		rows = append(rows, row)
 	}
 
-	nav := []notify.Button{{Text: "← Recent", Data: p.back}, closeButton}
 	if pages > 1 {
 		data := func(n int) string { return fmt.Sprintf("%s%s:%d", p.all, provider, (n+pages)%pages) }
-		nav = append(nav,
-			notify.Button{Text: "◀", Data: data(page - 1)},
-			notify.Button{Text: fmt.Sprintf("%d/%d", page+1, pages), Data: data(page)},
-			notify.Button{Text: "▶", Data: data(page + 1)},
-		)
+		rows = append(rows, []notify.Button{
+			{Text: "◀", Data: data(page - 1)},
+			{Text: fmt.Sprintf("%d/%d", page+1, pages), Data: data(page)},
+			{Text: "▶", Data: data(page + 1)},
+		})
 	}
-	rows = append(rows, nav)
+	rows = append(rows, []notify.Button{{Text: "← Recent", Data: p.back}, closeButton})
 
 	text := fmt.Sprintf("%s\n\n%s has %d models.", head, html.EscapeString(provider), len(models))
 	c.show(ctx, telegram, edit, text, rows)
@@ -348,9 +347,28 @@ func (c *Chat) listEfforts(ctx context.Context, telegram *notify.Telegram) {
 	c.sendHTML(ctx, telegram, "⚙︎ "+boldModel(model, setup)+"\n\nHow hard it thinks: more is slower and costs more.", append(rows, []notify.Button{closeButton}))
 }
 
-// effortsPerRow keeps the level names whole on a phone, where Telegram
-// shortens the buttons of a crowded row.
-const effortsPerRow = 4
+// perRow keeps button labels whole on a phone, where Telegram shortens
+// the buttons of a crowded row.
+const perRow = 3
+
+// grid lays buttons out in rows of at most per, as even as they can be:
+// seven go three, two and two, not three, three and one.
+func grid(buttons []notify.Button, per int) [][]notify.Button {
+	if len(buttons) == 0 {
+		return nil
+	}
+	lines := (len(buttons) + per - 1) / per
+
+	var rows [][]notify.Button
+	for i := range lines {
+		// The rows left share the buttons left, the longer ones first.
+		left := lines - i
+		n := (len(buttons) + left - 1) / left
+		rows = append(rows, buttons[:n])
+		buttons = buttons[n:]
+	}
+	return rows
+}
 
 // effortRows offers default and each level, marking the current one, with
 // data that starts with prefix.
@@ -359,14 +377,7 @@ func effortRows(prefix string, levels []string, effort string) [][]notify.Button
 	for _, l := range levels {
 		buttons = append(buttons, notify.Button{Text: mark(l, l == effort), Data: prefix + l})
 	}
-
-	var rows [][]notify.Button
-	for len(buttons) > 0 {
-		n := min(effortsPerRow, len(buttons))
-		rows = append(rows, buttons[:n])
-		buttons = buttons[n:]
-	}
-	return rows
+	return grid(buttons, perRow)
 }
 
 // chooseEffort makes the chat use level from now on, or the model's own

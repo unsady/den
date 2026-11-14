@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1101,4 +1102,17 @@ func TestSilentReport(t *testing.T) {
 
 	telegram.message(42, "and you?")
 	telegram.expect(t, "resume=s1 msg=and you? lines=1")
+}
+
+func TestGrid(t *testing.T) {
+	for n, want := range map[int]string{1: "1", 3: "3", 4: "2 2", 5: "3 2", 6: "3 3", 7: "3 2 2"} {
+		buttons := make([]notify.Button, n)
+		var got []string
+		for _, row := range grid(buttons, 3) {
+			got = append(got, strconv.Itoa(len(row)))
+		}
+		if s := strings.Join(got, " "); s != want {
+			t.Errorf("%d buttons: rows %s, want %s", n, s, want)
+		}
+	}
 }
