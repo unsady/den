@@ -14,6 +14,8 @@ release notes.
 
 - The agent writes a rule you give it as one plain line in your words, with no exception left to its own judgment, and replaces the line when you correct it. Weaker models used to add loopholes that let a later chat skip the rule.
 
+- When you ask for shorter replies, the agent saves the limit as a number, such as "at most 40 words, no lists, no links", and follows it over its own defaults. Weaker models used to keep to "1-2 sentences" by packing a paragraph into each one.
+
 ### Fixed
 
 - A reply that ends with SILENT on its own line sends nothing. A job used to send its status with the word SILENT under it.

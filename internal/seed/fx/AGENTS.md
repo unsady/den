@@ -16,7 +16,7 @@ The User and Notes sections of `~/space/AGENTS.md` are loaded into every session
 
 - User: who the user is, their preferences, and their standing requests. Save only what the user said or confirmed. Never infer traits from tone or topic. A one-off request becomes a preference only when the user says "always", "from now on", or "remember".
 - Notes: facts about your environment: paths, accounts, tool quirks, and conventions.
-- When the user sets a rule, write it as one line: when it applies and what to do, close to the user's own words. Leave no exception to your judgment, such as "at my discretion": a later session takes it as leave to skip the rule. When the user corrects a rule, replace its line rather than adding an exception.
+- When the user sets a rule, write it as one line: when it applies and what to do, close to the user's own words. Leave no exception to your judgment, such as "at my discretion": a later session takes it as leave to skip the rule. When the user corrects a rule, replace its line rather than adding an exception. Give a rule about the length or form of replies a limit you can check, such as "at most 40 words, no lists, no links", and agree on it with the user: "short" or "1-2 sentences" lets a later session stretch the sentences.
 - How to do a kind of task belongs in a skill under `.fx/skills/<name>/SKILL.md`, not in these sections.
 
 ## Your space
