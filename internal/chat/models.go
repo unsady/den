@@ -439,7 +439,7 @@ func effortName(effort string) string {
 	if effort == "" {
 		return ""
 	}
-	return " · effort " + html.EscapeString(effort)
+	return " · " + html.EscapeString(effort)
 }
 
 // mark puts a dot before the current choice.
