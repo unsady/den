@@ -1007,7 +1007,7 @@ func TestBackground(t *testing.T) {
 			http.Error(w, "wrong model", http.StatusBadRequest)
 			return
 		}
-		name := "Сравнение моделей.\nBecause the task compares them."
+		name := "Modèles comparés.\nBecause the task compares them."
 		if strings.HasPrefix(body.Messages[1].Content, "slow: fail") {
 			name = ""
 		}
@@ -1022,10 +1022,10 @@ func TestBackground(t *testing.T) {
 	// still runs, and its answer comes headed with the name a model gave it.
 	telegram.message(42, "/bg slow: compare two models\nwith care")
 	telegram.expect(t, "⚙ Background task started. Its answer comes here; reply to it to go on there.")
-	telegram.expectEdit(t, "7: ⚙ сравнение-моделей runs in the background. Its answer comes here; reply to it to go on there.")
+	telegram.expectEdit(t, "7: ⚙ modèles-comparés runs in the background. Its answer comes here; reply to it to go on there.")
 	telegram.message(42, "hi")
 	telegram.expect(t, "resume=none msg=hi lines=1")
-	telegram.expect(t, "⚙ сравнение-моделей\n\nresume=none msg=slow: compare two models lines=2")
+	telegram.expect(t, "⚙ modèles-comparés\n\nresume=none msg=slow: compare two models lines=2")
 
 	// Without a name from the model, the task's first words name it.
 	telegram.message(42, "/bg slow: fail me")
@@ -1059,7 +1059,7 @@ func TestBackgroundReports(t *testing.T) {
 func TestBgName(t *testing.T) {
 	for task, want := range map[string]string{
 		"Compare GLM and DeepSeek, please": "compare-glm-and",
-		"сравни две модели":                "сравни-две-модели",
+		"Café über alles":                  "café-über-alles",
 		"!!!":                              "task",
 	} {
 		if got := bgName(task); got != want {
