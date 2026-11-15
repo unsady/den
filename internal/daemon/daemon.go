@@ -45,9 +45,11 @@ import (
 
 const tick = 15 * time.Second
 
-// defaultJobs are added when the job store is first created.
+// defaultJobs are den's own jobs: the nightly review, and the tidying of
+// the space after it.
 var defaultJobs = []jobs.Job{
 	{Name: "reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill."},
+	{Name: "tidy", Schedule: "0 5 * * *", Prompt: "Use the tidy skill."},
 }
 
 type daemon struct {
@@ -98,12 +100,8 @@ func Serve(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	if created {
-		for _, j := range defaultJobs {
-			if _, err := store.Add(j, time.Now()); err != nil {
-				return err
-			}
-		}
+	if err := addDefaultJobs(store, filepath.Join(cfg.State, "default-jobs"), created); err != nil {
+		return err
 	}
 
 	if _, err := notify.Load(cfg); err != nil {
@@ -490,6 +488,8 @@ func heading(j jobs.Job) string {
 	switch {
 	case j.Name == "reflect":
 		return "🌙 Reflect"
+	case j.Name == "tidy":
+		return "🧹 Tidy"
 	case j.Name != "":
 		return "⏰ " + j.Name
 	case j.Once:
@@ -503,14 +503,14 @@ func (d *daemon) notify(text string) error {
 	return err
 }
 
-// quietly says whether a job's reply arrives without a sound: the nightly
-// review always, and other repeating jobs at night. A one-time reminder
+// quietly says whether a job's reply arrives without a sound: den's nightly
+// jobs always, and other repeating jobs at night. A one-time reminder
 // rings, since the user asked for it at that time.
 func quietly(j jobs.Job, now time.Time) bool {
 	switch {
 	case j.Once:
 		return false
-	case j.Name == "reflect":
+	case j.Name == "reflect", j.Name == "tidy":
 		return true
 	}
 	hour := now.Hour()

@@ -14,6 +14,7 @@ func TestHeading(t *testing.T) {
 		want string
 	}{
 		{jobs.Job{ID: "66202d", Name: "reflect"}, "🌙 Reflect"},
+		{jobs.Job{ID: "71c0de", Name: "tidy"}, "🧹 Tidy"},
 		{jobs.Job{ID: "e8fe13", Name: "morning"}, "⏰ morning"},
 		{jobs.Job{ID: "a1b2c3", Once: true}, "⏰ Reminder"},
 		{jobs.Job{ID: "a1b2c3"}, "⏰ Scheduled job a1b2c3"},
@@ -51,6 +52,7 @@ func TestQuietly(t *testing.T) {
 		{jobs.Job{Name: "news"}, day, false},
 		{jobs.Job{Name: "news"}, night, true},
 		{jobs.Job{Name: "reflect"}, day, true},
+		{jobs.Job{Name: "tidy"}, day, true},
 		{jobs.Job{Once: true}, night, false},
 	} {
 		if got := quietly(c.job, c.when); got != c.want {

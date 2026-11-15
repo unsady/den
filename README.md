@@ -17,7 +17,7 @@ den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent 
 - **Your own APIs**: give den a token for a service, and the agent can call it without seeing the token.
 - **Web search** that works without keys, and reading pages that need JavaScript.
 - **Files and charts**: the agent sends you documents, tables, and charts sized for a phone.
-- **Memory**: the agent keeps notes and writes skills for tasks it has worked out. A nightly review rereads the day's conversations and updates both, and every change is a git commit you can read or revert.
+- **Memory**: the agent keeps notes and writes skills for tasks it has worked out. A nightly review rereads the day's conversations and updates both, a nightly tidy keeps them free of logs, and every change is a git commit you can read or revert.
 - **Two models**: a main one for the chat and a second one, faster or stronger, for the jobs you pick.
 
 ## Install
@@ -105,7 +105,7 @@ den job slot morning second
 den job rm morning
 ```
 
-Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. The first start adds `reflect`, the nightly review, at 04:00.
+Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
 
 A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
 
@@ -171,6 +171,7 @@ The agent's workspace, `space/`, is a git repository with its `AGENTS.md`, its n
 
 - `den`: jobs, messages, files, services, and past sessions.
 - `reflect`: the nightly review.
+- `tidy`: folding logs and reports into topic notes, and keeping skills short.
 - `web`: reading pages, with [Lightpanda](https://lightpanda.io) for pages that need JavaScript.
 - `media`: details, subtitles, and transcripts of videos and audio with yt-dlp and whisper.
 - `python`: scripts and data work with uv, which fetches Python on first use.

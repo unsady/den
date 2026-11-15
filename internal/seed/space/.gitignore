@@ -3,6 +3,7 @@
 !.fx/skills/
 
 .reflect-stamp
+.tidy-stamp
 
 # Databases and other data the agent keeps; too large for git.
 .data/

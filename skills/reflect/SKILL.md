@@ -30,22 +30,14 @@ You learn from past sessions here. Most days there is little or nothing to save,
    - Is it a method that worked, and not a setup failure, a tool that "does not work", or a story of one session?
    - Is it new, and not already in a built-in skill or another note?
 
-6. Tidy what grew. Rewrite each skill over about 4,000 characters, which `wc -c .fx/skills/*/SKILL.md` shows: merge rules, and drop history, dates, and numbers from past runs. Then list the files added since the last review:
-
-   ```bash
-   git log --since="$(date -r .reflect-stamp)" --diff-filter=A --name-only --format= | sort
-   ```
-
-   Notes hold topics, not logs or reports of runs. When a job adds a file on every run, change its skill or prompt so it stops. Fold what still matters from such files, and from one-off reports, into the topic's note, and delete them.
-
-7. Commit and stamp:
+6. Commit and stamp:
 
    ```bash
    git add -A && git commit -m "reflect: <what changed>"
    touch .reflect-stamp
    ```
 
-8. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, reply `SILENT`.
+7. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, reply `SILENT`.
 
 ## Where a lesson goes
 
