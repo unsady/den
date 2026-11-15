@@ -13,6 +13,7 @@ release notes.
 
 ### Better
 
+- den comes with fx 0.0.17, upstream fx's latest release, and from now on takes fx only from upstream's releases. Requests keep retrying through network drops, gateway errors, and rate limits; more of each conversation comes from the prompt cache; and long sessions stay responsive.
 - A step that opens a skill reads “Using media”, and one that searches fx's toolbox reads “Looking for a tool”.
 
 ## v0.5.0

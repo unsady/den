@@ -45,11 +45,13 @@ RUN arch=$(uname -m); \
 
 # fx is the agent. den needs a few changes fx does not have yet, so the
 # image takes a release of the fork that carries them and checks its digest.
+# The fork follows upstream fx's releases only, never the commits between
+# them, so den runs fx code that upstream released.
 # A Linux fx at build/fx, such as one built from an fx checkout, takes its
 # place.
-ARG FX_VERSION=v0.0.16-den.4
-ARG FX_SHA256_AARCH64=f0e12455392aad8026f97ed9ba60cab4897ed4d36d4c35e3c441930ada34e095
-ARG FX_SHA256_X86_64=3e1a2d8d1820adb34fe6f5e7fa1d5eb0483cae0c728e9b072a67717075c103e9
+ARG FX_VERSION=v0.0.17-den.1
+ARG FX_SHA256_AARCH64=930be3b58f341b72504877fc2888741024e2c264021dc79175c613164621e257
+ARG FX_SHA256_X86_64=fcdea5ce9ab793f52df85ae0721181805286cdb18f15d4a612002956ca2f2715
 COPY build/ /tmp/build/
 RUN if [ -f /tmp/build/fx ]; then \
         cp /tmp/build/fx /fx; \
