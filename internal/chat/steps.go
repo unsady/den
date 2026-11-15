@@ -15,7 +15,7 @@ import (
 // stepVerbs start the lines fx writes for its steps.
 var stepVerbs = []string{
 	"Running ", "Reading ", "Writing ", "Editing ", "Searching ", "Fetching ",
-	"Loading skill ", "Installing skill ", "Asking", "Waiting for ",
+	"Opening ", "Using toolbox", "Installing skill ", "Asking", "Waiting for ",
 }
 
 var (
@@ -87,14 +87,21 @@ func step(line string) (string, bool) {
 	case "Fetching ":
 		return "Reading " + host(rest), true
 	case "Searching ":
+		// fx searches its toolbox for skills and tools by what it needs.
+		if rest == "toolbox" || strings.HasPrefix(rest, "toolbox ") {
+			return "Looking for a tool", true
+		}
 		query, _, _ := strings.Cut(rest, " | ")
 		return "Searching “" + clipRunes(query, 60) + "”", true
-	case "Loading skill ":
-		// Before fx knows which skill a call loads, it names the tool itself.
-		if rest == "" || rest == "skill" {
+	case "Opening ":
+		// fx opens a skill, an MCP server, or a tool from its toolbox; before
+		// it knows which, it names the toolbox itself.
+		if rest == "" || rest == "toolbox" {
 			return "Using a skill", true
 		}
-		return "Using the " + rest + " skill", true
+		return "Using " + rest, true
+	case "Using toolbox":
+		return "Using a skill", true
 	case "Installing skill ":
 		return "Installing a skill", true
 	case "Asking":
