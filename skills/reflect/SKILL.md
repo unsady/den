@@ -60,7 +60,7 @@ Sessions may have saved a skill or a finding already, so check before you add on
 - Fix a wrong sentence in place instead of adding a correction below it.
 - Give the skill a `description` that says when to use it. It is all a future session sees before it opens the skill.
 - A wrong result is fixed in the rule or step that caused it, not with a new step that checks the old one.
-- Keep a skill under about 4,000 characters: it is a recipe, not a log of past runs.
+- Keep a skill under about 600 words: it is a recipe, not a log of past runs.
 
 ## Do not save
 

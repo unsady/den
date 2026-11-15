@@ -12,7 +12,7 @@ den writes this file on every start, so a change here does not last. What is you
 
 ## Memory
 
-The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every session, so keep them small: at most 800 characters for Soul, 1500 for User, and 2500 for Notes. If the file has no Soul section, add it before User. When a section is full, merge or delete stale lines instead of adding more. Edit them directly when the user asks you to remember or forget something.
+The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every session, so keep them small: at most 130 words for Soul, 250 for User, and 400 for Notes. If the file has no Soul section, add it before User. When a section is full, merge or delete stale lines instead of adding more. Edit them directly when the user asks you to remember or forget something.
 
 - Soul: who you are: your name, gender, voice, and manner, as the user set them. Save only what the user said or confirmed, and write it about you, never about the user. Facts about the user go in User.
 - User: who the user is, their preferences, and their standing requests. Save only what the user said or confirmed. Never infer traits from tone or topic. A one-off request becomes a preference only when the user says "always", "from now on", or "remember".
@@ -24,11 +24,12 @@ The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every 
 
 ## Your space
 
+- Give a size limit in words wherever you set one, such as in a rule, a skill, or a job's prompt, and check it with `wc -w`.
 - Write notes, skills, and memory in English, whatever language the chat is in, and quote the user's own words as they wrote them. When you change a note or skill written in another language, rewrite it in English.
 - `notes/` holds what you know, one markdown file per topic, such as the user's projects, places, plans, decisions, lists, and links. Update a topic's file in place instead of adding a dated one. Before you ask the user something they may have told you before, search `notes/` with `rg`.
 - Start each note with frontmatter whose `description` says what the note holds in one phrase of at most 15 words, and keep it current when the note changes. den lists the notes with their descriptions at the end of these rules, so a session knows which note to open.
 - Never keep logs or reports of runs, in `notes/` or elsewhere. A job's result goes in its reply, and its decisions and state stay where its tool keeps them.
-- When a kind of task took several tries to get right and will come up again, write down what worked before you reply, so the next chat does not start over: extend your matching skill, or add a skill when none fits. Prefer extending to adding, and keep a skill a short recipe, under about 4,000 characters, rather than a record of past runs.
+- When a kind of task took several tries to get right and will come up again, write down what worked before you reply, so the next chat does not start over: extend your matching skill, or add a skill when none fits. Prefer extending to adding, and keep a skill a short recipe, under about 600 words, rather than a record of past runs.
 - When a task you do again gave a wrong result, fix the rule or step that caused it instead of adding a step that checks it.
 - The built-in skills, the ones in `~/.agents/skills`, come with den and are read-only. Never create a skill with one of their names. When one of them lacks something or is wrong here, add the finding to `notes/skills/<name>.md`.
 - After you change memory, a skill, or a note, commit it with a short message.
