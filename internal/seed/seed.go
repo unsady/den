@@ -52,7 +52,9 @@ func Init(cfg config.Config) error {
 }
 
 // WriteRules writes den's rules to fx's profile, with the names of the
-// APIs the user connected, when they differ from what is there. An
+// APIs the user connected and the index of the agent's notes, when they
+// differ from what is there. It runs before each new session, so the index
+// shows the notes as they are then. An
 // unchanged file stays untouched, so fx does not take it for new
 // instructions in the middle of a session. The daemon writes them, since
 // only it reads the user's services.
@@ -64,15 +66,20 @@ func WriteRules(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	text := rules
+	text := slices.Clone(rules)
 	if len(services) > 0 {
 		names := make([]string, len(services))
 		for i, s := range services {
 			names[i] = s.Name
 		}
 		sort.Strings(names)
-		text = append(slices.Clone(rules), fmt.Sprintf("- The user connected these APIs, which you call through den with tokens it holds: %s. `den service ls` says what each one does.\n", strings.Join(names, ", "))...)
+		text = fmt.Appendf(text, "- The user connected these APIs, which you call through den with tokens it holds: %s. `den service ls` says what each one does.\n", strings.Join(names, ", "))
 	}
+
+	// The rules matter more than the index, so they are written without it
+	// when the notes cannot be read.
+	index, indexErr := notesIndex(cfg)
+	text = append(text, index...)
 
 	// The sessions live at ~/.fx/sessions/v2, the profile above them.
 	profile := filepath.Dir(filepath.Dir(cfg.Sessions))
@@ -80,9 +87,9 @@ func WriteRules(cfg config.Config) error {
 	// The profile is the agent's, so den writes there as the agent: a link
 	// the agent put in place of the file leads nowhere else.
 	if have, err := proc.ReadFile(cfg, path); err == nil && bytes.Equal(have, text) {
-		return nil
+		return indexErr
 	}
-	return proc.WriteFile(cfg, path, text, 0o644)
+	return errors.Join(proc.WriteFile(cfg, path, text, 0o644), indexErr)
 }
 
 func create(space string) error {

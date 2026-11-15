@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"os"
 	"os/exec"
@@ -21,6 +22,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/sessions"
 )
 
@@ -137,6 +139,14 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 
 	ctx, cancel := context.WithTimeout(ctx, cfg.JobTimeout)
 	defer cancel()
+
+	// fx reads the rules when a session starts, so a new one gets the
+	// notes as they are now.
+	if req.Resume == "" {
+		if err := seed.WriteRules(cfg); err != nil {
+			log.Printf("rules: %v", err)
+		}
+	}
 
 	args := []string{"ask", "--full-access", "--json", "--no-color", "--system", systemPrompt}
 	if req.Provider != "" {

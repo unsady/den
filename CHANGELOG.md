@@ -9,6 +9,7 @@ release notes.
 ### New
 
 - A nightly `tidy` job, at 05:00, folds logs and reports from the agent's notes into their topics, stops the jobs that write them, and keeps skills short. The nightly review now only learns from your conversations. An update adds the job; if you remove it, it stays removed.
+- Each session starts with a list of the agent's notes and what each holds, from a one-line description at the top of each note, so the agent opens the right one.
 
 ## v0.7.0
 

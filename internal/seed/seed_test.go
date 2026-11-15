@@ -136,3 +136,35 @@ func TestWriteRules(t *testing.T) {
 		t.Fatalf("rules %q", have)
 	}
 }
+
+func TestWriteRulesListsNotes(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{
+		State:    filepath.Join(dir, "state"),
+		Sessions: filepath.Join(dir, ".fx", "sessions", "v2"),
+		Space:    filepath.Join(dir, "space"),
+	}
+	notes := filepath.Join(cfg.Space, "notes")
+	write(t, filepath.Join(notes, "trips.md"), "---\ndescription: \"Planned trips and   bookings\"\n---\n# Trips\n")
+	write(t, filepath.Join(notes, "garden", "plants.md"), "# What grows where\n\nTomatoes.\n")
+	write(t, filepath.Join(notes, "bare.md"), "Just text.\n")
+	write(t, filepath.Join(notes, "long.md"), "---\ndescription: "+strings.Repeat("word ", 40)+"\n---\n")
+	write(t, filepath.Join(notes, "README.md"), "# notes\n")
+	write(t, filepath.Join(notes, "skills", "web.md"), "# web\n")
+	if err := os.Symlink(filepath.Join(dir, "state"), filepath.Join(notes, "link.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteRules(cfg); err != nil {
+		t.Fatal(err)
+	}
+	have, _ := os.ReadFile(filepath.Join(dir, ".fx", "AGENTS.md"))
+	want := "\n## Notes\n\nWhat each note in `~/space/notes` holds:\n\n" +
+		"- notes/bare.md\n" +
+		"- notes/garden/plants.md: What grows where\n" +
+		"- notes/long.md: " + strings.TrimSpace(strings.Repeat("word ", 24)) + "…\n" +
+		"- notes/trips.md: Planned trips and bookings\n"
+	if !strings.HasSuffix(string(have), want) {
+		t.Fatalf("rules end with %q", string(have)[len(rules)-1:])
+	}
+}
