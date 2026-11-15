@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.7.0
+
 ### New
 
 - With a Claude subscription the agent sees images: the photos you send, and the images it opens itself.
