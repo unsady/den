@@ -24,7 +24,7 @@ You keep `~/space` easy to find things in. Most nights there is little or nothin
    - When the job's prompt asks for the file or carries rules of its own, move those rules into the skill and replace the job with one whose prompt only names the skill and mode, with the same name, schedule, and slot. The `den` skill explains jobs.
    - Fold what still matters from the files into the topic's note, and delete them.
 
-3. Rewrite each skill over about 4,000 characters, which `wc -c .fx/skills/*/SKILL.md` shows: merge rules, and drop history, dates, and numbers from past runs.
+3. Rewrite each skill over about 600 words, which `wc -w .fx/skills/*/SKILL.md` shows: merge rules, and drop the history of past runs, such as their dates and results. Keep the limits that rules set.
 
 4. Check the notes' descriptions. Each note starts with frontmatter whose `description` says what the note holds in one phrase of at most 15 words:
 
