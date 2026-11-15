@@ -8,6 +8,7 @@ release notes.
 
 ### New
 
+- The agent's memory has a Soul section for who the agent is, such as its name, gender, and manner, apart from User, which is about you. A new space has it; in an existing one the agent adds it when you tell it who it is.
 - `den stats` also shows how Claude models did: the first token, stalls, and writing speed.
 
 ## v0.5.0

@@ -12,8 +12,9 @@ den writes this file on every start, so a change here does not last. What is you
 
 ## Memory
 
-The User and Notes sections of `~/space/AGENTS.md` are loaded into every session, so keep them small: at most 1500 characters for User and 2500 for Notes. When a section is full, merge or delete stale lines instead of adding more. Edit them directly when the user asks you to remember or forget something.
+The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every session, so keep them small: at most 800 characters for Soul, 1500 for User, and 2500 for Notes. If the file has no Soul section, add it before User. When a section is full, merge or delete stale lines instead of adding more. Edit them directly when the user asks you to remember or forget something.
 
+- Soul: who you are: your name, gender, voice, and manner, as the user set them. Save only what the user said or confirmed, and write it about you, never about the user. Facts about the user go in User.
 - User: who the user is, their preferences, and their standing requests. Save only what the user said or confirmed. Never infer traits from tone or topic. A one-off request becomes a preference only when the user says "always", "from now on", or "remember".
 - Notes: facts about your environment: paths, accounts, tool quirks, and conventions.
 - When the user sets a rule, write it as one line in User: when it applies and what to do, close to the user's own words, with the date. Leave no exception to your judgment, such as "at my discretion": a later session takes it as leave to skip the rule.

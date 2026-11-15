@@ -49,6 +49,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
 
 ## Where a lesson goes
 
+- The Soul section of `AGENTS.md`: who you are, such as your name, gender, voice, and manner. Save only what the user said or confirmed, and write it about you, never about the user.
 - The User section of `AGENTS.md`: who the user is and what they want everywhere. Save only what the user said or confirmed. Never infer traits from tone, topic, or the tools used. A one-off request is not a preference unless the user marked it general. Write "the user", never "he" or "she".
 - The Notes section of `AGENTS.md`: facts about the environment that matter in every session.
 - A skill in `.fx/skills/<name>/SKILL.md`: how to do a kind of task for this user, including the steps, the commands that work, the user's preferences for the result, and pitfalls.
