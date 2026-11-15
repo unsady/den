@@ -43,6 +43,8 @@ A job runs on the chat's main model, or on the second model the user chose in `/
 
 Write the prompt so it stands on its own. The job will not see this conversation, so name the files, the facts, and what to send. For a reminder, the prompt can simply say what to remind the user of.
 
+For a recurring task that needs more than a few lines of rules, write the rules in a skill and let the prompt only name it and its mode, such as `Use the news skill in daily mode.` Rules in a prompt cannot be fixed later, and they win over a skill that says otherwise. To change such a job's prompt, remove the job and add it again with the same name, schedule, and slot.
+
 Confirm with the user before you add a recurring job they did not ask for. After `den job add`, tell the user when it runs next.
 
 ## Look up an earlier conversation
