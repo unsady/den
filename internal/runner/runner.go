@@ -214,6 +214,9 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 		reply.Error = "stopped"
 	case proc.OutOfMemory(err, ooms):
 		reply.Error = fmt.Sprintf("fx ran out of memory: the kernel stopped it, and the container has %s", proc.MemoryLimit())
+	case err != nil && result.Error != "":
+		// fx names what went wrong in its result.
+		reply.Error = result.Error
 	case err != nil:
 		reply.Error = fmt.Sprintf("fx exited: %v", err)
 	case parseErr != nil:
@@ -324,6 +327,7 @@ type askResult struct {
 	FinalOutput string `json:"final_output"`
 	Output      string `json:"output"`
 	SessionID   string `json:"session_id"`
+	Error       string `json:"error"`
 	Usage       *struct {
 		Input  *int64 `json:"input_tokens"`
 		Output *int64 `json:"output_tokens"`

@@ -20,6 +20,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
+	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/usage"
 )
 
@@ -1114,5 +1115,17 @@ func TestGrid(t *testing.T) {
 		if s := strings.Join(got, " "); s != want {
 			t.Errorf("%d buttons: rows %s, want %s", n, s, want)
 		}
+	}
+}
+
+func TestAnswerFailure(t *testing.T) {
+	got := answer(runner.Reply{Error: "fx exited: exit status 1", Stderr: "[notice] x\nboom"}, true)
+	if want := "fx failed: fx exited: exit status 1\nboom\nSend /new if this session cannot continue."; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	got = answer(runner.Reply{Error: "SubscriptionNativeImageUnavailable", Stderr: "[notice] x"}, true)
+	if got != fxErrors["SubscriptionNativeImageUnavailable"] {
+		t.Errorf("an image the model cannot see: got %q", got)
 	}
 }

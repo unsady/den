@@ -33,3 +33,10 @@ func TestIsSilent(t *testing.T) {
 		}
 	}
 }
+
+func TestParseError(t *testing.T) {
+	r, err := parse([]byte("[notice] x\n" + `{"output":"","exit_code":1,"error":"SubscriptionNativeImageUnavailable"}`))
+	if err != nil || r.Error != "SubscriptionNativeImageUnavailable" {
+		t.Errorf("got %+v, %v", r, err)
+	}
+}

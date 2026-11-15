@@ -8,6 +8,7 @@ release notes.
 
 ### Fixed
 
+- When a turn fails for a reason den knows, such as an image sent to a model that cannot see images, the chat says what to do instead of "exit status 1".
 - **Bold** text in the agent's messages shows bold in Telegram instead of with its asterisks.
 
 ## v0.6.0

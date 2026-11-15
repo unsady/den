@@ -824,8 +824,16 @@ func (c *Chat) turn(ctx context.Context) bool {
 	return true
 }
 
+// fxErrors say the errors fx names that the user can act on.
+var fxErrors = map[string]string{
+	"SubscriptionNativeImageUnavailable": "This model cannot see images. Pick another with /model and send the image again.",
+}
+
 // answer is what the user sees of reply: its text, or why fx failed.
 func answer(reply runner.Reply, resumed bool) string {
+	if text, ok := fxErrors[reply.Error]; ok {
+		return text
+	}
 	switch {
 	case reply.Error != "":
 		text := "fx failed: " + reply.Error
