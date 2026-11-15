@@ -162,7 +162,7 @@ type session struct {
 	echo    string
 	// results hold each tool call's answer: for the MCP call that waits
 	// for it, or for the one that has not come yet.
-	results map[string]chan string
+	results map[string]chan toolResult
 }
 
 // request is the part of fx's Chat Completions request the bridge reads.
@@ -216,6 +216,47 @@ func (m message) text() string {
 		}
 	}
 	return b.String()
+}
+
+// image is a picture fx sent, in base64.
+type image struct {
+	mediaType, data string
+}
+
+// images are the message's pictures, which fx sends as data URLs.
+func (m message) images() []image {
+	var parts []struct {
+		Type     string `json:"type"`
+		ImageURL struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+	}
+	json.Unmarshal(m.Content, &parts)
+	var images []image
+	for _, p := range parts {
+		rest, ok := strings.CutPrefix(p.ImageURL.URL, "data:")
+		if p.Type != "image_url" || !ok {
+			continue
+		}
+		if mediaType, data, ok := strings.Cut(rest, ";base64,"); ok {
+			images = append(images, image{mediaType, data})
+		}
+	}
+	return images
+}
+
+// turn is what claude is told in one user turn.
+type turn struct {
+	text   string
+	images []image
+}
+
+func (t turn) empty() bool { return t.text == "" && len(t.images) == 0 }
+
+// toolResult is fx's answer to a tool call.
+type toolResult struct {
+	text   string
+	images []image
 }
 
 // fingerprint identifies a message by what matters to the model.
@@ -287,7 +328,7 @@ func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv 
 	if !slices.Contains(Efforts, req.Effort) {
 		req.Effort = ""
 	}
-	s, turn, why := c.resume(msgs, fps, key, conv, digest(req.Effort+"\x00"+prompt))
+	s, t, why := c.resume(msgs, fps, key, conv, digest(req.Effort+"\x00"+prompt))
 	if s == nil {
 		// A process that holds calls for this conversation waits for
 		// answers that will not come.
@@ -301,11 +342,11 @@ func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv 
 			case <-closed.exited:
 			case <-time.After(10 * time.Second):
 			}
-			resume, turn = closed.claudeID, joinUsers(tail)
+			resume, t = closed.claudeID, joinUsers(tail)
 			log.Printf("claude: resumed %s process for %d messages: %s", req.Model, len(msgs), closed.why)
 		} else {
 			// The reason shows whether fx's tool loops stay in one process.
-			turn = opening(msgs)
+			t = opening(msgs)
 			log.Printf("claude: new %s process for %d messages: %s", req.Model, len(msgs), why)
 		}
 
@@ -324,8 +365,8 @@ func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv 
 		s.seen = fps
 		s.mu.Unlock()
 	}
-	if turn != "" {
-		if err := s.send(userTurn(turn)); err != nil {
+	if !t.empty() {
+		if err := s.send(userTurn(t)); err != nil {
 			s.stop()
 			c.drop(s)
 			http.Error(w, "claude stopped: "+s.exit, http.StatusBadGateway)
@@ -342,14 +383,14 @@ func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv 
 // for; or it is idle, and the request is what it has seen, plus its last
 // answer, plus new user messages. Without one, it says why the
 // conversation's own session did not fit.
-func (c *Claude) resume(msgs []message, fps []string, key, conv, system string) (*session, string, string) {
+func (c *Claude) resume(msgs []message, fps []string, key, conv, system string) (*session, turn, string) {
 	c.bridge.mu.Lock()
 	defer c.bridge.mu.Unlock()
 	why := "no session"
 	for _, s := range c.bridge.sessions {
-		turn, reason := s.take(msgs, fps, key, system)
+		t, reason := s.take(msgs, fps, key, system)
 		if reason == "" {
-			return s, turn, ""
+			return s, t, ""
 		}
 		if reason == systemChanged {
 			// Its history is still good: the process restarts with
@@ -360,29 +401,29 @@ func (c *Claude) resume(msgs []message, fps []string, key, conv, system string) 
 			why = reason
 		}
 	}
-	return nil, "", why
+	return nil, turn{}, why
 }
 
 // take gives the request to s, with the user turn it adds, or says why it
 // is not s's. The caller holds c.bridge.mu.
-func (s *session) take(msgs []message, fps []string, key, system string) (string, string) {
+func (s *session) take(msgs []message, fps []string, key, system string) (turn, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch {
 	case s.key != key:
-		return "", "model or tools changed"
+		return turn{}, "model or tools changed"
 	case s.busy:
-		return "", "busy"
+		return turn{}, "busy"
 	case len(s.emitted) > 0:
-		return "", s.takeResults(msgs, fps)
+		return turn{}, s.takeResults(msgs, fps)
 	}
 
 	tail, reason := turnTail(msgs, fps, s.seen, s.echo)
 	if reason != "" {
-		return "", reason
+		return turn{}, reason
 	}
 	if s.system != system {
-		return "", systemChanged
+		return turn{}, systemChanged
 	}
 	s.claim(fps)
 	s.echo = ""
@@ -392,7 +433,16 @@ func (s *session) take(msgs []message, fps []string, key, system string) (string
 // takeResults delivers the tool results to s, or says why they are not
 // its. The caller holds s.mu.
 func (s *session) takeResults(msgs []message, fps []string) string {
-	n := len(msgs)
+	// fx sends the images that tools returned in a user message after
+	// the results; they go with the last result.
+	end := len(msgs)
+	var images []image
+	if end > 1 && msgs[end-1].Role == "user" && msgs[end-2].Role == "tool" {
+		if images = msgs[end-1].images(); len(images) > 0 {
+			end--
+		}
+	}
+	n := end
 	for n > 0 && msgs[n-1].Role == "tool" {
 		n--
 	}
@@ -405,16 +455,20 @@ func (s *session) takeResults(msgs []message, fps []string) string {
 		return fmt.Sprintf("history differs at message %d (had %d, got %d before the results)", i, len(want), n)
 	}
 	var ids []string
-	for _, m := range msgs[n:] {
+	for _, m := range msgs[n:end] {
 		ids = append(ids, m.ToolCallID)
 	}
 	if !slices.Equal(slices.Sorted(slices.Values(ids)), slices.Sorted(slices.Values(s.emitted))) {
 		return "results for other calls"
 	}
 
-	for _, m := range msgs[n:] {
+	for i, m := range msgs[n:end] {
+		r := toolResult{text: m.text()}
+		if n+i == end-1 {
+			r.images = images
+		}
 		select {
-		case s.slot(m.ToolCallID) <- m.text():
+		case s.slot(m.ToolCallID) <- r:
 		default:
 		}
 	}
@@ -449,13 +503,16 @@ func turnTail(msgs []message, fps, seen []string, echo string) ([]message, strin
 	return msgs[len(want):], ""
 }
 
-// joinUsers is the text of user messages as one turn.
-func joinUsers(msgs []message) string {
+// joinUsers makes user messages one turn.
+func joinUsers(msgs []message) turn {
+	var t turn
 	texts := make([]string, len(msgs))
 	for i, m := range msgs {
 		texts[i] = m.text()
+		t.images = append(t.images, m.images()...)
 	}
-	return strings.Join(texts, "\n\n")
+	t.text = strings.Join(texts, "\n\n")
+	return t
 }
 
 // reopen takes the closed session that the request continues, with the user
@@ -561,9 +618,9 @@ func (c *Claude) makeRoom() error {
 
 // slot is where the answer to a tool call goes, for the MCP call to take.
 // The caller holds s.mu.
-func (s *session) slot(id string) chan string {
+func (s *session) slot(id string) chan toolResult {
 	if s.results[id] == nil {
-		s.results[id] = make(chan string, 1)
+		s.results[id] = make(chan toolResult, 1)
 	}
 	return s.results[id]
 }
@@ -607,12 +664,12 @@ func (s *session) finish(rep *reply) {
 }
 
 // opening is claude's first turn in a new process: the history it has not
-// lived, then the last user message.
-func opening(msgs []message) string {
+// lived, in words, then the last user message.
+func opening(msgs []message) turn {
 	last := msgs[len(msgs)-1]
-	tail := "Continue from the last tool result."
+	tail := turn{text: "Continue from the last tool result."}
 	if last.Role == "user" {
-		tail = last.text()
+		tail = joinUsers(msgs[len(msgs)-1:])
 		msgs = msgs[:len(msgs)-1]
 	}
 	if len(msgs) == 0 {
@@ -639,14 +696,31 @@ func opening(msgs []message) string {
 			lines = append(lines, m.Role+": "+m.text())
 		}
 	}
-	return "<conversation-checkpoint>\n" + strings.Join(lines, "\n") + "\n</conversation-checkpoint>\n" + tail
+	tail.text = "<conversation-checkpoint>\n" + strings.Join(lines, "\n") + "\n</conversation-checkpoint>\n" + tail.text
+	return tail
 }
 
-func userTurn(text string) []byte {
+// userTurn is the line that gives claude a turn: its text, or Claude's
+// content blocks when it has images.
+func userTurn(t turn) []byte {
+	var content any = t.text
+	if len(t.images) > 0 {
+		var blocks []any
+		if t.text != "" {
+			blocks = append(blocks, map[string]string{"type": "text", "text": t.text})
+		}
+		for _, img := range t.images {
+			blocks = append(blocks, map[string]any{"type": "image", "source": map[string]string{
+				"type": "base64", "media_type": img.mediaType, "data": img.data,
+			}})
+		}
+		content = blocks
+	}
+
 	var line bytes.Buffer
 	enc := json.NewEncoder(&line)
 	enc.SetEscapeHTML(false)
-	enc.Encode(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}})
+	enc.Encode(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": content}})
 	return bytes.TrimSpace(line.Bytes())
 }
 
@@ -722,7 +796,7 @@ func (c *Claude) start(token string, req request, system, conv, key, resume stri
 		events:  make(chan event, 256),
 		done:    make(chan struct{}),
 		exited:  make(chan struct{}),
-		results: map[string]chan string{},
+		results: map[string]chan toolResult{},
 		resumed: resume != "", system: digest(req.Effort + "\x00" + system),
 		busy: true,
 	}

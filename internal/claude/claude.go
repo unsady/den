@@ -203,7 +203,7 @@ func (c *Claude) Register() error {
 		json.Unmarshal(settings["providers"], &providers)
 		models := map[string]any{}
 		for _, id := range Models {
-			models[id] = map[string]any{"context_window": Window(c.cfg, id), "supports_tool_use": true, "reasoning_efforts": Efforts}
+			models[id] = map[string]any{"context_window": Window(c.cfg, id), "supports_tool_use": true, "supports_vision": true, "reasoning_efforts": Efforts}
 		}
 		providers[Provider], _ = json.Marshal(map[string]any{
 			"protocol":       "openai-chat-completions",

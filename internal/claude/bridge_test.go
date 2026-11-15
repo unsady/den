@@ -93,12 +93,17 @@ func fake(scenario string) {
 		var arguments any
 		json.Unmarshal([]byte(args), &arguments)
 		result := rpc(id, "tools/call", map[string]any{"name": name, "arguments": arguments, "_meta": map[string]any{"claudecode/toolUseId": toolUseID}})
-		var out struct{ Content []struct{ Text string } }
+		var out struct {
+			Content []struct{ Type, Text, MimeType string }
+		}
 		json.Unmarshal(result, &out)
 		if len(out.Content) == 0 {
 			return ""
 		}
 		note("mcp %s %s", toolUseID, out.Content[0].Text)
+		for _, c := range out.Content[1:] {
+			note("mcp %s %s %s", toolUseID, c.Type, c.MimeType)
+		}
 		return out.Content[0].Text
 	}
 
@@ -478,6 +483,39 @@ func TestToolRoundTrip(t *testing.T) {
 	}
 }
 
+// picture is a user message with text and an image, as fx sends one.
+func picture(text string) map[string]any {
+	return map[string]any{"role": "user", "content": []any{
+		map[string]any{"type": "text", "text": text},
+		map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:image/png;base64,aGVsbG8"}},
+	}}
+}
+
+func TestImageGoesToClaude(t *testing.T) {
+	h := setup(t, "text")
+	h.ask(false, picture("what is this?"))
+
+	h.waitLog(`"content":[{"text":"what is this?","type":"text"},{"source":{"data":"aGVsbG8","media_type":"image/png","type":"base64"},"type":"image"}]`)
+}
+
+func TestToolImageGoesWithItsResult(t *testing.T) {
+	h := setup(t, "tool")
+	question := user("what is alpha?")
+	_, body := h.ask(true, question)
+	first := parse(t, body)
+
+	// fx sends a tool's images in a user message after the results.
+	_, body = h.ask(true, question, asked(first.calls), result("toolu_a", "PELICAN"), picture(`The tool "lookup" returned 1 image(s).`))
+	if second := parse(t, body); second.text != "Got: PELICAN" {
+		t.Errorf("second answer = %+v", second)
+	}
+
+	log := h.waitLog("mcp toolu_a image image/png")
+	if n := strings.Count(log, "start\n"); n != 1 {
+		t.Errorf("%d processes started, want 1", n)
+	}
+}
+
 func TestParallelToolCalls(t *testing.T) {
 	h := setup(t, "parallel")
 	question := user("look up a and b")
@@ -584,7 +622,7 @@ func TestOpening(t *testing.T) {
 		}, "<conversation-checkpoint>\nuser: q\nassistant called tool lookup({\"key\":\"a\"}) -> result: A\n</conversation-checkpoint>\nContinue from the last tool result."},
 	}
 	for _, tc := range cases {
-		if got := opening(tc.msgs); got != tc.want {
+		if got := opening(tc.msgs).text; got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -748,8 +786,8 @@ func TestBusySessionIsNotTaken(t *testing.T) {
 	s.mu.Lock()
 	s.free()
 	s.mu.Unlock()
-	if got, turn, why := h.c.resume(msgs, fps, s.key, "conv", s.system); got != s || turn != "again" {
-		t.Errorf("did not take the idle session: %v, %q, %q", got, turn, why)
+	if got, turn, why := h.c.resume(msgs, fps, s.key, "conv", s.system); got != s || turn.text != "again" {
+		t.Errorf("did not take the idle session: %v, %q, %q", got, turn.text, why)
 	}
 }
 

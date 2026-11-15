@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### New
+
+- With a Claude subscription the agent sees images: the photos you send, and the images it opens itself.
+
 ### Fixed
 
 - When a turn fails for a reason den knows, such as an image sent to a model that cannot see images, the chat says what to do instead of "exit status 1".

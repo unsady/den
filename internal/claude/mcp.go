@@ -85,11 +85,15 @@ func (c *Claude) MCP(w http.ResponseWriter, r *http.Request, id string) {
 		s.mu.Unlock()
 
 		select {
-		case text := <-answer:
+		case r := <-answer:
 			s.mu.Lock()
 			delete(s.results, id)
 			s.mu.Unlock()
-			result = map[string]any{"content": []any{map[string]string{"type": "text", "text": text}}}
+			content := []any{map[string]string{"type": "text", "text": r.text}}
+			for _, img := range r.images {
+				content = append(content, map[string]string{"type": "image", "data": img.data, "mimeType": img.mediaType})
+			}
+			result = map[string]any{"content": content}
 		case <-s.done:
 			rpcError(w, req.ID, -32000, "den ended the session")
 			return

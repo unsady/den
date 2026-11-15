@@ -52,7 +52,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(filepath.Join(home, "settings.json"))
-	for _, want := range []string{`"yolo_acknowledged":true`, `"other":"x"`, `"provider":"other"`, `"claude":"sonnet"`, `"base_url":"http://127.0.0.1:4100/claude"`, `"protocol":"openai-chat-completions"`, `"sonnet":{"context_window":200000,"reasoning_efforts":["low","medium","high","xhigh","max"],"supports_tool_use":true}`} {
+	for _, want := range []string{`"yolo_acknowledged":true`, `"other":"x"`, `"provider":"other"`, `"claude":"sonnet"`, `"base_url":"http://127.0.0.1:4100/claude"`, `"protocol":"openai-chat-completions"`, `"sonnet":{"context_window":200000,"reasoning_efforts":["low","medium","high","xhigh","max"],"supports_tool_use":true,"supports_vision":true}`} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("settings lack %s: %s", want, data)
 		}
