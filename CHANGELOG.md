@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### New
+
+- `den stats` also shows how Claude models did: the first token, stalls, and writing speed.
+
 ## v0.5.0
 
 ### New

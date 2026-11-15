@@ -359,6 +359,30 @@ func TestMeterTakesCodexWholeUsage(t *testing.T) {
 	}
 }
 
+func TestMeteredWriterMeasuresAStream(t *testing.T) {
+	m := New(config.Config{State: t.TempDir()})
+
+	rec := httptest.NewRecorder()
+	w := &metered{ResponseWriter: rec, meter: m.measure(nil, time.Now(), "claude", "haiku", http.StatusOK)}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`data: {"choices":[{"delta":{"content":"pong"}}]}` + "\n\n"))
+	w.Flush()
+	w.Write([]byte(`data: {"choices":[],"usage":{"prompt_tokens":900,"completion_tokens":40}}` + "\n\n"))
+	w.meter.finish()
+
+	calls := m.Calls(time.Time{})
+	if len(calls) != 1 {
+		t.Fatalf("%d calls, want 1", len(calls))
+	}
+	c := calls[0]
+	if c.Provider != "claude" || c.Model != "haiku" || c.Status != 200 || c.In != 900 || c.Out != 40 {
+		t.Fatalf("call %+v", c)
+	}
+	if !rec.Flushed {
+		t.Fatal("Flush did not reach the writer")
+	}
+}
+
 func TestGrokGetsTheRealToken(t *testing.T) {
 	var got []*http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

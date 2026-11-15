@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -147,33 +148,38 @@ func (m *Models) measure(body io.ReadCloser, start time.Time, provider, model st
 func (r *meter) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
 	if n > 0 {
-		now := time.Now()
-		window := append(r.tail, p[:n]...)
-		if r.first.IsZero() {
-			if firstToken.Match(window) {
-				r.first, r.last = now, now
-			}
-		} else {
-			r.call.Gap = max(r.call.Gap, int(now.Sub(r.last).Milliseconds()))
-			r.last = now
-		}
-		// Codex also counts tokens per tool and per input item, each part of
-		// its usage, so the largest count is the whole.
-		for _, match := range promptTokens.FindAllSubmatch(window, -1) {
-			r.call.In = max(r.call.In, atoi(match[1]))
-		}
-		for _, match := range outputTokens.FindAllSubmatch(window, -1) {
-			r.call.Out = max(r.call.Out, atoi(match[1]))
-		}
-		if r.call.Status >= 400 && len(r.errText) < 300 {
-			r.errText = append(r.errText, p[:min(n, 300-len(r.errText))]...)
-		}
-		r.tail = append([]byte(nil), window[max(0, len(window)-64):]...)
+		r.observe(p[:n])
 	}
 	if err != nil {
 		r.finish()
 	}
 	return n, err
+}
+
+// observe measures a piece of the response.
+func (r *meter) observe(p []byte) {
+	now := time.Now()
+	window := append(r.tail, p...)
+	if r.first.IsZero() {
+		if firstToken.Match(window) {
+			r.first, r.last = now, now
+		}
+	} else {
+		r.call.Gap = max(r.call.Gap, int(now.Sub(r.last).Milliseconds()))
+		r.last = now
+	}
+	// Codex also counts tokens per tool and per input item, each part of
+	// its usage, so the largest count is the whole.
+	for _, match := range promptTokens.FindAllSubmatch(window, -1) {
+		r.call.In = max(r.call.In, atoi(match[1]))
+	}
+	for _, match := range outputTokens.FindAllSubmatch(window, -1) {
+		r.call.Out = max(r.call.Out, atoi(match[1]))
+	}
+	if r.call.Status >= 400 && len(r.errText) < 300 {
+		r.errText = append(r.errText, p[:min(len(p), 300-len(r.errText))]...)
+	}
+	r.tail = append([]byte(nil), window[max(0, len(window)-64):]...)
 }
 
 func atoi(digits []byte) int {
@@ -218,4 +224,28 @@ func requestModel(body []byte) string {
 	}
 	json.Unmarshal(body, &req)
 	return req.Model
+}
+
+// metered measures what a handler writes, as meter does for a proxied
+// response.
+type metered struct {
+	http.ResponseWriter
+	meter *meter
+}
+
+func (w *metered) WriteHeader(status int) {
+	w.meter.call.Status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *metered) Write(p []byte) (int, error) {
+	w.meter.observe(p)
+	return w.ResponseWriter.Write(p)
+}
+
+// Flush keeps the stream going: the bridge flushes through this type.
+func (w *metered) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }

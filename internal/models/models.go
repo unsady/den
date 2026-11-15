@@ -624,7 +624,10 @@ func (m *Models) serveClaude(w http.ResponseWriter, r *http.Request, rest string
 		if !ok {
 			return
 		}
+		start := time.Now()
+		w = &metered{ResponseWriter: w, meter: m.measure(nil, start, "claude", requestModel(body), http.StatusOK)}
 		m.claude.Chat(w, r, body, conversation(body), m.record)
+		w.(*metered).meter.finish()
 	default:
 		http.Error(w, "den passes on only Claude's chat completions and models", http.StatusNotFound)
 	}
