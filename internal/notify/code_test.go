@@ -21,9 +21,14 @@ func TestCode(t *testing.T) {
 		{"an unmatched ` stays", "an unmatched ` stays", nil},
 		{"See [the book](https://example.com/a_(b)) and `x`.", "See the book and x.",
 			[]entity{{Type: "text_link", Offset: 4, Length: 8, URL: "https://example.com/a_(b)"}, {Type: "code", Offset: 17, Length: 1}}},
-		{"[Открыть](https://example.com/en)\nhttps://example.com/raw", "Открыть\nhttps://example.com/raw",
-			[]entity{{Type: "text_link", Offset: 0, Length: 7, URL: "https://example.com/en"}}},
+		{"[Öffnen](https://example.com/en)\nhttps://example.com/raw", "Öffnen\nhttps://example.com/raw",
+			[]entity{{Type: "text_link", Offset: 0, Length: 6, URL: "https://example.com/en"}}},
 		{"[not a link](notes/a.md)", "[not a link](notes/a.md)", nil},
+		{"- **Größe:** den connect claude", "- Größe: den connect claude",
+			[]entity{{Type: "bold", Offset: 2, Length: 6}}},
+		{"**a** and `**b**`", "a and **b**", []entity{{Type: "bold", Offset: 0, Length: 1}, {Type: "code", Offset: 6, Length: 5}}},
+		{"2 ** 3 and 4 ** 5", "2 ** 3 and 4 ** 5", nil},
+		{"an unmatched ** stays", "an unmatched ** stays", nil},
 	} {
 		out, entities := code(c.in)
 		if out != c.out || !reflect.DeepEqual(entities, c.entities) {

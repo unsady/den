@@ -10,7 +10,8 @@ import (
 // does: a ``` block or `inline code`. Telegram shows those as code, which
 // a tap copies, when the message names them as entities; the marks
 // themselves are left out. A Markdown link, [text](url), becomes a link
-// the same way.
+// the same way, and **bold** text bold, which the agent writes now and then
+// though it is asked not to.
 
 // entity is a part of a message Telegram formats, in UTF-16 code units.
 type entity struct {
@@ -23,7 +24,7 @@ type entity struct {
 
 var (
 	fence  = regexp.MustCompile("(?s)```([\\w+#.-]*)[ \\t]*\\n?(.*?)\\n?```")
-	inline = regexp.MustCompile("`([^`\\n]+)`|\\[([^\\]\\n]+)\\]\\((https?://(?:[^()\\s]|\\([^()\\s]*\\))+)\\)")
+	inline = regexp.MustCompile("`([^`\\n]+)`|\\[([^\\]\\n]+)\\]\\((https?://(?:[^()\\s]|\\([^()\\s]*\\))+)\\)|\\*\\*([^*\\s](?:[^*\\n]*[^*\\s])?)\\*\\*")
 )
 
 // code takes the code marks out of text and returns the text with the
@@ -55,10 +56,13 @@ func code(text string) (string, []entity) {
 				break
 			}
 			out.WriteString(plain[:m[0]])
-			if m[2] >= 0 {
+			switch {
+			case m[2] >= 0:
 				add(entity{Type: "code"}, plain[m[2]:m[3]])
-			} else {
+			case m[4] >= 0:
 				add(entity{Type: "text_link", URL: plain[m[6]:m[7]]}, plain[m[4]:m[5]])
+			default:
+				add(entity{Type: "bold"}, plain[m[8]:m[9]])
 			}
 			plain = plain[m[1]:]
 		}

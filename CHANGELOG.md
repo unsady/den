@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- **Bold** text in the agent's messages shows bold in Telegram instead of with its asterisks.
+
 ## v0.6.0
 
 ### New
