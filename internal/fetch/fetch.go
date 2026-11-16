@@ -154,6 +154,13 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 	if err != nil || u.Scheme != "https" || !slices.Contains(s.hosts, u.Hostname()) || u.User != nil {
 		return Response{}, fmt.Errorf("%w: the %s secret goes only to https://%s", ErrRequest, req.Secret, strings.Join(s.hosts, ", https://"))
 	}
+	// den judges a request by its path, which a service could read another
+	// way once it steps back out of a folder.
+	for _, segment := range strings.Split(u.Path, "/") {
+		if segment == "." || segment == ".." {
+			return Response{}, fmt.Errorf("%w: den does not send a path with . or ..", ErrRequest)
+		}
+	}
 	method := strings.ToUpper(req.Method)
 	if method == "" {
 		method = http.MethodGet

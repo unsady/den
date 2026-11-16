@@ -181,3 +181,14 @@ func TestPathPattern(t *testing.T) {
 	}
 }
 
+
+func TestDotSegments(t *testing.T) {
+	f := New(config.Config{Secrets: t.TempDir()}, nil, nil)
+	for _, path := range []string{"/repos/me/notes/issues/../contents/a.md", "/repos/me/notes/issues/%2e%2e/pulls", "/repos/me/./notes"} {
+		_, err := f.Do(context.Background(), Request{Secret: "github", Method: "PUT", URL: "https://api.github.com" + path})
+		if !errors.Is(err, ErrRequest) || !strings.Contains(err.Error(), ". or ..") {
+			t.Errorf("%s: %v", path, err)
+		}
+	}
+}
+
