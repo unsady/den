@@ -133,6 +133,9 @@ type state struct {
 	// Replies tie the bot's latest messages to the fx session that wrote
 	// them, oldest first, so a reply to one continues that session.
 	Replies []sent `json:"replies,omitempty"`
+	// Inbox are the messages that wait for a turn, so a restart of den
+	// does not lose them. A turn's own messages leave it when it starts.
+	Inbox []entry `json:"inbox,omitempty"`
 }
 
 // sent is one message of the bot's and the session that wrote it.
@@ -170,6 +173,31 @@ type entry struct {
 	label   string
 	// choice is the model of that session, nil for the chat's own.
 	choice *runner.Choice
+}
+
+// saved is how an entry is kept in the chat's state.
+type saved struct {
+	Text    string         `json:"text,omitempty"`
+	Image   string         `json:"image,omitempty"`
+	Second  bool           `json:"second,omitempty"`
+	Report  bool           `json:"report,omitempty"`
+	Notice  string         `json:"notice,omitempty"`
+	Session string         `json:"session,omitempty"`
+	Label   string         `json:"label,omitempty"`
+	Choice  *runner.Choice `json:"choice,omitempty"`
+}
+
+func (e entry) MarshalJSON() ([]byte, error) {
+	return json.Marshal(saved{e.text, e.image, e.second, e.report, e.notice, e.session, e.label, e.choice})
+}
+
+func (e *entry) UnmarshalJSON(data []byte) error {
+	var s saved
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*e = entry{s.Text, s.Image, s.Second, s.Report, s.Notice, s.Session, s.Label, s.Choice}
+	return nil
 }
 
 // againNote asks the second model to answer the last message again.
@@ -268,6 +296,7 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 		case t.session != "" || t.generation == c.generation:
 			found, wake = true, true
 			c.inbox = append(c.inbox, e)
+			c.save()
 		}
 		break
 	}
@@ -304,6 +333,10 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("chat: %v", err)
+	}
+	c.inbox = c.state.Inbox
+	if len(c.inbox) > 0 {
+		c.poke()
 	}
 	return c
 }
@@ -438,6 +471,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		stop := c.stop
 		notices := c.dropReports(true)
 		c.inbox = nil
+		c.save()
 		var stops []context.CancelFunc
 		for _, s := range c.bg {
 			stops = append(stops, s)
@@ -567,12 +601,10 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 		}
 		c.inbox = append(c.inbox, e)
 	}
+	c.save()
 	busy := c.stop != nil
 	c.mu.Unlock()
-	select {
-	case c.wake <- struct{}{}:
-	default:
-	}
+	c.poke()
 
 	if busy && id != 0 {
 		call, cancel := context.WithTimeout(ctx, time.Minute)
@@ -682,6 +714,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	prompt := strings.Join(texts, "\n\n")
 	c.inbox = rest
+	c.save()
 	session := c.state.Session
 	if other != "" {
 		session = other
@@ -964,6 +997,7 @@ func (c *Chat) setOffset(next int64) {
 
 // save writes the state. The caller holds c.mu.
 func (c *Chat) save() {
+	c.state.Inbox = c.inbox
 	data, _ := json.Marshal(c.state)
 	tmp := c.path + ".tmp"
 	err := os.WriteFile(tmp, data, 0o600)

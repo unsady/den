@@ -199,6 +199,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 			e.session, e.label = reply.SessionID, label
 			c.inbox = append(c.inbox, e)
 		}
+		c.save()
 		c.mu.Unlock()
 		if len(pending) > len(notices) {
 			c.poke()

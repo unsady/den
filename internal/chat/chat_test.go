@@ -1101,3 +1101,28 @@ func TestAnswerFailure(t *testing.T) {
 		t.Errorf("an image the model cannot see: got %q", got)
 	}
 }
+
+func TestInboxSurvivesARestart(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, nil)
+	c.mu.Lock()
+	c.inbox = append(c.inbox,
+		entry{text: "Call the bank", image: "/inbox/a.jpg"},
+		entry{text: "[den: Mail to a@example.com was not sent.]", report: true, session: "s1", label: "⏰ morning", choice: &runner.Choice{Model: "m"}},
+	)
+	c.save()
+	c.mu.Unlock()
+
+	again := New(cfg, nil, nil)
+	if len(again.inbox) != 2 || again.inbox[0].text != "Call the bank" || again.inbox[0].image != "/inbox/a.jpg" {
+		t.Fatalf("inbox = %+v", again.inbox)
+	}
+	if e := again.inbox[1]; !e.report || e.session != "s1" || e.label != "⏰ morning" || e.choice == nil || e.choice.Model != "m" {
+		t.Errorf("the report came back as %+v", e)
+	}
+	select {
+	case <-again.wake:
+	default:
+		t.Error("the worker is not woken for what waited")
+	}
+}
