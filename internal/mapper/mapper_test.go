@@ -307,3 +307,22 @@ func TestEffort(t *testing.T) {
 		t.Errorf("efforts %v, want %v", seen, want)
 	}
 }
+
+func TestAsk(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Instructions string `json:"instructions"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Instructions != "Name it." {
+			t.Errorf("instructions %q", req.Instructions)
+		}
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"compare-models\"}\n\n")
+	}))
+	defer srv.Close()
+
+	got, err := Ask(context.Background(), Options{URL: srv.URL, Responses: true, Model: "luna", Instructions: "Name it."}, "compare two models")
+	if err != nil || got != "compare-models" {
+		t.Fatalf("Ask = %q, %v", got, err)
+	}
+}

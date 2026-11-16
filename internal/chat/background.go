@@ -1,16 +1,14 @@
 package chat
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 	"unicode"
 
+	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
@@ -46,10 +44,11 @@ func bgName(task string) string {
 	return clipRunes(strings.Join(words, "-"), 30)
 }
 
-// nameURL is where den asks provider's models, through its proxy. Tests
-// point it elsewhere.
-var nameURL = func(provider string) string {
-	return "http://" + models.Proxy + "/" + provider + "/chat/completions"
+// nameURL is where den asks provider's models, through its proxy: path is
+// chat/completions, or responses for a subscription that takes only those.
+// Tests point it elsewhere.
+var nameURL = func(provider, path string) string {
+	return "http://" + models.Proxy + "/" + provider + "/" + path
 }
 
 // nameWait bounds the request for a name, so a slow model does not hold
@@ -58,8 +57,8 @@ const nameWait = 30 * time.Second
 
 // nameTask asks a model for a short name for task, such as
 // compare-models: the second model when the chat has one, since it is
-// usually the cheaper, or the main one. It returns "" when the provider
-// does not take chat completions, such as Codex, or the request fails.
+// usually the cheaper, or the main one. It returns "" when the request
+// fails.
 func (c *Chat) nameTask(ctx context.Context, task string) string {
 	c.mu.Lock()
 	provider, model := c.state.Provider, c.state.Model
@@ -80,41 +79,27 @@ func (c *Chat) nameTask(ctx context.Context, task string) string {
 			model = setup.Model
 		}
 	}
-	if provider == "" || provider == "codex" || provider == "grok" || model == "" {
+	if provider == "" || model == "" {
 		return ""
 	}
 
-	body, _ := json.Marshal(map[string]any{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "system", "content": "Name the user's task in English, in two words or three at most, lowercase and joined with hyphens, such as compare-models. Answer with the name only."},
-			{"role": "user", "content": clipRunes(task, 2000)},
-		},
-	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, nameURL(provider), bytes.NewReader(body))
-	if err != nil {
-		return ""
+	// The ChatGPT and Grok subscriptions take only the Responses API.
+	responses := provider == "codex" || provider == "grok"
+	path := "chat/completions"
+	if responses {
+		path = "responses"
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Opencode-Session", rand.Text())
-	resp, err := http.DefaultClient.Do(req)
+	reply, err := mapper.Ask(ctx, mapper.Options{
+		URL:          nameURL(provider, path),
+		Responses:    responses,
+		Model:        model,
+		Instructions: "Name the user's task in English, in two words or three at most, lowercase and joined with hyphens, such as compare-models. Answer with the name only.",
+	}, clipRunes(task, 2000))
 	if err != nil {
 		log.Printf("chat: naming a task: %v", err)
 		return ""
 	}
-	defer resp.Body.Close()
-	var reply struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&reply); err != nil || resp.StatusCode != http.StatusOK || len(reply.Choices) == 0 {
-		log.Printf("chat: naming a task: %s", resp.Status)
-		return ""
-	}
-	return cleanName(reply.Choices[0].Message.Content)
+	return cleanName(reply)
 }
 
 // cleanName keeps a model's name for a task to lowercase words joined with

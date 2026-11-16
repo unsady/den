@@ -297,6 +297,15 @@ func (u usage) cost() float64 {
 	return u.OpenCode.ListCost
 }
 
+// Ask asks the model one question, with opts.Instructions as the system
+// message, and returns its reply as it is.
+func Ask(ctx context.Context, opts Options, text string) (string, error) {
+	a := asker{opts: opts, system: opts.Instructions, session: "den-ask-" + digest(opts.Instructions)}
+	a.key = a.session
+	reply, _, _, err := a.ask(ctx, text)
+	return reply, err
+}
+
 func (a asker) ask(ctx context.Context, item string) (text string, use usage, retry bool, err error) {
 	chat := map[string]any{
 		"model":       a.opts.Model,

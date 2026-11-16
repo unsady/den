@@ -1029,7 +1029,7 @@ func TestBackground(t *testing.T) {
 	}))
 	t.Cleanup(names.Close)
 	original := nameURL
-	nameURL = func(provider string) string { return names.URL + "/" + provider + "/chat/completions" }
+	nameURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
 	t.Cleanup(func() { nameURL = original })
 
 	// A /bg task runs besides the chat: the chat answers first while it
