@@ -343,6 +343,18 @@ func TestChat(t *testing.T) {
 	telegram.expect(t, "resume=s1 msg=[The user sent a file, saved at "+document+"] lines=1")
 	expectFile(t, document, "content of doc")
 
+	// The files of an album reach the agent as one message.
+	first := telegram.update(42, map[string]any{
+		"media_group_id": "album",
+		"document":       map[string]any{"file_id": "doc", "file_name": "a.md"},
+	})
+	telegram.update(42, map[string]any{
+		"media_group_id": "album",
+		"document":       map[string]any{"file_id": "doc", "file_name": "b.csv"},
+	})
+	// Both files are in the one turn: two lines, not one turn each.
+	telegram.expect(t, fmt.Sprintf("resume=s1 msg=[The user sent a file, saved at %s] lines=2", filepath.Join(day, fmt.Sprintf("%d-a.md", first))))
+
 	telegram.update(42, map[string]any{"sticker": map[string]any{"file_id": "s"}})
 	telegram.expect(t, "den reads text, photos, voice messages, and files for now.")
 
@@ -387,8 +399,8 @@ func TestChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"offset":18`) {
-		t.Fatalf("state %s does not record offset 18", data)
+	if !strings.Contains(string(data), `"offset":20`) {
+		t.Fatalf("state %s does not record offset 20", data)
 	}
 }
 

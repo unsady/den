@@ -287,6 +287,9 @@ type Message struct {
 	Callback *Callback
 	// File is the photo or document the message carries, if any.
 	File *File
+	// Group ties the files the user sent together as one album, empty for
+	// a message of its own.
+	Group string
 	// Other is true for a message den cannot read, such as a sticker or a
 	// voice message.
 	Other bool
@@ -356,7 +359,7 @@ func (t *Telegram) Updates(ctx context.Context, offset int64, wait int) (message
 			strangers = append(strangers, fmt.Sprintf("chat %d (@%s)", m.Chat.ID, m.From.Username))
 			continue
 		}
-		msg := Message{ID: m.ID, Text: m.Text}
+		msg := Message{ID: m.ID, Text: m.Text, Group: m.Group}
 		if r := m.Reply; r != nil {
 			quote := r.Text
 			if quote == "" {
@@ -406,6 +409,7 @@ type incoming struct {
 	ID      int64  `json:"message_id"`
 	Text    string `json:"text"`
 	Caption string `json:"caption"`
+	Group   string `json:"media_group_id"`
 	Photo   []struct {
 		ID   string `json:"file_id"`
 		Size int64  `json:"file_size"`

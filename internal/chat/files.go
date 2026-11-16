@@ -45,7 +45,55 @@ func (c *Chat) receiveFile(ctx context.Context, telegram *notify.Telegram, m not
 		e.text = caption + "\n" + e.text
 	}
 	e.text = quoted(m, e.text)
+	if m.Group != "" {
+		c.hold(ctx, telegram, m, e)
+		return
+	}
 	c.queue(ctx, telegram, m, e)
+}
+
+// album is the files of one album saved so far, and the first message,
+// which a reply and the 👀 go by.
+type album struct {
+	first   notify.Message
+	entries []entry
+	timer   *time.Timer
+}
+
+// albumWait is how long the chat waits for the next file of an album.
+const albumWait = 2 * time.Second
+
+// hold keeps a file of an album, so the album reaches the agent as one
+// message once no more files come. Telegram sends an album's files as
+// messages of their own, which might reach den in different batches.
+func (c *Chat) hold(ctx context.Context, telegram *notify.Telegram, m notify.Message, e entry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.albums == nil {
+		c.albums = map[string]*album{}
+	}
+	a := c.albums[m.Group]
+	if a == nil {
+		a = &album{first: m}
+		c.albums[m.Group] = a
+	}
+	a.entries = append(a.entries, e)
+	if a.timer != nil {
+		a.timer.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(albumWait, func() {
+		c.mu.Lock()
+		// A file that came as this timer fired set a later one.
+		if a.timer != timer {
+			c.mu.Unlock()
+			return
+		}
+		delete(c.albums, m.Group)
+		c.mu.Unlock()
+		c.queue(ctx, telegram, a.first, a.entries...)
+	})
+	a.timer = timer
 }
 
 // voiceText describes a voice message saved at path with its transcript, or

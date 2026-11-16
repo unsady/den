@@ -214,6 +214,8 @@ type Chat struct {
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
 	background sync.WaitGroup
+	// albums hold the files of an album until the last one is saved.
+	albums map[string]*album
 }
 
 type turnRef struct {
@@ -559,13 +561,15 @@ func (c *Chat) opened(session string) {
 
 // queue keeps a message for the next turn. While a turn runs, it marks the
 // message with 👀, so the user sees it waits.
-func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, e entry) {
+func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, entries ...entry) {
 	id := m.ID
 	c.mu.Lock()
-	if e.session == "" {
-		e.session, e.label, e.choice = c.other(m.ReplyTo)
+	for _, e := range entries {
+		if e.session == "" {
+			e.session, e.label, e.choice = c.other(m.ReplyTo)
+		}
+		c.inbox = append(c.inbox, e)
 	}
-	c.inbox = append(c.inbox, e)
 	busy := c.stop != nil
 	c.mu.Unlock()
 	select {
