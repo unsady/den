@@ -51,6 +51,10 @@ type Question struct {
 	// ScopeLabel names the scope for the user, such as "every write to
 	// Google but deletes"; empty uses What.
 	ScopeLabel string
+	// File is what Text had no room for, such as a long request body, sent
+	// as a file named FileName before the question.
+	File     []byte
+	FileName string
 }
 
 // MailTo lets the user allow every mail to one address for good or for an
@@ -191,7 +195,14 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		buttons = append(buttons, notify.Button{Text: "1 hour", Data: "hr:" + id})
 	}
 	call, cancel := context.WithTimeout(ctx, time.Minute)
-	message, err := telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
+	var message int64
+	// Without the file the user would allow what they cannot read.
+	if len(q.File) > 0 {
+		err = telegram.SendFile(call, q.FileName, q.File, q.What)
+	}
+	if err == nil {
+		message, err = telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
+	}
 	cancel()
 	if err != nil {
 		a.forget(id)

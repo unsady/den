@@ -201,3 +201,30 @@ func TestAnsweredNamesWhatAlwaysAndAnHourAllow(t *testing.T) {
 		}
 	}
 }
+
+func TestAskWithFile(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 5}})
+	}))
+	defer server.Close()
+	notify.API = server.URL
+
+	dir := t.TempDir()
+	cfg := config.Config{Secrets: dir, State: dir}
+	for name, value := range map[string]string{"telegram_token": "token", "telegram_chat_id": "42"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	q := Question{Text: "Post it?", What: "crm: POST /api/deals", File: []byte("{}"), FileName: "body.json"}
+	waiting, err := New(cfg).Later(t.Context(), q, func(error) {})
+	if err != nil || !waiting {
+		t.Fatalf("Later = %v, %v", waiting, err)
+	}
+	if got := strings.Join(calls, " "); got != "sendDocument sendMessage" {
+		t.Errorf("the file goes before the question, got %s", got)
+	}
+}

@@ -181,6 +181,23 @@ func TestPathPattern(t *testing.T) {
 	}
 }
 
+func TestHourScope(t *testing.T) {
+	cases := map[string]string{
+		"/repos/me/notes/contents/a.md":      "fetch github me/notes",
+		"/repos/me/notes/pulls/3/merge":      "fetch github me/notes",
+		"/repos/me/notes/keys":               "",
+		"/repos/me/notes/hooks":              "",
+		"/repos/me/notes/collaborators/them": "",
+		"/repos/me/notes/actions/secrets/K":  "",
+		"/repos/me/notes/transfer":           "",
+		"/repos/me/notes":                    "",
+	}
+	for path, want := range cases {
+		if got, _ := hourScope(github, "github", "PUT", &url.URL{Path: path}); got != want {
+			t.Errorf("hourScope(%s) = %q, want %q", path, got, want)
+		}
+	}
+}
 
 func TestDotSegments(t *testing.T) {
 	f := New(config.Config{Secrets: t.TempDir()}, nil, nil)
@@ -192,3 +209,11 @@ func TestDotSegments(t *testing.T) {
 	}
 }
 
+func TestCut(t *testing.T) {
+	if cut([]byte(`{"title":"short"}`)) {
+		t.Error("a short body is shown whole")
+	}
+	if !cut([]byte(strings.Repeat("a", shown+1))) {
+		t.Error("a long body is cut")
+	}
+}

@@ -202,6 +202,15 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 			text += "\n\n" + body
 		}
 		q := approve.Question{Text: text, What: what}
+		// The user allows the whole body, so one too long for the question
+		// comes with it as a file.
+		if seen == "" && s.show == nil && cut(req.Body) {
+			q.File, q.FileName = req.Body, "body.txt"
+			if json.Valid(req.Body) {
+				q.FileName = "body.json"
+			}
+			q.Text += "\nThe whole body is in the file above."
+		}
 		// Always fits a request whose method and path say what it does: not
 		// a query string, nor GraphQL, where the body decides.
 		if s.always && u.RawQuery == "" && strings.Trim(u.Path, "/") != "graphql" {
@@ -352,21 +361,32 @@ func (f *Fetcher) names() []string {
 	return list
 }
 
-// show formats a request body for the user to read: indented when it is
-// JSON, cut when it is long.
+// shown is how many characters of a body a question shows.
+const shown = 1500
+
+// cut says whether show leaves out a part of body.
+func cut(body []byte) bool { return len([]rune(readable(body))) > shown }
+
+// readable is a request body for the user to read: indented when it is
+// JSON.
+func readable(body []byte) string {
+	var v any
+	if json.Unmarshal(body, &v) == nil {
+		if pretty, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(pretty)
+		}
+	}
+	return string(body)
+}
+
+// show is readable, cut when it is long.
 func show(body []byte) string {
 	if len(body) == 0 {
 		return ""
 	}
-	var v any
-	text := string(body)
-	if json.Unmarshal(body, &v) == nil {
-		if pretty, err := json.MarshalIndent(v, "", "  "); err == nil {
-			text = string(pretty)
-		}
-	}
-	if runes := []rune(text); len(runes) > 1500 {
-		text = fmt.Sprintf("%s…\n(%d more characters not shown)", string(runes[:1500]), len(runes)-1500)
+	text := readable(body)
+	if runes := []rune(text); len(runes) > shown {
+		text = fmt.Sprintf("%s…\n(%d more characters not shown)", string(runes[:shown]), len(runes)-shown)
 	}
 	return text
 }
@@ -392,6 +412,10 @@ func hourScope(s service, secret, method string, u *url.URL) (string, string) {
 	repo := strings.ToLower(parts[1] + "/" + parts[2])
 	return "fetch github " + repo, "every API write to " + repo + " but deletes"
 }
+
+// guarded are the parts of a repository an hour does not cover: its owner,
+// its access, its secrets and workflows, and its branches' rules.
+var guarded = []string{"transfer", "collaborators", "invitations", "hooks", "keys", "actions", "environments", "branches", "rulesets", "dependabot", "codespaces"}
 
 // uuid and ulid match a UUID and a ULID, which name one thing like a number
 // does. A ULID is exactly 26 characters of Crockford's base32 and starts
@@ -420,8 +444,4 @@ func pathPattern(path string) string {
 		}
 	}
 	return strings.Join(parts, "/")
-// guarded are the parts of a repository an hour does not cover: its owner,
-// its access, its secrets and workflows, and its branches' rules.
-var guarded = []string{"transfer", "collaborators", "invitations", "hooks", "keys", "actions", "environments", "branches", "rulesets", "dependabot", "codespaces"}
-
 }
