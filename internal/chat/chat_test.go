@@ -913,22 +913,23 @@ func TestReplyTarget(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State))
 	c.state.Session = "main"
-	c.Sent([]int64{5, 6}, "job1", "⏰ news")
-	c.Sent([]int64{8}, "main", "")
+	job := &runner.Choice{Provider: "codex", Model: "gpt", Effort: "high"}
+	c.Sent([]int64{5, 6}, "job1", "⏰ news", job)
+	c.Sent([]int64{8}, "main", "", nil)
 
-	if s, l := c.other(6); s != "job1" || l != "⏰ news" {
-		t.Fatalf("other(6) = %q, %q", s, l)
+	if s, l, ch := c.other(6); s != "job1" || l != "⏰ news" || ch == nil || *ch != *job {
+		t.Fatalf("other(6) = %q, %q, %+v", s, l, ch)
 	}
-	if s, _ := c.other(8); s != "" {
+	if s, _, _ := c.other(8); s != "" {
 		t.Fatalf("a reply in the chat's own session went to %q", s)
 	}
-	if s, _ := c.other(9); s != "" {
+	if s, _, _ := c.other(9); s != "" {
 		t.Fatalf("an unknown message went to %q", s)
 	}
 
 	// The ids last across restarts.
 	c = New(cfg, nil, usage.Open(cfg.State))
-	if s, _ := c.other(5); s != "job1" {
+	if s, _, _ := c.other(5); s != "job1" {
 		t.Fatalf("after a restart other(5) = %q", s)
 	}
 }
@@ -938,8 +939,8 @@ func TestForget(t *testing.T) {
 	c := New(cfg, nil, usage.Open(cfg.State))
 	c.state.Session = "main"
 	c.state.Opened = []string{"main", "old", "job1"}
-	c.Sent([]int64{5}, "old", "")
-	c.Sent([]int64{6}, "job1", "⏰ news")
+	c.Sent([]int64{5}, "old", "", nil)
+	c.Sent([]int64{6}, "job1", "⏰ news", nil)
 
 	// A session the chat does not hold goes from the lists and nothing else.
 	if err := c.Forget("old"); err != nil {
@@ -948,10 +949,10 @@ func TestForget(t *testing.T) {
 	if c.state.Session != "main" || !slices.Equal(c.state.Opened, []string{"main", "job1"}) {
 		t.Fatalf("after forgetting old: session %q, opened %v", c.state.Session, c.state.Opened)
 	}
-	if s, _ := c.other(5); s != "" {
+	if s, _, _ := c.other(5); s != "" {
 		t.Fatalf("a reply stayed tied to the deleted session: %q", s)
 	}
-	if s, _ := c.other(6); s != "job1" {
+	if s, _, _ := c.other(6); s != "job1" {
 		t.Fatalf("a reply of another session went to %q", s)
 	}
 

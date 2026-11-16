@@ -145,6 +145,9 @@ type sent struct {
 	// Label names the session above its replies, such as a job's heading;
 	// empty for the chat's own sessions.
 	Label string `json:"label,omitempty"`
+	// Choice is the model that wrote it, so a reply goes on with the same
+	// one; nil when the chat's own model does.
+	Choice *runner.Choice `json:"choice,omitempty"`
 }
 
 // keptReplies is how many of the bot's latest messages a reply can go back
@@ -168,6 +171,8 @@ type entry struct {
 	// session above the answer.
 	session string
 	label   string
+	// choice is the model of that session, nil for the chat's own.
+	choice *runner.Choice
 }
 
 // againNote asks the second model to answer the last message again.
@@ -558,7 +563,7 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 	id := m.ID
 	c.mu.Lock()
 	if e.session == "" {
-		e.session, e.label = c.other(m.ReplyTo)
+		e.session, e.label, e.choice = c.other(m.ReplyTo)
 	}
 	c.inbox = append(c.inbox, e)
 	busy := c.stop != nil
@@ -578,15 +583,20 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 }
 
 // Sent ties the bot's messages ids to session, which wrote them, so a reply
-// to one continues it. label names the session above its replies.
-func (c *Chat) Sent(ids []int64, session, label string) {
+// to one continues it, on choice when it is not nil. label names the session
+// above its replies.
+func (c *Chat) Sent(ids []int64, session, label string, choice *runner.Choice) {
 	if session == "" || len(ids) == 0 {
 		return
+	}
+	// fx's own choice is not one to keep: it may change.
+	if choice != nil && *choice == (runner.Choice{}) {
+		choice = nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, id := range ids {
-		c.state.Replies = append(c.state.Replies, sent{Message: id, Session: session, Label: label})
+		c.state.Replies = append(c.state.Replies, sent{Message: id, Session: session, Label: label, Choice: choice})
 	}
 	if len(c.state.Replies) > keptReplies {
 		c.state.Replies = c.state.Replies[len(c.state.Replies)-keptReplies:]
@@ -594,11 +604,11 @@ func (c *Chat) Sent(ids []int64, session, label string) {
 	c.save()
 }
 
-// other returns the session that wrote the bot's message id and its label,
-// when that session is not the chat's own. The caller holds c.mu.
-func (c *Chat) other(id int64) (session, label string) {
+// other returns the session that wrote the bot's message id, its label, and
+// its model, when that session is not the chat's own. The caller holds c.mu.
+func (c *Chat) other(id int64) (session, label string, choice *runner.Choice) {
 	if id == 0 {
-		return "", ""
+		return "", "", nil
 	}
 	for i := len(c.state.Replies) - 1; i >= 0; i-- {
 		r := c.state.Replies[i]
@@ -606,11 +616,11 @@ func (c *Chat) other(id int64) (session, label string) {
 			continue
 		}
 		if r.Session == c.state.Session {
-			return "", ""
+			return "", "", nil
 		}
-		return r.Session, r.Label
+		return r.Session, r.Label, r.Choice
 	}
-	return "", ""
+	return "", "", nil
 }
 
 // work runs the waiting messages as turns, one turn at a time, and
@@ -651,7 +661,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	// Messages for another session, such as replies to a job's message,
 	// wait for a turn of their own.
-	other, label := c.inbox[0].session, c.inbox[0].label
+	other, label, chosen := c.inbox[0].session, c.inbox[0].label, c.inbox[0].choice
 	var texts, images []string
 	var rest []entry
 	// A turn started by den's reports alone, such as that a den map run
@@ -676,6 +686,10 @@ func (c *Chat) turn(ctx context.Context) bool {
 		session = other
 	}
 	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
+	// A reply to a job's message goes on with the model that wrote it.
+	if chosen != nil {
+		provider, model, effort = chosen.Provider, chosen.Model, chosen.Effort
+	}
 	// A reply from the second model says so, since the chat goes on with
 	// the main one.
 	header := ""
@@ -819,7 +833,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 		if err != nil {
 			log.Printf("chat: send: %v", err)
 		}
-		c.Sent(ids, wrote, label)
+		var used *runner.Choice
+		if other != "" {
+			used = &runner.Choice{Provider: provider, Model: model, Effort: effort}
+		}
+		c.Sent(ids, wrote, label, used)
 	}
 	return true
 }

@@ -347,8 +347,9 @@ func (d *daemon) start(j jobs.Job) bool {
 			log.Printf("job %s: %s failed, running it on %s", j.Label(), choice.Model, second.Model)
 			run = runner.Run(d.ctx, d.cfg, j, second)
 			run.FellBack = choice.Model + " failed: " + failed
+			choice = second
 		}
-		run.Delivered = d.deliver(j, run)
+		run.Delivered = d.deliver(j, run, choice)
 		if run.InputTokens > 0 || run.OutputTokens > 0 {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
 		}
@@ -427,7 +428,7 @@ func (d *daemon) Forget(id string) (approve.Rule, bool) { return d.ask.Forget(id
 func (d *daemon) Actions(since time.Time) []approve.Action { return d.ask.Actions(since) }
 
 // deliver sends a run's reply, or its failure, to the user.
-func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
+func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	var text string
 	switch {
 	case run.Error != "":
@@ -459,7 +460,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 		log.Printf("job %s: deliver: %v", j.Label(), err)
 		return false
 	}
-	d.chat.Sent(ids, run.SessionID, heading(j))
+	d.chat.Sent(ids, run.SessionID, heading(j), &choice)
 	return true
 }
 

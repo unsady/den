@@ -234,6 +234,6 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if err != nil {
 			log.Printf("chat: send: %v", err)
 		}
-		c.Sent(ids, reply.SessionID, label)
+		c.Sent(ids, reply.SessionID, label, &runner.Choice{Provider: provider, Model: model, Effort: effort})
 	})
 }
