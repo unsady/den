@@ -54,7 +54,10 @@ func (e engine) runArgs(c hostConfig) []string {
 		args = append(args, "--cpus", fmt.Sprint(c.CPUs), "-m", c.Memory, "--restart", "unless-stopped",
 			// Nothing the agent runs gains more rights than it started with,
 			// such as through a setuid program.
-			"--security-opt", "no-new-privileges")
+			"--security-opt", "no-new-privileges",
+			// A command that forks without end fills the container, not the
+			// machine or the VM other containers share.
+			"--pids-limit", "512")
 	}
 	args = append(args, "-v", c.Home+":/home/agent", "-v", c.Volume+":/var/lib/den")
 	for k, v := range c.Env {

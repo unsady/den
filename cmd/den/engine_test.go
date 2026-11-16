@@ -17,7 +17,7 @@ func TestRunArgs(t *testing.T) {
 	for _, e := range []engine{docker, podman} {
 		args := e.runArgs(c)
 		got := strings.Join(args, " ")
-		if want := "run -d --name den --cpus 2 -m 1G --restart unless-stopped --security-opt no-new-privileges -v /home/me/den:/home/agent -v den:/var/lib/den -e TZ=America/New_York den:latest"; got != want {
+		if want := "run -d --name den --cpus 2 -m 1G --restart unless-stopped --security-opt no-new-privileges --pids-limit 512 -v /home/me/den:/home/agent -v den:/var/lib/den -e TZ=America/New_York den:latest"; got != want {
 			t.Errorf("%s:\n got %s\nwant %s", e, got, want)
 		}
 		if slices.Contains(args, "-c") {
