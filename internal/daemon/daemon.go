@@ -209,6 +209,7 @@ func Serve(cfg config.Config) error {
 	log.Printf("den is listening on %s", cfg.Socket)
 	err = srv.Serve(ln)
 	d.wg.Wait()
+	d.ask.Drain()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

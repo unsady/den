@@ -228,3 +228,31 @@ func TestAskWithFile(t *testing.T) {
 		t.Errorf("the file goes before the question, got %s", got)
 	}
 }
+
+func TestLaterAnswersRestartedWhenDenStops(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 5}})
+	}))
+	defer server.Close()
+	notify.API = server.URL
+
+	dir := t.TempDir()
+	cfg := config.Config{Secrets: dir, State: dir}
+	for name, value := range map[string]string{"telegram_token": "token", "telegram_chat_id": "42"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := New(cfg)
+	ctx, stop := context.WithCancel(context.Background())
+	var answer error
+	if _, err := a.Later(ctx, Question{Text: "Post it?", What: "crm: POST /api/deals"}, func(err error) { answer = err }); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	a.Drain()
+	if !errors.Is(answer, ErrRestarted) {
+		t.Errorf("answer = %v, want ErrRestarted", answer)
+	}
+}

@@ -84,11 +84,11 @@ func sameRun(a, b MapRequest) bool {
 // mapLater runs the command the user allowed, as the agent, and says what
 // came of it, or that the user did not allow it.
 func (d *daemon) mapLater(req MapRequest, what string, answer error) {
-	if d.ctx.Err() != nil {
-		return
-	}
 	if answer != nil {
 		d.report(req.Turn, fmt.Sprintf("[den: %s did not run: %v.]", what, answer), "")
+		return
+	}
+	if d.ctx.Err() != nil {
 		return
 	}
 

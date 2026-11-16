@@ -28,6 +28,9 @@ var Wait = 15 * time.Minute
 var (
 	ErrDenied  = errors.New("the user did not allow it")
 	ErrExpired = errors.New("the user did not answer in time")
+	// ErrRestarted is the answer to a question that den stopped before the
+	// user answered.
+	ErrRestarted = errors.New("den restarted before the user answered; do it again if it is still needed")
 )
 
 // Question is an action den asks the user about.
@@ -88,6 +91,8 @@ type Asker struct {
 	pending map[string]*question
 	// hours are when each scope the user allowed for an hour ends.
 	hours map[string]time.Time
+	// later counts the questions asked with Later that still wait.
+	later sync.WaitGroup
 }
 
 // Hour is how long ForHour allows a question's scope.
@@ -151,9 +156,14 @@ func (a *Asker) Later(ctx context.Context, q Question, then func(error)) (bool, 
 	if err != nil {
 		return false, err
 	}
-	go func() { then(s.wait(ctx, LaterWait)) }()
+	a.later.Go(func() { then(s.wait(ctx, LaterWait)) })
 	return true, nil
 }
+
+// Drain waits until every question asked with Later has its answer. den
+// calls it once it stops, when each gets ErrRestarted, so what they tell
+// the agent is kept for the next start.
+func (a *Asker) Drain() { a.later.Wait() }
 
 // LaterWait is how long a question asked with Later waits for an answer.
 // Nothing waits on it but den, so the user can answer when they are back.
@@ -248,7 +258,7 @@ func (s *sent) wait(ctx context.Context, limit time.Duration) error {
 		log.Printf("approve: %v", err)
 	}
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return ErrRestarted
 	}
 	return ErrExpired
 }

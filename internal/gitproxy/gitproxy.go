@@ -313,9 +313,7 @@ func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, c
 	}
 	if answer != nil {
 		log.Printf("git: %s: not pushed: %v", what, answer)
-		if !errors.Is(answer, context.Canceled) {
-			report(fmt.Sprintf("[den: %s was not pushed: %v.]", what, answer), "")
-		}
+		report(fmt.Sprintf("[den: %s was not pushed: %v.]", what, answer), "")
 		return
 	}
 

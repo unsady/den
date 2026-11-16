@@ -154,9 +154,7 @@ func (s *Server) sendLater(a Account, to []string, msg []byte, what, turn string
 	}
 	if answer != nil {
 		log.Printf("mail: to %s: not sent: %v", strings.Join(to, ", "), answer)
-		if !errors.Is(answer, context.Canceled) {
-			report(fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
-		}
+		report(fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
 		return
 	}
 	if err := s.send(a, to, msg); err != nil {

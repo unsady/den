@@ -257,9 +257,7 @@ func (f *Fetcher) sendLater(s service, req Request, method string, u *url.URL, w
 	}
 	if answer != nil {
 		log.Printf("fetch: %s %s %s: not sent: %v", req.Secret, method, u, answer)
-		if !errors.Is(answer, context.Canceled) {
-			f.Report(req.Turn, fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
-		}
+		f.Report(req.Turn, fmt.Sprintf("[den: %s was not sent: %v.]", what, answer), "")
 		return
 	}
 	log.Printf("fetch: %s %s %s: allowed by the user", req.Secret, method, u)
