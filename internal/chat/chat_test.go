@@ -73,6 +73,8 @@ type fakeTelegram struct {
 	reacted []string
 	// buttons holds the callback data of the last message's buttons.
 	buttons []string
+	// labels are the texts of those buttons.
+	labels []string
 }
 
 // press queues a press of a button with the given data.
@@ -141,16 +143,17 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.menu, _ = body["commands"].([]any)
 		f.mu.Unlock()
 	case strings.HasSuffix(r.URL.Path, "/sendMessage"), strings.HasSuffix(r.URL.Path, "/editMessageText"):
-		var buttons []string
+		var buttons, labels []string
 		if markup, ok := body["reply_markup"].(map[string]any); ok {
 			for _, row := range markup["inline_keyboard"].([]any) {
 				for _, b := range row.([]any) {
 					buttons = append(buttons, b.(map[string]any)["callback_data"].(string))
+					labels = append(labels, b.(map[string]any)["text"].(string))
 				}
 			}
 		}
 		f.mu.Lock()
-		f.buttons = buttons
+		f.buttons, f.labels = buttons, labels
 		f.mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "/editMessageText") {
 			f.edited <- fmt.Sprintf("%v: %s", body["message_id"], body["text"])
@@ -203,6 +206,15 @@ func (f *fakeTelegram) expectButtons(t *testing.T, want ...string) {
 	defer f.mu.Unlock()
 	if strings.Join(f.buttons, " ") != strings.Join(want, " ") {
 		t.Fatalf("buttons %v, want %v", f.buttons, want)
+	}
+}
+
+func (f *fakeTelegram) expectLabels(t *testing.T, want ...string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if strings.Join(f.labels, "|") != strings.Join(want, "|") {
+		t.Fatalf("labels %q, want %q", f.labels, want)
 	}
 }
 
@@ -514,7 +526,7 @@ func TestChatControls(t *testing.T) {
 
 	// /sessions lists root sessions, newest first, and a button switches.
 	telegram.message(42, "/sessions")
-	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
+	telegram.expect(t, "Recent sessions:")
 	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	// ✕ deletes the list.
 	telegram.press("x:")
@@ -523,7 +535,7 @@ func TestChatControls(t *testing.T) {
 		t.Fatalf("deleted %d", id)
 	}
 	telegram.message(42, "/sessions")
-	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
+	telegram.expect(t, "Recent sessions:")
 	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	telegram.press("s:aaa")
 	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
@@ -765,29 +777,32 @@ func TestSessionsList(t *testing.T) {
 
 	// Job runs stay out, and the session switched to last comes first.
 	telegram.message(42, "/sessions")
-	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 2h ago\n2. Taxes, 3h ago")
+	telegram.expect(t, "Recent sessions:")
+	telegram.expectLabels(t, "Trip · 2h ago", "Taxes · 3h ago", "⏰ Job runs", "✕")
 	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	telegram.press("s:aaa")
 	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
 	telegram.expectAnswer(t, "")
 	telegram.expectButtons(t)
 	telegram.message(42, "/sessions")
-	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
+	telegram.expect(t, "Recent sessions:")
+	telegram.expectLabels(t, "• Taxes · 3h ago", "Trip · 2h ago", "⏰ Job runs", "✕")
 	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
 
 	// Job runs have a list of their own, and the chats come back.
 	telegram.press("sj:")
-	telegram.expectEdit(t, "1: Recent job runs. Pick one to continue it:\n\n1. News alerts, 1h ago")
+	telegram.expectEdit(t, "1: Recent job runs:")
 	telegram.expectAnswer(t, "")
 	telegram.expectButtons(t, "s:job", "sc:", "x:")
 	telegram.press("sc:")
-	telegram.expectEdit(t, "1: Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
+	telegram.expectEdit(t, "1: Recent sessions:")
 	telegram.expectAnswer(t, "")
 	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
 
 	// Words find sessions of either kind by title.
 	telegram.message(42, "/sessions ALERTS")
-	telegram.expect(t, "Sessions with “ALERTS”. Pick one to continue it:\n\n1. ⏰ News alerts, 1h ago")
+	telegram.expect(t, "Sessions with “ALERTS”:")
+	telegram.expectLabels(t, "⏰ News alerts · 1h ago", "✕")
 	telegram.expectButtons(t, "s:job", "x:")
 	telegram.message(42, "/sessions boat")
 	telegram.expect(t, "No session title has “boat”.")

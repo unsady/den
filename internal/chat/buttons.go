@@ -78,25 +78,22 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 		c.send(ctx, telegram, "No sessions yet. Write to start one.")
 		return
 	case query != "":
-		text = "Sessions with “" + html.EscapeString(words) + "”. Pick one to continue it:\n"
+		text = "Sessions with “" + html.EscapeString(words) + "”:"
 	case jobRuns:
-		text = "Recent job runs. Pick one to continue it:\n"
+		text = "Recent job runs:"
 	default:
-		text = "Recent sessions. Pick one to continue it:\n"
+		text = "Recent sessions:"
 	}
 
+	// Each session is one button, so the list is not written out twice;
+	// • marks the current one.
 	var rows [][]notify.Button
-	for i, s := range list {
-		mark := ""
+	for _, s := range list {
+		label := clipRunes(s.Title, 40) + " · " + ago(s.Updated)
 		if ofJobs[s.ID] && !jobRuns {
-			mark = "⏰ "
+			label = "⏰ " + label
 		}
-		line := fmt.Sprintf("\n%d. %s%s, %s", i+1, mark, html.EscapeString(s.Title), ago(s.Updated))
-		if s.ID == current {
-			line += "  ← current"
-		}
-		text += line
-		rows = append(rows, []notify.Button{{Text: fmt.Sprintf("%d. %s", i+1, clipRunes(s.Title, 40)), Data: "s:" + s.ID}})
+		rows = append(rows, []notify.Button{{Text: mark(label, s.ID == current), Data: "s:" + s.ID}})
 	}
 
 	last := []notify.Button{{Text: "⏰ Job runs", Data: "sj:"}, closeButton}
