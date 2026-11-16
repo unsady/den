@@ -26,3 +26,19 @@ func TestShowsWhatTheRecipientReads(t *testing.T) {
 		t.Errorf("same HTML shown:\n%s", got)
 	}
 }
+
+func TestRecipientIsTheOneAddressOfAMessage(t *testing.T) {
+	for raw, want := range map[string]string{
+		"To: Anya <Anya@Example.com>\r\nSubject: hi\r\n\r\nhello": "anya@example.com",
+		"To: a@example.com, b@example.com\r\n\r\nhello":           "",
+		"To: a@example.com\r\nCc: b@example.com\r\n\r\nhello":     "",
+		"To: a@example.com\r\nBcc: b@example.com\r\n\r\nhello":    "",
+		"To: a@example.com\r\nTo: b@example.com\r\n\r\nhello":     "",
+		"Subject: nobody\r\n\r\nhello":                            "",
+		"To: not an address\r\n\r\nhello":                         "",
+	} {
+		if got := Recipient([]byte(raw)); got != want {
+			t.Errorf("%q: got %q, want %q", raw, got, want)
+		}
+	}
+}

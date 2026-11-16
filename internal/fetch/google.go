@@ -30,6 +30,8 @@ var google = service{
 	refuse:  refuseGoogle,
 	preview: previewDraft,
 	show:    showMail,
+	// A draft's recipients are not in the request, so a draft always asks.
+	recipient: sentTo,
 }
 
 // reviewGoogle lets reads and changes to the user's own mail and calendar
@@ -186,6 +188,26 @@ func showMail(body []byte) string {
 		return text
 	}
 	return show(body)
+}
+
+// sentTo gives the one address a message sent with messages/send goes to,
+// or "".
+func sentTo(u *url.URL, body []byte) string {
+	if !strings.HasSuffix(u.Path, "/messages/send") {
+		return ""
+	}
+	raw := body
+	var wrapped struct {
+		Raw string `json:"raw"`
+	}
+	if json.Unmarshal(body, &wrapped) == nil {
+		decoded, err := decodeBase64(wrapped.Raw)
+		if wrapped.Raw == "" || err != nil {
+			return ""
+		}
+		raw = decoded
+	}
+	return letter.Recipient(raw)
 }
 
 // decodeBase64 takes Gmail's raw message in either base64 alphabet, padded

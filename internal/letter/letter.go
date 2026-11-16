@@ -67,6 +67,31 @@ func Show(raw []byte, also []string) string {
 	return out
 }
 
+// Recipient returns the address a message goes to, in lower case, when its
+// To, Cc, and Bcc headers name exactly one, and "" otherwise.
+func Recipient(raw []byte) string {
+	m, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return ""
+	}
+
+	var all []*mail.Address
+	for _, k := range []string{"To", "Cc", "Bcc"} {
+		// A header may repeat, and a mail app reads every one.
+		for _, v := range m.Header[k] {
+			list, err := mail.ParseAddressList(v)
+			if err != nil {
+				return ""
+			}
+			all = append(all, list...)
+		}
+	}
+	if len(all) != 1 {
+		return ""
+	}
+	return strings.ToLower(all[0].Address)
+}
+
 // texts are a message's first plain and first HTML text.
 type texts struct{ plain, html string }
 

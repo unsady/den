@@ -123,15 +123,19 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
 	} else {
 		text += " to " + strings.Join(to, ", ")
 	}
-	// Each mail is new, so it is asked about every time. The client does
-	// not wait for the answer: den sends the message once the user allows
-	// it, and tells the agent.
+	// Each mail is new, so it is asked about every time, unless it goes to
+	// one person the user allowed. The client does not wait for the answer:
+	// den sends the message once the user allows it, and tells the agent.
 	turn := ""
 	if s.Turn != nil {
 		turn = s.Turn()
 	}
 	what := "Mail to " + strings.Join(to, ", ")
-	_, err = s.later(approve.Question{Text: text, What: what}, func(answer error) {
+	q := approve.Question{Text: text, What: what}
+	if len(to) == 1 {
+		q.MailTo(to[0])
+	}
+	_, err = s.later(q, func(answer error) {
 		s.sendLater(a, to, msg, what, turn, answer)
 	})
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,7 +39,7 @@ type Question struct {
 	What string
 	// Rule names the kind of action, so the user can allow it for good.
 	// Empty offers no such choice, for actions that differ each time, such
-	// as mail.
+	// as mail to several people.
 	Rule string
 	// Label names the rule for the user, such as "crm: PATCH /api/deals/*";
 	// empty uses What.
@@ -47,6 +48,16 @@ type Question struct {
 	// such as every write to one service but deletes. Empty offers no
 	// such choice.
 	Scope string
+}
+
+// MailTo lets the user allow every mail to one address for good or for an
+// hour.
+func (q *Question) MailTo(address string) {
+	address = strings.ToLower(address)
+	q.Rule = "mail to " + address
+	q.Label = "Mail to " + address
+	q.Scope = q.Rule
+	q.Text += "\n\nAlways and 1 hour allow every mail to " + address + "."
 }
 
 // The outcomes of an action in the log.

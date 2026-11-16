@@ -13,6 +13,7 @@ release notes.
 - A recurring job's prompt names the skill to use, and the rules live in the skill, where the nightly jobs can fix them.
 - A `/bg` task is named in English, in two words, three at most, whatever the task's language, so the names of tasks and jobs read alike. ChatGPT and Grok subscriptions name tasks too, instead of falling back to the task's first words.
 - The agent sets size limits in words, which models keep to with room to spare and which count the same in any language: memory sections, skills, and its own rules.
+- A mail to one person can be allowed for good or for an hour: the question has Always and 1 hour buttons for that address, over SMTP and when the agent sends through Google (a draft still asks every time). A mail to several people asks each time.
 - A reply to a message of a job goes to the model that ran the job, and the files of an album reach the agent as one message.
 
 ### Fixed
