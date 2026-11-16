@@ -17,6 +17,7 @@ release notes.
 
 ### Fixed
 
+- The agent sends mail with Google as plain UTF-8 text, not as base64 that the recipient read as it was.
 - Shortening a skill no longer drops limits its rules set, such as how many records a run reviews.
 
 ## v0.7.0

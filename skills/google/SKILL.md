@@ -41,13 +41,14 @@ Write the message as a file with CRLF line ends, then upload it as it is:
 
 ```bash
 subject="=?UTF-8?B?$(printf %s "Résumé for review" | base64 -w0)?="
-printf 'To: Name <name@example.com>\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s\r\n' "$subject" "$text" > mail.eml
+printf 'To: Name <name@example.com>\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s\r\n' "$subject" "$text" > mail.eml
 den fetch --secret google -H 'Content-Type: message/rfc822' -d @mail.eml "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media"
 den fetch --secret google -H 'Content-Type: message/rfc822' -d @mail.eml "https://www.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media"
 den fetch --secret google -d '{"id":"<draftId>"}' "$g/drafts/send"
 ```
 
 - A reply keeps its thread: add `In-Reply-To:` and `References:` with the original's `Message-ID`, keep the subject with `Re: `, and send JSON with the thread id instead of the upload: `jq -n --arg raw "$(base64 -w0 mail.eml | tr '+/' '-_')" --arg t <threadId> '{raw: $raw, threadId: $t}' | den fetch --secret google -d @- "$g/messages/send"`.
+- Write the body as plain UTF-8 text. Only the subject is encoded; a body in base64 without `Content-Transfer-Encoding: base64` reaches the reader as base64.
 - Leave out `From:`; Gmail uses the account's address.
 
 ## Calendar
