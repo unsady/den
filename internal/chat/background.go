@@ -87,7 +87,7 @@ func (c *Chat) nameTask(ctx context.Context, task string) string {
 	body, _ := json.Marshal(map[string]any{
 		"model": model,
 		"messages": []map[string]string{
-			{"role": "system", "content": "Name the user's task in two or three words, in the task's language, lowercase and joined with hyphens, such as compare-models. Answer with the name only."},
+			{"role": "system", "content": "Name the user's task in English, in two words or three at most, lowercase and joined with hyphens, such as compare-models. Answer with the name only."},
 			{"role": "user", "content": clipRunes(task, 2000)},
 		},
 	})
