@@ -6,6 +6,25 @@ release notes.
 
 ## Unreleased
 
+### Better
+
+- A push that waits for your answer names its commits: the question lists each branch with its count of commits and files, their titles, and a link to the comparison on GitHub, and says when the push rewrites history. Allow moves the branch to the commits you saw; if the branch moved meanwhile, den leaves it alone and tells the agent.
+- A request too long to show in its question comes with its whole body as a file, sent before the buttons.
+- `/log` shows the repeating jobs the agent added or removed.
+- The 1 hour button no longer covers changes to access, secrets, workflows, or branch rules; those ask every time.
+- When a job falls back to the second model, the second model goes on in the same session, with what the first did so far.
+- Messages that wait for the agent to finish a turn survive a restart of den.
+- If den stops before you answer a question, the agent learns that the action did not happen, instead of waiting.
+
+### Fixed
+
+- `den fetch` refuses `.` and `..` in a path, which could reach a path the rule did not name.
+- The release is published only once its image is on ghcr.io, so an update never finds a release without its image.
+
+### Security
+
+- Under Docker and Podman, the container runs with `no-new-privileges`, so nothing the agent runs gains more rights through a setuid program, and with at most 512 processes, so a command that forks without end stops in the container.
+
 ## v0.8.1
 
 ### Better
