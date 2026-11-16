@@ -345,7 +345,12 @@ func (d *daemon) start(j jobs.Job) bool {
 		if second := d.chat.Choice(d.ctx, jobs.Second); run.Error != "" && d.ctx.Err() == nil && second != choice && runner.ProviderFailed(run.Stderr) {
 			failed := lastLine(run.Stderr)
 			log.Printf("job %s: %s failed, running it on %s", j.Label(), choice.Model, second.Model)
-			run = runner.Run(d.ctx, d.cfg, j, second)
+			// It goes on in the session the first model left, so what that
+			// one already did is not done twice.
+			input, output := run.InputTokens, run.OutputTokens
+			run = runner.Continue(d.ctx, d.cfg, j, second, run.SessionID)
+			run.InputTokens += input
+			run.OutputTokens += output
 			run.FellBack = choice.Model + " failed: " + failed
 			choice = second
 		}

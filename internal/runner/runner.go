@@ -74,7 +74,20 @@ type Choice struct {
 
 // Run runs j on the model choice names.
 func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice) jobs.Run {
-	reply := Ask(ctx, cfg, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort})
+	return Continue(ctx, cfg, j, choice, "")
+}
+
+const continueNote = "[The model's provider failed in the middle of this job, and you are another model that takes it over. " +
+	"Go on from where it stopped, and do not repeat what is already done.]"
+
+// Continue runs j on the model choice names in session, where another
+// model's provider failed it, or from the start when session is empty.
+func Continue(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, session string) jobs.Run {
+	prompt := Prompt(j)
+	if session != "" {
+		prompt = continueNote
+	}
+	reply := Ask(ctx, cfg, Request{Prompt: prompt, Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Resume: session})
 	return jobs.Run{
 		JobID:     j.ID,
 		Started:   reply.Started,
