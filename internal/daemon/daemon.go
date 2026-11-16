@@ -385,12 +385,6 @@ func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) 
 // JobSessions serves the chat's /sessions, which keeps job runs apart.
 func (d *daemon) JobSessions() map[string]bool { return d.runs.Sessions() }
 
-// DeleteSession deletes a session, for the chat's buttons.
-func (d *daemon) DeleteSession(id string) error {
-	_, err := d.deleteSession(d.ctx, id)
-	return err
-}
-
 // deleteSession deletes the fx session id and makes the chat forget it. On
 // an error it returns the HTTP status that suits it.
 func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {

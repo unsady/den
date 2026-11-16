@@ -430,10 +430,6 @@ type fakeDaemon struct {
 	context int
 	// jobSessions are the sessions of job runs.
 	jobSessions map[string]bool
-	// index is the sessions index, where DeleteSession marks a session
-	// deleted; deleted holds the ids it deleted.
-	index   string
-	deleted []string
 }
 
 func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
@@ -446,19 +442,6 @@ func (f *fakeDaemon) JobSessions() map[string]bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.jobSessions
-}
-
-func (f *fakeDaemon) DeleteSession(id string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.deleted = append(f.deleted, id)
-	file, err := os.OpenFile(f.index, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = fmt.Fprintf(file, "{\"op\":\"del\",\"id\":%q,\"ts\":1}\n", id)
-	return err
 }
 
 func (f *fakeDaemon) Answer(id, outcome string) (string, bool) {
@@ -545,7 +528,7 @@ func TestChatControls(t *testing.T) {
 	// /sessions lists root sessions, newest first, and a button switches.
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
-	telegram.expectButtons(t, "s:bbb", "sx:bbb", "s:aaa", "sx:aaa", "sj:", "x:")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	// ✕ deletes the list.
 	telegram.press("x:")
 	telegram.expectAnswer(t, "")
@@ -554,7 +537,7 @@ func TestChatControls(t *testing.T) {
 	}
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 1h ago\n2. Taxes, 2h ago")
-	telegram.expectButtons(t, "s:bbb", "sx:bbb", "s:aaa", "sx:aaa", "sj:", "x:")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	telegram.press("s:aaa")
 	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
 	telegram.expectAnswer(t, "")
@@ -797,55 +780,34 @@ func TestSessionsList(t *testing.T) {
 {"op":"del","id":"gone","ts":1}
 `, now.Add(-3*time.Hour).UnixMilli(), now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli(), now.UnixMilli())
 	os.MkdirAll(cfg.Sessions, 0o755)
-	den.index = filepath.Join(cfg.Sessions, "index.jsonl")
-	os.WriteFile(den.index, []byte(index), 0o644)
+	os.WriteFile(filepath.Join(cfg.Sessions, "index.jsonl"), []byte(index), 0o644)
 
 	// Job runs stay out, and the session switched to last comes first.
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Trip, 2h ago\n2. Taxes, 3h ago")
-	telegram.expectButtons(t, "s:bbb", "sx:bbb", "s:aaa", "sx:aaa", "sj:", "x:")
+	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
 	telegram.press("s:aaa")
 	telegram.expectEdit(t, "1: ↺ Taxes · <b>auto</b> · p1")
 	telegram.expectAnswer(t, "")
 	telegram.expectButtons(t)
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
-	telegram.expectButtons(t, "s:aaa", "sx:aaa", "s:bbb", "sx:bbb", "sj:", "x:")
+	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
 
 	// Job runs have a list of their own, and the chats come back.
 	telegram.press("sj:")
 	telegram.expectEdit(t, "1: Recent job runs. Pick one to continue it:\n\n1. News alerts, 1h ago")
 	telegram.expectAnswer(t, "")
-	telegram.expectButtons(t, "s:job", "sx:job", "sc:", "x:")
+	telegram.expectButtons(t, "s:job", "sc:", "x:")
 	telegram.press("sc:")
 	telegram.expectEdit(t, "1: Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
 	telegram.expectAnswer(t, "")
-	telegram.expectButtons(t, "s:aaa", "sx:aaa", "s:bbb", "sx:bbb", "sj:", "x:")
-
-	// A session is deleted after the user confirms, and the list comes back
-	// without it.
-	telegram.press("sx:bbb")
-	telegram.expectEdit(t, "1: Delete “Trip”? This cannot be undone.")
-	telegram.expectAnswer(t, "")
-	telegram.expectButtons(t, "sd:bbb", "sc:")
-	telegram.press("sc:")
-	telegram.expectEdit(t, "1: Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current\n2. Trip, 2h ago")
-	telegram.expectAnswer(t, "")
-	telegram.press("sx:bbb")
-	telegram.expectEdit(t, "1: Delete “Trip”? This cannot be undone.")
-	telegram.expectAnswer(t, "")
-	telegram.press("sd:bbb")
-	telegram.expectEdit(t, "1: Recent sessions. Pick one to continue it:\n\n1. Taxes, 3h ago  ← current")
-	telegram.expectAnswer(t, "Deleted")
-	telegram.expectButtons(t, "s:aaa", "sx:aaa", "sj:", "x:")
-	if !slices.Equal(den.deleted, []string{"bbb"}) {
-		t.Fatalf("deleted %v", den.deleted)
-	}
+	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
 
 	// Words find sessions of either kind by title.
 	telegram.message(42, "/sessions ALERTS")
 	telegram.expect(t, "Sessions with “ALERTS”. Pick one to continue it:\n\n1. ⏰ News alerts, 1h ago")
-	telegram.expectButtons(t, "s:job", "sx:job", "x:")
+	telegram.expectButtons(t, "s:job", "x:")
 	telegram.message(42, "/sessions boat")
 	telegram.expect(t, "No session title has “boat”.")
 }
