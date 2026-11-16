@@ -68,8 +68,10 @@ type Proxy struct {
 	// Turn names the chat's turn running now, if any, which most likely
 	// pushed: git carries no DEN_TURN.
 	Turn func() string
-	// upstream is GitHub's address; tests change it.
+	// upstream is GitHub's address, and api its API's; tests change them.
+	// Without api, a question shows a push by its commit IDs alone.
 	upstream  string
+	api       string
 	transport http.RoundTripper
 
 	mu sync.Mutex
@@ -78,7 +80,7 @@ type Proxy struct {
 }
 
 func New(cfg config.Config, later Later) *Proxy {
-	p := &Proxy{cfg: cfg, later: later, upstream: "https://github.com", mine: map[string]bool{}}
+	p := &Proxy{cfg: cfg, later: later, upstream: "https://github.com", api: "https://api.github.com", mine: map[string]bool{}}
 	data, err := os.ReadFile(filepath.Join(cfg.State, branchesFile))
 	if err == nil {
 		var list []string
@@ -243,9 +245,27 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo string,
 		turn = p.Turn()
 	}
 	header := r.Header.Clone()
+	// GitHub takes the commits under refs of den's own first, so the
+	// question can say what they are.
+	h, err := p.keep(owner, repo, header, data, commands)
+	if err != nil {
+		log.Printf("git: %s: asking by commit IDs: %v", q.What, err)
+	}
+	if h != nil {
+		q.Text = "⇡ Push to " + owner + "/" + repo + "\n\n" + strings.Join(h.shown, "\n")
+	}
 	waiting, err := p.later(q, func(answer error) {
+		if h != nil {
+			p.moveLater(h, q.What, turn, answer)
+			return
+		}
 		p.pushLater(owner, repo, header, data, commands, q.What, turn, answer)
 	})
+	if h != nil && !waiting {
+		// A rule allows it, or nobody could be asked: the push goes on, or
+		// fails, as git sent it.
+		h.drop()
+	}
 	switch {
 	case err != nil:
 		refuse(w, commands, caps, err)
