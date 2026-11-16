@@ -24,8 +24,11 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./... && go test ./...
 
+  # The release comes after the image: den update takes the den command
+  # from the latest release and the image from :latest, and the image
+  # takes much longer to build.
   binaries:
-    needs: test
+    needs: manifest
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
