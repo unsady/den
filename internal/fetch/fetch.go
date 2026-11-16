@@ -377,8 +377,9 @@ func hourScope(s service, secret, method string, u *url.URL) (string, string) {
 		return "fetch " + secret, "every write to " + s.label + " but deletes"
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	// Handing a repository to someone else is never one of many.
-	if len(parts) < 4 || parts[0] != "repos" || parts[3] == "transfer" {
+	// Handing a repository to someone else, and changing who or what can
+	// reach it or how it is guarded, are never one of many.
+	if len(parts) < 4 || parts[0] != "repos" || slices.Contains(guarded, parts[3]) {
 		return "", ""
 	}
 	repo := strings.ToLower(parts[1] + "/" + parts[2])
@@ -412,4 +413,8 @@ func pathPattern(path string) string {
 		}
 	}
 	return strings.Join(parts, "/")
+// guarded are the parts of a repository an hour does not cover: its owner,
+// its access, its secrets and workflows, and its branches' rules.
+var guarded = []string{"transfer", "collaborators", "invitations", "hooks", "keys", "actions", "environments", "branches", "rulesets", "dependabot", "codespaces"}
+
 }
