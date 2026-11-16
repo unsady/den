@@ -219,12 +219,19 @@ func TestAskWithFile(t *testing.T) {
 		}
 	}
 
+	a := New(cfg)
+	ctx, stop := context.WithCancel(context.Background())
 	q := Question{Text: "Post it?", What: "crm: POST /api/deals", File: []byte("{}"), FileName: "body.json"}
-	waiting, err := New(cfg).Later(t.Context(), q, func(error) {})
+	waiting, err := a.Later(ctx, q, func(error) {})
 	if err != nil || !waiting {
 		t.Fatalf("Later = %v, %v", waiting, err)
 	}
-	if got := strings.Join(calls, " "); got != "sendDocument sendMessage" {
+
+	// The question writes den's state once it ends, so it ends before the
+	// test removes its folder.
+	stop()
+	a.Drain()
+	if got := strings.Join(calls, " "); !strings.HasPrefix(got, "sendDocument sendMessage") {
 		t.Errorf("the file goes before the question, got %s", got)
 	}
 }
