@@ -130,9 +130,8 @@ func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int
 			text += " · second model"
 		}
 		text += "\n" + html.EscapeString(clipRunes(j.Prompt, 80)) + "\n"
-		rows = append(rows, []notify.Button{{Text: "▶ Run " + clipRunes(j.Label(), 30), Data: "jr:" + j.ID}})
 	}
-	text += "\nAsk the agent to change a job."
+	text += "\nAsk the agent to change or run a job."
 	c.show(ctx, telegram, edit, text, append(rows, []notify.Button{closeButton}))
 }
 
@@ -234,13 +233,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 		if r, found := c.den.Forget(ref); found {
 			answer = "den will ask about " + r.Label + " again"
 			c.showLog(ctx, telegram, cb.Message)
-		}
-
-	case "jr":
-		if j, err := c.den.StartJob(ref); err != nil {
-			answer = err.Error()
-		} else {
-			answer, text = "Started", "Started job "+j.Label()+". Its reply comes when it finishes."
 		}
 
 	case "rs":

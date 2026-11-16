@@ -365,19 +365,8 @@ func (d *daemon) start(j jobs.Job) bool {
 	return true
 }
 
-// ListJobs and StartJob serve the chat's /jobs.
+// ListJobs serves the chat's /jobs.
 func (d *daemon) ListJobs() []jobs.Job { return d.store.List() }
-
-func (d *daemon) StartJob(ref string) (jobs.Job, error) {
-	j, err := d.store.Get(ref)
-	if err != nil {
-		return j, err
-	}
-	if !d.start(j) {
-		return j, fmt.Errorf("job %s is already running", j.Label())
-	}
-	return j, nil
-}
 
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }

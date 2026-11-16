@@ -418,7 +418,6 @@ func expectFile(t *testing.T, path, want string) {
 type fakeDaemon struct {
 	mu   sync.Mutex
 	list []jobs.Job
-	ran  []string
 	// questions maps a waiting question's id to its text, and answers
 	// records each answer as id=true or id=false.
 	questions map[string]string
@@ -480,18 +479,6 @@ func (f *fakeDaemon) ListJobs() []jobs.Job {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]jobs.Job(nil), f.list...)
-}
-
-func (f *fakeDaemon) StartJob(ref string) (jobs.Job, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, j := range f.list {
-		if j.ID == ref {
-			f.ran = append(f.ran, ref)
-			return j, nil
-		}
-	}
-	return jobs.Job{}, fmt.Errorf("no job %s", ref)
 }
 
 func (f *fakeTelegram) expectPrefix(t *testing.T, want string) string {
@@ -556,16 +543,10 @@ func TestChatControls(t *testing.T) {
 		t.Fatalf("prompt %q, want %q", prompt, want)
 	}
 
-	// /jobs lists the jobs with a button to run each; the agent changes them.
+	// /jobs lists the jobs; the agent changes and runs them.
 	telegram.message(42, "/jobs")
-	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nAsk the agent to change a job.")
-	telegram.expectButtons(t, "jr:j1", "x:")
-	telegram.press("jr:j1")
-	telegram.expectAnswer(t, "Started")
-	telegram.expect(t, "Started job reflect. Its reply comes when it finishes.")
-	if strings.Join(scheduler.ran, ",") != "j1" {
-		t.Fatalf("ran %v", scheduler.ran)
-	}
+	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nAsk the agent to change or run a job.")
+	telegram.expectButtons(t, "x:")
 
 	// /model offers the current and recent models, the full list by
 	// provider, and a search. Pressing changes the list in place, and a

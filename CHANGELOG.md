@@ -8,6 +8,7 @@ release notes.
 
 ### Better
 
+- `/jobs` has no ▶ Run button under each job; ask the agent to run one.
 - `/sessions` has no 🗑 button beside each session, so the sessions get the whole width. `den sessions rm <id>` still deletes one.
 - Questions and messages in the chat no longer repeat what they already show. Once you answer a question, it says what Always or 1 hour allowed, such as mail to one address or every write to a service.
 

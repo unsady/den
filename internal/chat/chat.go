@@ -76,10 +76,9 @@ const recentSessions = 8
 // questions den asked the user.
 type Daemon interface {
 	ListJobs() []jobs.Job
-	StartJob(ref string) (jobs.Job, error)
 	// Answer passes the user's answer to question id, one of approve's
-	// outcomes, and returns the question, or false when it is no longer
-	// waiting.
+	// outcomes, and returns what the answered message shrinks to, or false
+	// when it is no longer waiting.
 	Answer(id, outcome string) (string, bool)
 	// Rules, Forget, and Actions are the kinds of action the user allowed
 	// for good and the log of actions, for /log.
