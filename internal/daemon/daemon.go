@@ -342,7 +342,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		run := runner.Run(d.ctx, d.cfg, j, choice)
 		// When the main model's provider refuses or fails, such as when its
 		// quota runs out, the second model runs the job once.
-		if second := d.chat.Choice(d.ctx, jobs.Second); run.Error != "" && d.ctx.Err() == nil && second != choice && runner.ProviderFailed(run.Stderr) {
+		if second := d.chat.Choice(d.ctx, jobs.Second); run.Error != "" && d.ctx.Err() == nil && second != choice && run.ProviderFailed {
 			failed := lastLine(run.Stderr)
 			log.Printf("job %s: %s failed, running it on %s", j.Label(), choice.Model, second.Model)
 			// It goes on in the session the first model left, so what that

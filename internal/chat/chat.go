@@ -744,7 +744,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	// quota runs out, a button offers the second model. It does not take
 	// over by itself: the user may want this model's answer, not any.
 	var offer [][]notify.Button
-	if reply.Error != "" && turn.Err() == nil && fallback != nil && runner.ProviderFailed(reply.Stderr) {
+	if reply.Error != "" && turn.Err() == nil && fallback != nil && reply.ProviderFailed {
 		offer = [][]notify.Button{{{Text: "↻ Ask " + fallback.Model, Data: "rs:"}}}
 		c.mu.Lock()
 		c.retry = &entry{text: prompt, second: true, session: other, label: label}

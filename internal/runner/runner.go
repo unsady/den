@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,6 +100,8 @@ func Continue(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice,
 		Stderr:    reply.Stderr,
 		Model:     choice.Model,
 
+		ProviderFailed: reply.ProviderFailed,
+
 		InputTokens:  reply.InputTokens,
 		OutputTokens: reply.OutputTokens,
 	}
@@ -139,6 +142,9 @@ type Reply struct {
 	Output    string
 	Error     string
 	Stderr    string
+	// ProviderFailed says the model's provider refused or failed the
+	// request, so another model may answer it.
+	ProviderFailed bool
 	// Input and Output tokens are what fx reported, 0 when it reported none.
 	InputTokens  int64
 	OutputTokens int64
@@ -225,6 +231,7 @@ func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
 	if IsSilent(reply.Output) {
 		reply.Output = Silent
 	}
+	reply.ProviderFailed = providerFailed(result.HTTPStatus, reply.Stderr)
 	if result.Usage != nil {
 		reply.InputTokens = value(result.Usage.Input)
 		reply.OutputTokens = value(result.Usage.Output)
@@ -351,7 +358,10 @@ type askResult struct {
 	Output      string `json:"output"`
 	SessionID   string `json:"session_id"`
 	Error       string `json:"error"`
-	Usage       *struct {
+	// HTTPStatus is what the model's provider answered a failed request
+	// with, 0 when it did not fail or fx is too old to say.
+	HTTPStatus int `json:"http_status"`
+	Usage      *struct {
 		Input  *int64 `json:"input_tokens"`
 		Output *int64 `json:"output_tokens"`
 	} `json:"usage"`
@@ -426,14 +436,19 @@ func (l *lines) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// providerFailure finds an error from the model provider that another
-// model may not run into: no access, no credits or quota, a rate limit, or
-// a failure on the provider's side.
-var providerFailure = regexp.MustCompile(`\bHTTP (40[123]|429|5\d\d)\b`)
-
-// ProviderFailed reports whether fx stopped because the model provider
-// refused or failed, by the last line it wrote, so another model may answer.
-func ProviderFailed(stderr string) bool {
-	lines := strings.Split(strings.TrimSpace(stderr), "\n")
-	return providerFailure.MatchString(lines[len(lines)-1])
+// providerFailed reports whether fx stopped on an error from the model
+// provider that another model may not run into: no access, no credits or
+// quota, a rate limit, or a failure on the provider's side. status is the
+// provider's answer as fx reports it. An fx that reports none says it only
+// on the last line it wrote.
+func providerFailed(status int, stderr string) bool {
+	if status == 0 {
+		lines := strings.Split(strings.TrimSpace(stderr), "\n")
+		if m := lastStatus.FindStringSubmatch(lines[len(lines)-1]); m != nil {
+			status, _ = strconv.Atoi(m[1])
+		}
+	}
+	return status >= 401 && status <= 403 || status == 429 || status >= 500 && status <= 599
 }
+
+var lastStatus = regexp.MustCompile(`\bHTTP (\d{3})\b`)

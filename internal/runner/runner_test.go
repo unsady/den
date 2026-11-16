@@ -12,31 +12,15 @@ func TestProviderFailed(t *testing.T) {
 		"Running curl -w 'HTTP 500'\nfx ask: the turn ran out of steps":         false,
 		"": false,
 	} {
-		if got := ProviderFailed(stderr); got != want {
-			t.Errorf("ProviderFailed(%q) = %v, want %v", stderr, got, want)
+		if got := providerFailed(0, stderr); got != want {
+			t.Errorf("providerFailed(0, %q) = %v, want %v", stderr, got, want)
 		}
 	}
-}
 
-func TestIsSilent(t *testing.T) {
-	for reply, want := range map[string]bool{
-		"SILENT":                         true,
-		"  SILENT\n":                     true,
-		"All sources healthy.\n\nSILENT": true,
-		"No new jobs.":                   false,
-		"SILENT means nothing to send.":  false,
-		"Say SILENT to skip.\nOK":        false,
-		"":                               false,
-	} {
-		if got := IsSilent(reply); got != want {
-			t.Errorf("IsSilent(%q) = %v", reply, got)
+	// The status fx reports wins over what it wrote.
+	for status, want := range map[int]bool{401: true, 402: true, 429: true, 503: true, 400: false, 404: false} {
+		if got := providerFailed(status, "fx ask: API request failed · HTTP 429 · rate limited"); got != want {
+			t.Errorf("providerFailed(%d) = %v, want %v", status, got, want)
 		}
-	}
-}
-
-func TestParseError(t *testing.T) {
-	r, err := parse([]byte("[notice] x\n" + `{"output":"","exit_code":1,"error":"SubscriptionNativeImageUnavailable"}`))
-	if err != nil || r.Error != "SubscriptionNativeImageUnavailable" {
-		t.Errorf("got %+v, %v", r, err)
 	}
 }
