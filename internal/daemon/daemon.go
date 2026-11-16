@@ -639,16 +639,16 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		reply(w, http.StatusCreated, j)
-	})
-
-	mux.HandleFunc("PATCH /jobs/{ref}", func(w http.ResponseWriter, r *http.Request) {
-		var req SlotRequest
 		// A repeating job goes on working after the chat that added it, so
 		// /log shows it.
 		if !j.Once {
 			d.ask.Note(fmt.Sprintf("Job %s added: %s", j.Label(), j.Schedule), approve.Went)
 		}
+		reply(w, http.StatusCreated, j)
+	})
+
+	mux.HandleFunc("PATCH /jobs/{ref}", func(w http.ResponseWriter, r *http.Request) {
+		var req SlotRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -671,14 +671,14 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusNotFound, err)
 			return
 		}
+		if !j.Once {
+			d.ask.Note(fmt.Sprintf("Job %s removed", j.Label()), approve.Went)
+		}
 		reply(w, http.StatusOK, j)
 	})
 
 	mux.HandleFunc("POST /jobs/{ref}/run", func(w http.ResponseWriter, r *http.Request) {
 		j, err := d.store.Get(r.PathValue("ref"))
-		if !j.Once {
-			d.ask.Note(fmt.Sprintf("Job %s removed", j.Label()), approve.Went)
-		}
 		if err != nil {
 			fail(w, http.StatusNotFound, err)
 			return

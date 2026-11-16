@@ -106,8 +106,8 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 	c.show(ctx, telegram, edit, text, append(rows, last))
 }
 
-// listJobs lists the jobs in a new message, or in place of edit, with a
-// button to run each now. The agent changes, moves, and removes jobs.
+// listJobs lists the jobs in a new message, or in place of edit. The agent
+// changes, runs, and removes jobs.
 func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int64) {
 	list := c.den.ListJobs()
 	if len(list) == 0 {

@@ -76,6 +76,7 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/sessions` | Continue a recent session: the ones you used last come first, **Job runs** lists the jobs' sessions, and `/sessions taxes` finds one by title |
 | `/model` | Choose the model: the last ones chosen are one tap away, **All models** lists every provider's models, and `/model deep flash` finds one by name. **Second model** chooses the one for jobs set to it |
 | `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
+| `/bg` | Run a task in the background, in a session of its own: `/bg <task>`. Its answer comes under the task's name, and a reply to it goes on in that session |
 | `/again` | Ask the second model to answer your last message again in the same session, or `/again <text>` for one message; the reply starts with `↻` and its model |
 | `/stop` | Stop the current turn |
 | `/compact` | Shrink the session to a summary now, when it fills at least 10% of the model's window |
@@ -84,6 +85,7 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/log` | What the agent changed outside in the last day, and what you always allow |
 | `/usage` | Tokens used today and over the last 7 and 30 days |
 | `/bug` | Where to report a bug or suggest an idea: GitHub issues or den@bazutya.com |
+| `/help` | What the bot does |
 
 When you reply to a message, the agent sees which one you mean. Photos, voice messages, and files you send are saved in the agent's `inbox/`; a photo also goes to a model that takes images, and a voice message comes with its transcript when [speech-to-text](#voice-messages) is set up. Telegram lets a bot download files up to 20 MB, and the agent sends files up to 50 MB.
 

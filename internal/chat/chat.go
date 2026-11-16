@@ -57,7 +57,7 @@ var commands = []notify.Command{
 	{Name: "again", Description: "Ask the second model about your last message, or a new one"},
 	{Name: "stop", Description: "Stop the current turn"},
 	{Name: "compact", Description: "Shrink the session to a summary"},
-	{Name: "jobs", Description: "List, run, or remove jobs"},
+	{Name: "jobs", Description: "List the jobs"},
 	{Name: "log", Description: "What the agent did outside today, and what you always allow"},
 	{Name: "status", Description: "Show the model, context, memory, and jobs"},
 	{Name: "usage", Description: "Show the tokens den used"},
