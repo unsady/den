@@ -48,16 +48,19 @@ type Question struct {
 	// such as every write to one service but deletes. Empty offers no
 	// such choice.
 	Scope string
+	// ScopeLabel names the scope for the user, such as "every write to
+	// Google but deletes"; empty uses What.
+	ScopeLabel string
 }
 
 // MailTo lets the user allow every mail to one address for good or for an
-// hour.
+// hour. The question already shows the address, so it says nothing more.
 func (q *Question) MailTo(address string) {
 	address = strings.ToLower(address)
 	q.Rule = "mail to " + address
 	q.Label = "Mail to " + address
 	q.Scope = q.Rule
-	q.Text += "\n\nAlways and 1 hour allow every mail to " + address + "."
+	q.ScopeLabel = q.Label
 }
 
 // The outcomes of an action in the log.
@@ -239,10 +242,12 @@ func (s *sent) wait(ctx context.Context, limit time.Duration) error {
 	return ErrExpired
 }
 
-// Answer passes the user's answer to question id: Allowed, Denied, or
-// Always, which also allows the question's kind of action for good. It
-// returns the question's one line, which the answered message shrinks to,
-// or false when it is no longer waiting.
+// Answer passes the user's answer to question id: Allowed, Denied, Always,
+// which also allows the question's kind of action for good, or ForHour,
+// which allows its scope for an hour. It returns what the answered message
+// shrinks to: the question's one line and the answer, naming what Always
+// and 1 hour allow. It returns false when the question is no longer
+// waiting.
 func (a *Asker) Answer(id, outcome string) (string, bool) {
 	a.mu.Lock()
 	p, found := a.pending[id]
@@ -271,7 +276,27 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 		}
 	}
 	p.answer <- outcome
-	return p.What, true
+	return p.What + "\n" + answered(p.Question, outcome), true
+}
+
+// answered says what the user's answer to q allowed, without repeating
+// q's one line.
+func answered(q Question, outcome string) string {
+	what := ""
+	switch outcome {
+	case Denied:
+		return "✗ Denied"
+	case Always:
+		what = "✓ Always: " + cmp.Or(q.Label, q.What)
+	case ForHour:
+		what = "✓ For an hour: " + cmp.Or(q.ScopeLabel, q.What)
+	default:
+		return "✓ Allowed"
+	}
+	if strings.HasSuffix(what, ": "+q.What) {
+		what, _, _ = strings.Cut(what, ":")
+	}
+	return what
 }
 
 // Quote marks text from outside den, such as a service's answer, inside

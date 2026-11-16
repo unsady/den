@@ -80,7 +80,7 @@ func (c *Chat) secondModels(ctx context.Context, telegram *notify.Telegram, edit
 		[]notify.Button{{Text: "← Main", Data: "r:"}, {Text: "All models →", Data: "A:" + provider + ":0"}, closeButton},
 	)
 
-	text := "⚙︎ " + c.secondLine(setup) + "\n\nJobs set to the second model run on it, so a change here reaches them all."
+	text := "⚙︎ " + c.secondLine(setup) + "\n\nJobs on the second model use it too."
 	c.show(ctx, telegram, edit, text, rows)
 }
 
@@ -344,7 +344,7 @@ func (c *Chat) listEfforts(ctx context.Context, telegram *notify.Telegram) {
 	c.mu.Unlock()
 
 	rows := effortRows("e:", levels, effort)
-	c.sendHTML(ctx, telegram, "⚙︎ "+boldModel(model, setup)+"\n\nHow hard it thinks: more is slower and costs more.", append(rows, []notify.Button{closeButton}))
+	c.sendHTML(ctx, telegram, "⚙︎ "+boldModel(model, setup)+"\n\nHow hard it thinks:", append(rows, []notify.Button{closeButton}))
 }
 
 // perRow keeps button labels whole on a phone, where Telegram shortens

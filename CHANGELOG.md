@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Better
+
+- Questions and messages in the chat no longer repeat what they already show. Once you answer a question, it says what Always or 1 hour allowed, such as mail to one address or every write to a service.
+
 ## v0.8.0
 
 ### New

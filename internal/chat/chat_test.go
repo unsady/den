@@ -468,6 +468,7 @@ func (f *fakeDaemon) Answer(id, outcome string) (string, bool) {
 	if found {
 		delete(f.questions, id)
 		f.answers = append(f.answers, fmt.Sprintf("%s=%s", id, outcome))
+		text += "\n" + map[string]string{approve.Denied: "✗ Denied", approve.Always: "✓ Always"}[outcome]
 	}
 	return text, found
 }
@@ -574,7 +575,7 @@ func TestChatControls(t *testing.T) {
 
 	// /jobs lists the jobs with a button to run each; the agent changes them.
 	telegram.message(42, "/jobs")
-	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nTo change, move, or remove a job, ask the agent.")
+	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nAsk the agent to change a job.")
 	telegram.expectButtons(t, "jr:j1", "x:")
 	telegram.press("jr:j1")
 	telegram.expectAnswer(t, "Started")
@@ -616,7 +617,7 @@ func TestChatControls(t *testing.T) {
 	os.MkdirAll(catalogs, 0o755)
 	os.WriteFile(filepath.Join(catalogs, "p2.json"), []byte(`{"big-p2":{"reasoning_options":[{"type":"effort","values":["low","high"]}]}}`), 0o644)
 	telegram.message(42, "/effort")
-	telegram.expect(t, "⚙︎ <b>big-p2</b> · p2\n\nHow hard it thinks: more is slower and costs more.")
+	telegram.expect(t, "⚙︎ <b>big-p2</b> · p2\n\nHow hard it thinks:")
 	telegram.expectButtons(t, "e:default", "e:low", "e:high", "x:")
 	telegram.press("e:high")
 	telegram.expectEdit(t, "1: ⚙︎ <b>big-p2</b> · p2 · high")
@@ -628,7 +629,7 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "/model")
 	telegram.expectPrefix(t, "⚙︎ <b>big-p2</b> · p2\nSecond: none")
 	telegram.press("2:")
-	telegram.expectEdit(t, "1: ⚙︎ Second: none\n\nJobs set to the second model run on it, so a change here reaches them all.")
+	telegram.expectEdit(t, "1: ⚙︎ Second: none\n\nJobs on the second model use it too.")
 	telegram.expectAnswer(t, "")
 	telegram.expectButtons(t, "n:p2/big-p2", "n:p1/big-p1", "n:", "r:", "A:p2:0", "x:")
 	telegram.press("n:p2/big-p2")
@@ -681,7 +682,7 @@ func TestChatControls(t *testing.T) {
 	telegram.press("ok:1")
 	telegram.expectAnswer(t, "This question has expired.")
 	telegram.press("al:2")
-	telegram.expectEdit(t, "1: Push it?\n✓ Always allowed. /log lists what you always allow.")
+	telegram.expectEdit(t, "1: Push it?\n✓ Always")
 	telegram.expectAnswer(t, "")
 	if strings.Join(scheduler.answers, ",") != "1=denied,2=allowed for good" {
 		t.Fatalf("answers %v", scheduler.answers)

@@ -21,8 +21,7 @@ func TestReport(t *testing.T) {
 		"chat: 135.5k in, 3.4k out, 2 turns\n" +
 		"jobs: 900 in, 50 out, 1 run\n" +
 		"\nLast 7 days: 1.1M in, 13.4k out" +
-		"\nLast 30 days: 3.1M in, 13.4k out" +
-		"\n\nTokens are as fx reports them; some providers do not report every request."
+		"\nLast 30 days: 3.1M in, 13.4k out"
 	// A reopened store reads what the first one saved.
 	if got := Open(dir).Report(now); got != want {
 		t.Fatalf("report:\n%s\nwant:\n%s", got, want)

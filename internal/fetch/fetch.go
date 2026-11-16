@@ -208,10 +208,11 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 				q.MailTo(to)
 			}
 		}
+		// 1 hour allows more than the question shows, so the question says
+		// how much.
 		if q.Scope == "" {
-			var scope string
-			if q.Scope, scope = hourScope(s, req.Secret, method, u); q.Scope != "" {
-				q.Text += "\n\n1 hour also allows " + scope + " for the next hour."
+			if q.Scope, q.ScopeLabel = hourScope(s, req.Secret, method, u); q.Scope != "" {
+				q.Text += "\n\n1 hour allows " + q.ScopeLabel + "."
 			}
 		}
 		// The request does not wait for the answer: den sends it once the

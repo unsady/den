@@ -58,7 +58,8 @@ func TestAsk(t *testing.T) {
 		}
 		if outcome != "" {
 			_, id, _ := strings.Cut(strings.Fields(got)[2], ":")
-			if text, ok := a.Answer(id, outcome); !ok || text != "crm: POST /api/deals" {
+			want := "crm: POST /api/deals\n" + map[string]string{Allowed: "✓ Allowed", Denied: "✗ Denied", Always: "✓ Always"}[outcome]
+			if text, ok := a.Answer(id, outcome); !ok || text != want {
 				t.Fatalf("answer found %v text %q", ok, text)
 			}
 		}
@@ -171,5 +172,32 @@ func TestAsk(t *testing.T) {
 	long := Question{Text: "Push to me/repo?\n\n• " + strings.Repeat("a", 5000) + "\n• main", What: "Push"}
 	if err := a.Ask(context.Background(), long); err == nil || !strings.Contains(err.Error(), "too long") {
 		t.Fatalf("long: %v", err)
+	}
+}
+
+func TestAnsweredNamesWhatAlwaysAndAnHourAllow(t *testing.T) {
+	mail := Question{What: "Google: POST /gmail/v1/users/me/messages/send"}
+	mail.MailTo("Anya@Example.com")
+	fetch := Question{What: "crm: PATCH /api/deals/12", Label: "crm: PATCH /api/deals/*", ScopeLabel: "every write to crm but deletes"}
+	smtp := Question{What: "Mail to anya@example.com"}
+	smtp.MailTo("anya@example.com")
+
+	for _, c := range []struct {
+		q       Question
+		outcome string
+		want    string
+	}{
+		{mail, Always, "✓ Always: Mail to anya@example.com"},
+		{mail, ForHour, "✓ For an hour: Mail to anya@example.com"},
+		{fetch, Always, "✓ Always: crm: PATCH /api/deals/*"},
+		{fetch, ForHour, "✓ For an hour: every write to crm but deletes"},
+		{smtp, Always, "✓ Always"},
+		{smtp, ForHour, "✓ For an hour"},
+		{fetch, Allowed, "✓ Allowed"},
+		{fetch, Denied, "✗ Denied"},
+	} {
+		if got := answered(c.q, c.outcome); got != c.want {
+			t.Errorf("%s %s: got %q, want %q", c.q.What, c.outcome, got, c.want)
+		}
 	}
 }

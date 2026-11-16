@@ -135,7 +135,7 @@ func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int
 		text += "\n" + html.EscapeString(clipRunes(j.Prompt, 80)) + "\n"
 		rows = append(rows, []notify.Button{{Text: "▶ Run " + clipRunes(j.Label(), 30), Data: "jr:" + j.ID}})
 	}
-	text += "\nTo change, move, or remove a job, ask the agent."
+	text += "\nAsk the agent to change a job."
 	c.show(ctx, telegram, edit, text, append(rows, []notify.Button{closeButton}))
 }
 
@@ -243,21 +243,13 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 
 	case "ok", "no", "al", "hr":
 		// The answer to a question den asked, such as whether to send a
-		// request. The message shrinks to the action's one line and the
-		// answer, so answered questions take little room.
-		outcome, result := approve.Allowed, "\n✓ Allowed"
-		switch kind {
-		case "no":
-			outcome, result = approve.Denied, "\n✗ Denied"
-		case "al":
-			outcome, result = approve.Always, "\n✓ Always allowed. /log lists what you always allow."
-		case "hr":
-			outcome, result = approve.ForHour, "\n✓ Allowed, with the same kind for an hour"
-		}
+		// request. The message shrinks to the action's one line and what
+		// the answer allowed, so answered questions take little room.
+		outcome := map[string]string{"ok": approve.Allowed, "no": approve.Denied, "al": approve.Always, "hr": approve.ForHour}[kind]
 		answer = "This question has expired."
-		if question, found := c.den.Answer(ref, outcome); found {
+		if shrunk, found := c.den.Answer(ref, outcome); found {
 			answer = " "
-			c.editPlain(ctx, telegram, cb.Message, question+result)
+			c.editPlain(ctx, telegram, cb.Message, shrunk)
 		}
 
 	case "rf":

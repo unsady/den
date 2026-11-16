@@ -92,7 +92,6 @@ func (s *Store) Report(now time.Time) string {
 		}
 		fmt.Fprintf(&b, "\nLast %d days: %s in, %s out", days, count(t.Input), count(t.Output))
 	}
-	b.WriteString("\n\nTokens are as fx reports them; some providers do not report every request.")
 	return b.String()
 }
 
