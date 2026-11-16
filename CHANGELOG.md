@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.8.1
+
 ### Better
 
 - `/sessions` lists each session once, as a button with its title and age, and • marks the current one.
