@@ -217,6 +217,23 @@ func TestSteer(t *testing.T) {
 	}
 }
 
+func TestNoSteerAfterSwitch(t *testing.T) {
+	cfg, telegram := startChat(t, nil)
+
+	// A message after /new starts the new session rather than joining the
+	// turn still running in the old one.
+	telegram.message(42, "slow")
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+		return string(data) == "slow"
+	})
+	telegram.message(42, "/new")
+	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
+	telegram.message(42, "next")
+	telegram.expect(t, "↩ Earlier session\n\nresume=none msg=slow lines=1")
+	telegram.expect(t, "resume=none msg=next lines=1")
+}
+
 // waitFor waits until ok, for a few seconds.
 func waitFor(t *testing.T, ok func() bool) {
 	t.Helper()

@@ -552,6 +552,9 @@ func (c *Chat) switchTo(session string) []string {
 	defer c.mu.Unlock()
 	notices := c.dropReports(false)
 	clear(c.steered)
+	// What comes next is for the new session, not for the turn running in
+	// the old one.
+	c.steerable = false
 	c.state.Session = session
 	c.opened(session)
 	c.state.Context = 0
