@@ -355,6 +355,15 @@ func (d *daemon) start(j jobs.Job) bool {
 		choice := d.chat.Choice(d.ctx, j.Slot)
 		run := runner.Run(d.ctx, d.cfg, j, choice)
 		run.Delivered = d.deliver(j, run, choice)
+		// A silent run leaves nothing to go on with, so its session goes
+		// now instead of with the run's record.
+		if silent(j, run) && run.SessionID != "" {
+			if err := d.deleteJobSession(run.SessionID); err != nil {
+				log.Printf("job %s: delete session: %v", j.Label(), err)
+			} else {
+				run.SessionID = ""
+			}
+		}
 		if run.InputTokens > 0 || run.OutputTokens > 0 {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
 		}
@@ -426,7 +435,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
 			text += "\n" + last
 		}
-	case j.Silent || run.Output == "" || run.Output == runner.Silent:
+	case silent(j, run):
 		return false
 	default:
 		text = heading(j)
@@ -464,11 +473,20 @@ func (d *daemon) forgetSession(id string) {
 	if i < 0 || list[i].Turns > 1 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
-	defer cancel()
-	if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
+	if err := d.deleteJobSession(id); err != nil {
 		log.Printf("job session %s: %v", id, err)
 	}
+}
+
+func (d *daemon) deleteJobSession(id string) error {
+	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
+	defer cancel()
+	return runner.DeleteSession(ctx, d.cfg, id)
+}
+
+// silent says whether a run that did not fail has nothing for the user.
+func silent(j jobs.Job, run jobs.Run) bool {
+	return run.Error == "" && (j.Silent || run.Output == "" || run.Output == runner.Silent)
 }
 
 // heading names the job above its reply, which would otherwise read like a
