@@ -98,8 +98,6 @@ func fakeACP(args []string) {
 			}
 		case strings.HasPrefix(first, "[den: quiet") || first == "ok":
 			reply = "SILENT"
-		case strings.HasPrefix(first, "quota") && !strings.Contains(flags, "effort=low"):
-			reply, stop = "API request failed · HTTP 402 · out of credits", "refused"
 		}
 
 		mu.Lock()

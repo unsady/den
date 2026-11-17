@@ -77,7 +77,6 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/model` | Choose the model: the last ones chosen are one tap away, **All models** lists every provider's models, and `/model deep flash` finds one by name. **Second model** chooses the one for jobs set to it |
 | `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
 | `/bg` | Run a task in the background, in a session of its own: `/bg <task>`. Its answer comes under the task's name, and a reply to it goes on in that session |
-| `/again` | Ask the second model to answer your last message again in the same session, or `/again <text>` for one message; the reply starts with `↻` and its model |
 | `/stop` | Stop the current turn |
 | `/compact` | Shrink the session to a summary now, when it fills at least 10% of the model's window |
 | `/jobs` | List the jobs; ask the agent to change, run, or remove one |
@@ -110,8 +109,6 @@ den job rm morning
 Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
 
 A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
-
-With a second model set, it also stands in for the main one. When the main model's provider refuses or fails a turn, such as when its quota runs out, rate limits it, or has an outage, den says so with a button that asks the second model instead. A job runs once more on the second model by itself, since nobody waits for it, and its reply starts with `↻` and why.
 
 ## Models
 

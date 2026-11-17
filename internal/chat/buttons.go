@@ -232,20 +232,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			c.showLog(ctx, telegram, cb.Message)
 		}
 
-	case "rs":
-		c.mu.Lock()
-		retry := c.retry
-		c.retry = nil
-		second := c.state.Second
-		c.mu.Unlock()
-		switch {
-		case retry == nil || second == nil:
-			answer = "This button is out of date."
-		default:
-			answer = "Asking " + second.Model
-			c.queue(ctx, telegram, notify.Message{}, *retry)
-		}
-
 	case "x":
 		// The list goes away, so it does not stay in the chat.
 		answer = " "

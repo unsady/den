@@ -341,20 +341,6 @@ func (d *daemon) start(j jobs.Job) bool {
 		log.Printf("job %s: started", j.Label())
 		choice := d.chat.Choice(d.ctx, j.Slot)
 		run := runner.Run(d.ctx, d.cfg, j, choice)
-		// When the main model's provider refuses or fails, such as when its
-		// quota runs out, the second model runs the job once.
-		if second := d.chat.Choice(d.ctx, jobs.Second); run.Error != "" && d.ctx.Err() == nil && second != choice && run.ProviderFailed {
-			failed := lastLine(run.Stderr)
-			log.Printf("job %s: %s failed, running it on %s", j.Label(), choice.Model, second.Model)
-			// It goes on in the session the first model left, so what that
-			// one already did is not done twice.
-			input, output := run.InputTokens, run.OutputTokens
-			run = runner.Continue(d.ctx, d.cfg, j, second, run.SessionID)
-			run.InputTokens += input
-			run.OutputTokens += output
-			run.FellBack = choice.Model + " failed: " + failed
-			choice = second
-		}
 		run.Delivered = d.deliver(j, run, choice)
 		if run.InputTokens > 0 || run.OutputTokens > 0 {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
@@ -422,9 +408,6 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	switch {
 	case run.Error != "":
 		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Label(), run.Error)
-		if run.FellBack != "" {
-			text += "\n↻ " + run.FellBack + ", and " + run.Model + " failed too:"
-		}
 		// fx says why on its last line, such as that no provider is set up.
 		lines := strings.Split(strings.TrimSpace(run.Stderr), "\n")
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
@@ -436,9 +419,6 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 		text = heading(j)
 		if run.Model != "" {
 			text += " · " + run.Model
-		}
-		if run.FellBack != "" {
-			text += "\n↻ " + run.FellBack
 		}
 		text += "\n\n" + run.Output
 	}

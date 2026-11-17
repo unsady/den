@@ -16,9 +16,12 @@ release notes.
 - A request too long to show in its question comes with its whole body as a file, sent before the buttons.
 - `/log` shows the repeating jobs the agent added or removed.
 - The 1 hour button no longer covers changes to access, secrets, workflows, or branch rules; those ask every time.
-- When a job falls back to the second model, the second model goes on in the same session, with what the first did so far.
 - Messages that wait for the agent to finish a turn survive a restart of den.
 - If den stops before you answer a question, the agent learns that the action did not happen, instead of waiting.
+
+### Removed
+
+- `/again`, and the second model standing in when the main model's provider fails. The second model now only runs the jobs set to it.
 
 ### Fixed
 

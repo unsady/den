@@ -67,7 +67,6 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	if err != nil {
 		reply.Error = err.Error()
 		reply.Stderr = a.stderrText()
-		reply.ProviderFailed = providerFailed(0, reply.Stderr)
 		return reply
 	}
 	reply.SessionID = session
@@ -126,7 +125,6 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		// fx puts why the model's provider refused in the reply's text.
 		reply.Error = reply.Output
 		reply.Output = ""
-		reply.ProviderFailed = providerFailed(0, reply.Error)
 	}
 	if err != nil {
 		a.Close()

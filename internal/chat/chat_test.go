@@ -53,7 +53,6 @@ case "$first" in
 slow*) sleep 1 ;;
 steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
 "[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
-quota*) case "$image" in *effort=low*) ;; *) echo "fx ask: API request failed · HTTP 402 · out of credits" >&2; exit 1 ;; esac ;;
 esac
 printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"s1","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image"
 `
@@ -620,24 +619,6 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "hey")
 	telegram.expect(t, "resume=aaa msg=hey lines=1 provider=p2 model=big-p2 effort=high")
 
-	// /again asks the second model in the same session, once.
-	telegram.message(42, "/again")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=[The user asked you, a different model, to answer their last message again. The answer above came from another model: check it, correct it, and give your own best answer.] lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.message(42, "/again what about tea")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=what about tea lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.message(42, "and coffee")
-	telegram.expect(t, "resume=aaa msg=and coffee lines=1 provider=p2 model=big-p2 effort=high")
-
-	// When the main model's provider fails, a button offers the second
-	// one, which answers once pressed.
-	telegram.message(42, "quota is gone")
-	telegram.expect(t, "big-p2 failed: API request failed · HTTP 402 · out of credits")
-	telegram.expectButtons(t, "rs:")
-	telegram.press("rs:")
-	telegram.expectAnswer(t, "Asking big-p2")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.press("rs:")
-	telegram.expectAnswer(t, "This button is out of date.")
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>big-p2</b> · p2 · high")
 	telegram.message(42, "/effort default")
@@ -682,7 +663,7 @@ func TestChatControls(t *testing.T) {
 
 	// /usage counts the tokens fx reported for the four turns.
 	telegram.message(42, "/usage")
-	telegram.expectPrefix(t, "Today\nchat: 800 in, 56 out, 8 turns\n\nLast 7 days: 800 in, 56 out")
+	telegram.expectPrefix(t, "Today\nchat: 400 in, 28 out, 4 turns\n\nLast 7 days: 400 in, 28 out")
 }
 
 func TestCompactWhenIdle(t *testing.T) {

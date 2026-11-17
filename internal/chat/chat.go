@@ -57,7 +57,6 @@ var commands = []notify.Command{
 	{Name: "model", Description: "Choose the model and provider"},
 	{Name: "effort", Description: "Choose how hard the model thinks"},
 	{Name: "bg", Description: "Run a task in the background, in a session of its own: /bg <task>"},
-	{Name: "again", Description: "Ask the second model about your last message, or a new one"},
 	{Name: "stop", Description: "Stop the current turn"},
 	{Name: "compact", Description: "Shrink the session to a summary"},
 	{Name: "jobs", Description: "List the jobs"},
@@ -162,8 +161,6 @@ type entry struct {
 	text string
 	// image is the saved path of a photo to attach.
 	image string
-	// second runs the turn on the second model, for /again.
-	second bool
 	// report marks den's report of what came of an action, and notice is
 	// what den tells the user instead when the agent does not get it, after
 	// /stop or a switch; nothing when it is empty.
@@ -182,7 +179,6 @@ type entry struct {
 type saved struct {
 	Text    string         `json:"text,omitempty"`
 	Image   string         `json:"image,omitempty"`
-	Second  bool           `json:"second,omitempty"`
 	Report  bool           `json:"report,omitempty"`
 	Notice  string         `json:"notice,omitempty"`
 	Session string         `json:"session,omitempty"`
@@ -191,7 +187,7 @@ type saved struct {
 }
 
 func (e entry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(saved{e.text, e.image, e.second, e.report, e.notice, e.session, e.label, e.choice})
+	return json.Marshal(saved{e.text, e.image, e.report, e.notice, e.session, e.label, e.choice})
 }
 
 func (e *entry) UnmarshalJSON(data []byte) error {
@@ -199,13 +195,9 @@ func (e *entry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	*e = entry{s.Text, s.Image, s.Second, s.Report, s.Notice, s.Session, s.Label, s.Choice}
+	*e = entry{s.Text, s.Image, s.Report, s.Notice, s.Session, s.Label, s.Choice}
 	return nil
 }
-
-// againNote asks the second model to answer the last message again.
-const againNote = "[The user asked you, a different model, to answer their last message again. " +
-	"The answer above came from another model: check it, correct it, and give your own best answer.]"
 
 type Chat struct {
 	cfg   config.Config
@@ -235,9 +227,6 @@ type Chat struct {
 	// tell the agent of the session a turn ran in what came of a command
 	// it started.
 	turns []turnRef
-	// retry is the last turn whose model's provider failed, which a button
-	// under the failure can ask the second model again.
-	retry *entry
 	// bg stops each turn that /bg runs, by its ID, while it runs, and
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
@@ -432,7 +421,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 	}
 
 	name, arg := command(m.Text)
-	if arg != "" && name != "/model" && name != "/effort" && name != "/again" && name != "/sessions" {
+	if arg != "" && name != "/model" && name != "/effort" && name != "/sessions" {
 		name = ""
 	}
 	switch name {
@@ -461,9 +450,6 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 			text, err := c.chooseEffort(ctx, arg)
 			c.reply(ctx, telegram, text, err)
 		}
-
-	case "/again":
-		c.again(ctx, telegram, m, arg)
 
 	case "/sessions":
 		c.listSessions(ctx, telegram, arg, false, 0)
@@ -659,7 +645,7 @@ func (c *Chat) steer(ctx context.Context, m notify.Message, entries []entry) boo
 	var texts []string
 	for _, e := range entries {
 		session, _, _ := c.other(m.ReplyTo)
-		ok = ok && e.session == "" && session == "" && e.image == "" && !e.second && !e.report
+		ok = ok && e.session == "" && session == "" && e.image == "" && !e.report
 		texts = append(texts, e.text)
 	}
 	c.mu.Unlock()
@@ -821,7 +807,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	var rest []entry
 	// A turn started by den's reports alone, such as that a den map run
 	// ended, may end without a word to the user.
-	second, reports := false, true
+	reports := true
 	for _, e := range c.inbox {
 		if e.session != other {
 			rest = append(rest, e)
@@ -832,7 +818,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 		if e.image != "" {
 			images = append(images, e.image)
 		}
-		second = second || e.second
 	}
 	prompt := strings.Join(texts, "\n\n")
 	c.inbox = rest
@@ -845,15 +830,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 	// A reply to a job's message goes on with the model that wrote it.
 	if chosen != nil {
 		provider, model, effort = chosen.Provider, chosen.Model, chosen.Effort
-	}
-	// A reply from the second model says so, since the chat goes on with
-	// the main one.
-	header := ""
-	fallback := c.state.Second
-	if second && fallback != nil {
-		provider, model, effort = fallback.Provider, fallback.Model, fallback.Effort
-		header = "↻ " + model + "\n\n"
-		fallback = nil
 	}
 	generation := c.generation
 	turn, stop := context.WithCancel(ctx)
@@ -882,41 +858,27 @@ func (c *Chat) turn(ctx context.Context) bool {
 		c.showProgress(ctx, steps, done)
 		close(shown)
 	}()
-	ask := func(provider, model, effort, resume string) runner.Reply {
-		req := runner.Request{
-			Prompt:     prompt,
-			Provider:   provider,
-			Model:      model,
-			Effort:     effort,
-			Resume:     resume,
-			Images:     images,
-			Turn:       current,
-			MaySilence: true,
-			Progress: func(line string) {
-				select {
-				case steps <- line:
-				default:
-				}
-			},
-		}
-		if other == "" {
-			return c.agent.Ask(turn, req)
-		}
-		return runner.Ask(turn, c.cfg, req)
+	req := runner.Request{
+		Prompt:     prompt,
+		Provider:   provider,
+		Model:      model,
+		Effort:     effort,
+		Resume:     session,
+		Images:     images,
+		Turn:       current,
+		MaySilence: true,
+		Progress: func(line string) {
+			select {
+			case steps <- line:
+			default:
+			}
+		},
 	}
-	reply := ask(provider, model, effort, session)
-	// When the main model's provider refuses or fails, such as when its
-	// quota runs out, a button offers the second model. It does not take
-	// over by itself: the user may want this model's answer, not any.
-	var offer [][]notify.Button
-	if reply.Error != "" && turn.Err() == nil && fallback != nil && reply.ProviderFailed {
-		offer = [][]notify.Button{{{Text: "↻ Ask " + fallback.Model, Data: "rs:"}}}
-		c.mu.Lock()
-		c.retry = &entry{text: prompt, second: true, session: other, label: label}
-		if len(images) > 0 {
-			c.retry.image = images[0]
-		}
-		c.mu.Unlock()
+	var reply runner.Reply
+	if other == "" {
+		reply = c.agent.Ask(turn, req)
+	} else {
+		reply = runner.Ask(turn, c.cfg, req)
 	}
 	close(done)
 	<-shown
@@ -969,14 +931,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 
 	text := answer(reply, session != "")
-	if offer != nil {
-		why := lastLine(reply.Stderr)
-		if why == "" {
-			// fx acp says why in the reply.
-			why = reply.Error
-		}
-		text = fmt.Sprintf("%s failed: %s", model, clipRunes(why, 200))
-	}
 	wrote := reply.SessionID
 	if wrote == "" {
 		wrote = session
@@ -989,18 +943,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 		}
 		text = label + "\n\n" + text
 	}
-	text = compacted + header + text
+	text = compacted + text
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
 		call, cancel := context.WithTimeout(ctx, time.Minute)
-		var ids []int64
-		if offer != nil {
-			var id int64
-			id, err = telegram.SendButtons(call, text, offer)
-			ids = []int64{id}
-		} else {
-			ids, err = telegram.SendIDs(call, text)
-		}
+		ids, err := telegram.SendIDs(call, text)
 		cancel()
 		if err != nil {
 			log.Printf("chat: send: %v", err)
