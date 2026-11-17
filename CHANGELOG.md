@@ -6,6 +6,12 @@ release notes.
 
 ## Unreleased
 
+## v0.9.1
+
+### Fixed
+
+- Pictures and files sent from the den app reach the agent: den saves them in the inbox as Telegram's, and the model sees the pictures. A message can carry files without text.
+
 ## v0.9.0
 
 ### New
