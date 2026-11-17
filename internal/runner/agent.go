@@ -235,6 +235,9 @@ func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error
 	}
 	if err != nil {
 		conn.Close()
+		if text := strings.TrimSpace(stderr.String()); text != "" {
+			err = fmt.Errorf("%w: %s", err, text)
+		}
 		return nil, "", fmt.Errorf("fx acp: %w", err)
 	}
 
