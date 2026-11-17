@@ -49,7 +49,7 @@ func IsSilent(reply string) bool {
 
 const deliveredNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
-	"Reply with exactly " + Silent + " when there is nothing worth sending."
+	"Reply with exactly the English word " + Silent + ", untranslated, when there is nothing worth sending."
 
 const silentNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
 	"Your final reply is saved in the job log and is not sent to the user."
