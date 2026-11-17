@@ -30,6 +30,7 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 		c.send(ctx, telegram, "Could not read the sessions: "+err.Error())
 		return
 	}
+	c.Events.Titled(all)
 	var ofJobs map[string]bool
 	if c.den != nil {
 		ofJobs = c.den.JobSessions()
@@ -141,6 +142,7 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 	switch kind {
 	case "s":
 		list, _ := sessions.List(c.cfg.Sessions, 1<<20)
+		c.Events.Titled(list)
 		answer = "That session no longer exists."
 		for _, s := range list {
 			if s.ID == ref {
@@ -216,13 +218,12 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 
 	case "ok", "no", "al", "hr":
 		// The answer to a question den asked, such as whether to send a
-		// request. The message shrinks to the action's one line and what
-		// the answer allowed, so answered questions take little room.
+		// request. den shrinks the message to the action's one line and
+		// what the answer allowed, so answered questions take little room.
 		outcome := map[string]string{"ok": approve.Allowed, "no": approve.Denied, "al": approve.Always, "hr": approve.ForHour}[kind]
 		answer = "This question has expired."
-		if shrunk, found := c.den.Answer(ref, outcome); found {
+		if _, found := c.den.Answer(ref, outcome); found {
 			answer = " "
-			c.editPlain(ctx, telegram, cb.Message, shrunk)
 		}
 
 	case "rf":
@@ -230,20 +231,6 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 		if r, found := c.den.Forget(ref); found {
 			answer = "den will ask about " + r.Label + " again"
 			c.showLog(ctx, telegram, cb.Message)
-		}
-
-	case "rs":
-		c.mu.Lock()
-		retry := c.retry
-		c.retry = nil
-		second := c.state.Second
-		c.mu.Unlock()
-		switch {
-		case retry == nil || second == nil:
-			answer = "This button is out of date."
-		default:
-			answer = "Asking " + second.Model
-			c.queue(ctx, telegram, notify.Message{}, *retry)
 		}
 
 	case "x":

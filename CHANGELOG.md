@@ -8,17 +8,23 @@ release notes.
 
 ### New
 
+- The den app: `den app pair` lets it into the chat over your Tailscale network with a token of its own. It shares the session, the models, job results, and questions with Telegram. It shows a session as you saw it, from a journal den keeps from now on; earlier sessions open empty.
 - A message you send while the agent works joins the turn, marked ✍, instead of waiting for it to end: the agent reads it after the step it is on, so "stop, not that file" or "check X too" changes what it does now. A photo, or a reply to a job's message, still waits for the next turn.
 
 ### Better
 
+- A new chat session gets a short title in /sessions and the app instead of its first message, made from your message and the reply, so a photo or a link gets a title too: den asks Claude's haiku through the claude command, or the chat's own model with other providers. Codex and Grok sessions keep the title fx gives them.
+- A question you answer shrinks to its answer wherever it shows, and so does one that expires.
 - A push that waits for your answer names its commits: the question lists each branch with its count of commits and files, their titles, and a link to the comparison on GitHub, and says when the push rewrites history. Allow moves the branch to the commits you saw; if the branch moved meanwhile, den leaves it alone and tells the agent.
 - A request too long to show in its question comes with its whole body as a file, sent before the buttons.
 - `/log` shows the repeating jobs the agent added or removed.
 - The 1 hour button no longer covers changes to access, secrets, workflows, or branch rules; those ask every time.
-- When a job falls back to the second model, the second model goes on in the same session, with what the first did so far.
 - Messages that wait for the agent to finish a turn survive a restart of den.
 - If den stops before you answer a question, the agent learns that the action did not happen, instead of waiting.
+
+### Removed
+
+- `/again`, and the second model standing in when the main model's provider fails. The second model now only runs the jobs set to it.
 
 ### Fixed
 

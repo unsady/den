@@ -141,22 +141,3 @@ func (c *Chat) chooseSecondEffort(ctx context.Context, level string) (string, er
 
 	return "⚙︎ Second: " + secondName(choice, setup), nil
 }
-
-// again asks the second model about text as one turn, or, without text, to
-// answer the last message again in the same session.
-func (c *Chat) again(ctx context.Context, telegram *notify.Telegram, m notify.Message, text string) {
-	c.mu.Lock()
-	second, session := c.state.Second, c.state.Session
-	c.mu.Unlock()
-
-	switch {
-	case second == nil:
-		c.send(ctx, telegram, "There is no second model yet. Choose one in /model under Second model.")
-	case text != "":
-		c.queue(ctx, telegram, m, entry{text: quoted(m, text), second: true})
-	case session == "":
-		c.send(ctx, telegram, "There is nothing to ask again in this session yet.")
-	default:
-		c.queue(ctx, telegram, m, entry{text: againNote, second: true})
-	}
-}

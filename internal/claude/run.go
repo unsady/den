@@ -41,8 +41,8 @@ var platforms = map[string]string{
 // server.
 var Releases = "https://downloads.claude.ai/claude-code-releases"
 
-// checkTimeout bounds the call that tests a token.
-const checkTimeout = 2 * time.Minute
+// askTimeout bounds a call of Ask.
+const askTimeout = 2 * time.Minute
 
 // Path is where the pinned claude lives once downloaded.
 func Path(cfg config.Config) string {
@@ -160,21 +160,28 @@ func (c *Claude) Env(token string) []string {
 
 // Check asks Claude for a short reply to see that the token works.
 func (c *Claude) Check(ctx context.Context) error {
+	_, err := c.Ask(ctx, "haiku", "Reply with OK.")
+	return err
+}
+
+// Ask runs prompt once on model with the claude command, without tools,
+// and returns the answer.
+func (c *Claude) Ask(ctx context.Context, model, prompt string) (string, error) {
 	token, err := c.Token()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	ctx, cancel := context.WithTimeout(ctx, askTimeout)
 	defer cancel()
 
-	dir, err := os.MkdirTemp("", "claude-check-")
+	dir, err := os.MkdirTemp("", "claude-ask-")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer os.RemoveAll(dir)
 	if err := os.MkdirAll(ConfigDir(c.cfg), 0o700); err != nil {
-		return err
+		return "", err
 	}
 
 	bin := c.bin
@@ -182,7 +189,7 @@ func (c *Claude) Check(ctx context.Context) error {
 		bin = Path(c.cfg)
 	}
 	cmd := exec.CommandContext(ctx, bin, "-p", "--output-format", "json", "--tools", "",
-		"--setting-sources", "", "--strict-mcp-config", "--model", "haiku", "Reply with OK.")
+		"--setting-sources", "", "--strict-mcp-config", "--model", model, prompt)
 	cmd.Dir = dir
 	cmd.Env = c.Env(token)
 	var stdout, stderr bytes.Buffer
@@ -191,7 +198,7 @@ func (c *Claude) Check(ctx context.Context) error {
 
 	runErr := cmd.Run()
 	if ctx.Err() != nil {
-		return fmt.Errorf("Claude did not answer in %s", checkTimeout)
+		return "", fmt.Errorf("Claude did not answer in %s", askTimeout)
 	}
 
 	// A failed call still exits 0 and says why in the JSON.
@@ -201,14 +208,14 @@ func (c *Claude) Check(ctx context.Context) error {
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		if runErr != nil {
-			return fmt.Errorf("claude failed: %v: %s", runErr, clip(stderr.String()))
+			return "", fmt.Errorf("claude failed: %v: %s", runErr, clip(stderr.String()))
 		}
-		return fmt.Errorf("claude answered without JSON: %s", clip(stdout.String()))
+		return "", fmt.Errorf("claude answered without JSON: %s", clip(stdout.String()))
 	}
 	if out.IsError {
-		return errors.New(out.Result)
+		return "", errors.New(out.Result)
 	}
-	return nil
+	return out.Result, nil
 }
 
 func clip(s string) string {

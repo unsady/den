@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/notify"
@@ -128,6 +129,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		return
 	}
 	id := rand.Text()
+	asked := time.Now()
 	run, cancel := context.WithCancel(ctx)
 
 	c.mu.Lock()
@@ -208,6 +210,10 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if run.Err() == context.Canceled {
 			// /stop already answered, or den is shutting down.
 			return
+		}
+		if reply.SessionID != "" {
+			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: label, Text: task})
+			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: label, Text: answer(reply, false), Failed: reply.Error != ""})
 		}
 		telegram, err := notify.Load(c.cfg)
 		if err != nil {

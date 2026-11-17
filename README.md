@@ -10,7 +10,7 @@ den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent 
 
 ## What it does
 
-- **Chat** from Telegram: text, photos, files, and voice messages, with a short live line of what the agent is doing.
+- **Chat** from Telegram: text, photos, files, and voice messages, with a short live line of what the agent is doing. The den [app](#app) joins the same chat.
 - **Jobs and reminders**: "every morning at 9, send me today's three most important items". A job runs on its own and sends you its reply.
 - **Mail and calendar** through Gmail and Google Calendar, or any mailbox with an app password.
 - **GitHub**: the agent clones, commits, and opens pull requests in the repositories you allow.
@@ -77,7 +77,6 @@ Each message to the bot becomes a turn of the agent's current session, and the r
 | `/model` | Choose the model: the last ones chosen are one tap away, **All models** lists every provider's models, and `/model deep flash` finds one by name. **Second model** chooses the one for jobs set to it |
 | `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
 | `/bg` | Run a task in the background, in a session of its own: `/bg <task>`. Its answer comes under the task's name, and a reply to it goes on in that session |
-| `/again` | Ask the second model to answer your last message again in the same session, or `/again <text>` for one message; the reply starts with `↻` and its model |
 | `/stop` | Stop the current turn |
 | `/compact` | Shrink the session to a summary now, when it fills at least 10% of the model's window |
 | `/jobs` | List the jobs; ask the agent to change, run, or remove one |
@@ -92,6 +91,18 @@ When you reply to a message, the agent sees which one you mean. Photos, voice me
 After you have been away for 50 minutes, den compacts a long session while the provider still has it cached, so the next turns start small and cost less. The first reply after it says so: `🗜 While you were away, den compacted this session: 120k → 9k tokens.`
 
 A chat session is an ordinary fx session: `den fx` opens the agent in your terminal, and `den fx session resume` continues a session there.
+
+## App
+
+The den app is another way into the same chat: the same session, models, and questions as Telegram. A message you write in the app is answered there; one you write in Telegram is answered in both, and job results and questions show in both. Answer a question in one, and it shrinks in the other.
+
+```bash
+den app pair
+```
+
+`den app pair` publishes den's port, 4400, on this machine's Tailscale address only, so the app reaches den from anywhere in your tailnet and from nowhere else; `--address <ip>` picks another address of the machine instead. It prints a `den://` link with a new token to paste in the app's settings. den keeps only the token's hash, among its secrets, so the agent cannot read it, and every request without it is refused. Pairing again replaces the token; `den app unpair` shuts every app out and closes the port.
+
+Tailscale encrypts the connection. On an address outside it, such as your home network, the token and the chat travel unencrypted, so use one only on a network you trust.
 
 ## Jobs
 
@@ -110,8 +121,6 @@ den job rm morning
 Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
 
 A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
-
-With a second model set, it also stands in for the main one. When the main model's provider refuses or fails a turn, such as when its quota runs out, rate limits it, or has an outage, den says so with a button that asks the second model instead. A job runs once more on the second model by itself, since nobody waits for it, and its reply starts with `↻` and why.
 
 ## Models
 

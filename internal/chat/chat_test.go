@@ -18,6 +18,7 @@ import (
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
@@ -53,7 +54,6 @@ case "$first" in
 slow*) sleep 1 ;;
 steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
 "[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
-quota*) case "$image" in *effort=low*) ;; *) echo "fx ask: API request failed · HTTP 402 · out of credits" >&2; exit 1 ;; esac ;;
 esac
 printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"s1","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image"
 `
@@ -620,24 +620,6 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "hey")
 	telegram.expect(t, "resume=aaa msg=hey lines=1 provider=p2 model=big-p2 effort=high")
 
-	// /again asks the second model in the same session, once.
-	telegram.message(42, "/again")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=[The user asked you, a different model, to answer their last message again. The answer above came from another model: check it, correct it, and give your own best answer.] lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.message(42, "/again what about tea")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=what about tea lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.message(42, "and coffee")
-	telegram.expect(t, "resume=aaa msg=and coffee lines=1 provider=p2 model=big-p2 effort=high")
-
-	// When the main model's provider fails, a button offers the second
-	// one, which answers once pressed.
-	telegram.message(42, "quota is gone")
-	telegram.expect(t, "big-p2 failed: API request failed · HTTP 402 · out of credits")
-	telegram.expectButtons(t, "rs:")
-	telegram.press("rs:")
-	telegram.expectAnswer(t, "Asking big-p2")
-	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
-	telegram.press("rs:")
-	telegram.expectAnswer(t, "This button is out of date.")
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>big-p2</b> · p2 · high")
 	telegram.message(42, "/effort default")
@@ -651,14 +633,12 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "/new please")
 	telegram.expect(t, "resume=none msg=/new please lines=1")
 
-	// A button answers a question den asked, once.
+	// A button answers a question den asked, once; den shrinks it.
 	telegram.press("no:1")
-	telegram.expectEdit(t, "1: Send it?\n✗ Denied")
 	telegram.expectAnswer(t, "")
 	telegram.press("ok:1")
 	telegram.expectAnswer(t, "This question has expired.")
 	telegram.press("al:2")
-	telegram.expectEdit(t, "1: Push it?\n✓ Always")
 	telegram.expectAnswer(t, "")
 	if strings.Join(scheduler.answers, ",") != "1=denied,2=allowed for good" {
 		t.Fatalf("answers %v", scheduler.answers)
@@ -682,7 +662,7 @@ func TestChatControls(t *testing.T) {
 
 	// /usage counts the tokens fx reported for the four turns.
 	telegram.message(42, "/usage")
-	telegram.expectPrefix(t, "Today\nchat: 800 in, 56 out, 8 turns\n\nLast 7 days: 800 in, 56 out")
+	telegram.expectPrefix(t, "Today\nchat: 400 in, 28 out, 4 turns\n\nLast 7 days: 400 in, 28 out")
 }
 
 func TestCompactWhenIdle(t *testing.T) {
@@ -818,7 +798,7 @@ func TestProgressNote(t *testing.T) {
 	lines, done := make(chan string, 4), make(chan struct{})
 	shown := make(chan struct{})
 	go func() {
-		c.showProgress(context.Background(), lines, done)
+		c.showProgress(context.Background(), lines, done, true)
 		close(shown)
 	}()
 	defer func() {
@@ -1124,5 +1104,67 @@ func TestInboxSurvivesARestart(t *testing.T) {
 	case <-again.wake:
 	default:
 		t.Error("the worker is not woken for what waited")
+	}
+}
+
+func TestAppTurn(t *testing.T) {
+	_, telegram, c := startChatWith(t, nil)
+	list, stop := c.Events.Listen()
+	defer stop()
+
+	next := func(kind string) events.Event {
+		t.Helper()
+		for {
+			select {
+			case e := <-list:
+				if e.Type == kind {
+					return e
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no %s event", kind)
+			}
+		}
+	}
+
+	// A message from the app answers only there.
+	c.Post(context.Background(), "hello", "")
+	if e := next(events.Message); e.Text != "hello" {
+		t.Fatalf("message %+v", e)
+	}
+	first := next(events.Reply)
+	if first.Text != "resume=none msg=hello lines=1" || first.Session == "" {
+		t.Fatalf("reply %+v", first)
+	}
+	next(events.Idle)
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// One from Telegram answers in both.
+	telegram.message(42, "and you")
+	if e := next(events.Message); e.Text != "and you" {
+		t.Fatalf("message %+v", e)
+	}
+	want := "resume=" + first.Session + " msg=and you lines=1"
+	telegram.expect(t, want)
+	if e := next(events.Reply); e.Text != want {
+		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+
+	// A reply to a job's run goes on in its session, and only in the app.
+	c.Post(context.Background(), "more", "job1")
+	if e := next(events.Message); e.Session != "job1" {
+		t.Fatalf("message %+v", e)
+	}
+	if e := next(events.Reply); !strings.HasPrefix(e.Text, "resume=job1 msg=more") {
+		t.Fatalf("reply %+v", e)
+	}
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

@@ -62,6 +62,10 @@ func TestAsk(t *testing.T) {
 			if text, ok := a.Answer(id, outcome); !ok || text != want {
 				t.Fatalf("answer found %v text %q", ok, text)
 			}
+			// However it was answered, the question shrinks to the answer.
+			if got := <-edited; got != want {
+				t.Fatalf("edited %q, want %q", got, want)
+			}
 		}
 		return <-done
 	}

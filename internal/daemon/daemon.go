@@ -21,11 +21,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/unsady/den/internal/app"
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/chat"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/fetch"
 	"github.com/unsady/den/internal/gitproxy"
 	"github.com/unsady/den/internal/google"
@@ -64,6 +66,8 @@ type daemon struct {
 	google *google.Google
 	models *models.Models
 	chat   *chat.Chat
+	// events tell the app what happens.
+	events *events.Hub
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -151,6 +155,8 @@ func Serve(cfg config.Config) error {
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
 	d.chat = chat.New(cfg, d, d.usage)
+	d.events = d.chat.Events
+	d.ask.Events = d.events
 	d.runs.Forget = d.forgetSession
 	d.google = google.New(cfg)
 	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
@@ -205,6 +211,13 @@ func Serve(cfg config.Config) error {
 
 	go d.loop()
 	d.wg.Go(func() { d.chat.Run(ctx) })
+	go func() {
+		a := app.New(cfg, d.chat, d.ask, d.events)
+		a.JobSessions = d.runs.Sessions
+		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
+			log.Printf("app: %v", err)
+		}
+	}()
 
 	log.Printf("den is listening on %s", cfg.Socket)
 	err = srv.Serve(ln)
@@ -341,20 +354,6 @@ func (d *daemon) start(j jobs.Job) bool {
 		log.Printf("job %s: started", j.Label())
 		choice := d.chat.Choice(d.ctx, j.Slot)
 		run := runner.Run(d.ctx, d.cfg, j, choice)
-		// When the main model's provider refuses or fails, such as when its
-		// quota runs out, the second model runs the job once.
-		if second := d.chat.Choice(d.ctx, jobs.Second); run.Error != "" && d.ctx.Err() == nil && second != choice && run.ProviderFailed {
-			failed := lastLine(run.Stderr)
-			log.Printf("job %s: %s failed, running it on %s", j.Label(), choice.Model, second.Model)
-			// It goes on in the session the first model left, so what that
-			// one already did is not done twice.
-			input, output := run.InputTokens, run.OutputTokens
-			run = runner.Continue(d.ctx, d.cfg, j, second, run.SessionID)
-			run.InputTokens += input
-			run.OutputTokens += output
-			run.FellBack = choice.Model + " failed: " + failed
-			choice = second
-		}
 		run.Delivered = d.deliver(j, run, choice)
 		if run.InputTokens > 0 || run.OutputTokens > 0 {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
@@ -422,9 +421,6 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	switch {
 	case run.Error != "":
 		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Label(), run.Error)
-		if run.FellBack != "" {
-			text += "\n↻ " + run.FellBack + ", and " + run.Model + " failed too:"
-		}
 		// fx says why on its last line, such as that no provider is set up.
 		lines := strings.Split(strings.TrimSpace(run.Stderr), "\n")
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
@@ -437,11 +433,14 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 		if run.Model != "" {
 			text += " · " + run.Model
 		}
-		if run.FellBack != "" {
-			text += "\n↻ " + run.FellBack
-		}
 		text += "\n\n" + run.Output
 	}
+
+	result := run.Output
+	if run.Error != "" {
+		result = text
+	}
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: heading(j), Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))
@@ -489,6 +488,7 @@ func heading(j jobs.Job) string {
 }
 
 func (d *daemon) notify(text string) error {
+	d.events.Publish(events.Event{Type: events.Notice, Text: text})
 	_, err := d.send(text, false)
 	return err
 }

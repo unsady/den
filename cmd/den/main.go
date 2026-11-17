@@ -70,6 +70,8 @@ Usage:
   den connect google | mail     Connect Google over stdio, or a mailbox from the
                                 account on stdin (root only)
   den disconnect google | mail
+  den app token | unpair        Make the app's token, which replaces the last one,
+                                or forget it (root only)
   den serve                     Run the daemon: scheduler, notifications, and chat
   den init                      Create the agent's space if it is missing
 
@@ -138,6 +140,8 @@ func run(args []string) error {
 		return connectCommand(cfg, args[1:])
 	case "disconnect":
 		return disconnectCommand(cfg, args[1:])
+	case "app":
+		return appCommand(cfg, args[1:])
 	case "serve":
 		return daemon.Serve(cfg)
 	case "init":

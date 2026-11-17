@@ -35,14 +35,15 @@ func (c *Chat) receiveFile(ctx context.Context, telegram *notify.Telegram, m not
 	var e entry
 	switch {
 	case m.File.Photo:
-		e = entry{text: "[The user sent a photo, attached and saved at " + path + "]", image: path}
+		e = entry{text: "[The user sent a photo, attached and saved at " + path + "]", image: path, shown: "📷 Photo"}
 	case m.File.Voice:
-		e.text = c.voiceText(ctx, path, data)
+		e = entry{text: c.voiceText(ctx, path, data), shown: "🎙 Voice message"}
 	default:
-		e.text = "[The user sent a file, saved at " + path + "]"
+		e = entry{text: "[The user sent a file, saved at " + path + "]", shown: "📎 " + filepath.Base(path)}
 	}
 	if caption := strings.TrimSpace(m.Text); caption != "" {
 		e.text = caption + "\n" + e.text
+		e.shown = caption + "\n" + e.shown
 	}
 	e.text = quoted(m, e.text)
 	if m.Group != "" {

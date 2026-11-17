@@ -23,12 +23,6 @@ type Run struct {
 	Delivered bool          `json:"delivered"`
 	// Model is the model the run used, empty when den could not tell.
 	Model string `json:"model,omitempty"`
-	// FellBack says why the run moved to the second model, such as the
-	// main model's provider refusing it; empty when it did not.
-	FellBack string `json:"fell_back,omitempty"`
-	// ProviderFailed says the model's provider refused or failed the run,
-	// so the second model may take it over.
-	ProviderFailed bool `json:"-"`
 	// InputTokens and OutputTokens are what fx reported for the run.
 	InputTokens  int64 `json:"input_tokens,omitempty"`
 	OutputTokens int64 `json:"output_tokens,omitempty"`
