@@ -3,9 +3,18 @@
 // results, and the questions den asks. Telegram gets the same things its own
 // way; an event is only a nudge for a client that is listening now, and a
 // client that missed some reads the state again.
+//
+// The hub also keeps a journal of each session as the user saw it: their
+// messages, the replies, and job results, without what den adds for the
+// agent alone.
 package events
 
 import (
+	"bufio"
+	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -40,7 +49,8 @@ type Event struct {
 	At      time.Time `json:"at"`
 	Session string    `json:"session,omitempty"`
 	Text    string    `json:"text,omitempty"`
-	// Title names a job above its result.
+	// Title names a job above its result, and a /bg task above its
+	// message and reply.
 	Title string `json:"title,omitempty"`
 	Model string `json:"model,omitempty"`
 	// Failed marks a job's failure, or a turn's.
@@ -54,10 +64,17 @@ type Event struct {
 }
 
 // Hub passes events to whoever listens. The zero value has no listeners and
-// is ready to use; a nil Hub drops every event.
+// keeps no journal; a nil Hub drops every event.
 type Hub struct {
+	// Dir holds the journal, a file per session; none is kept when it is
+	// empty.
+	Dir string
+
 	mu        sync.Mutex
 	listeners map[chan Event]bool
+	// waiting are the messages to a new session, which has no ID until
+	// the reply to them.
+	waiting []Event
 }
 
 // buffer is how many events wait for a slow listener before it misses some.
@@ -74,6 +91,7 @@ func (h *Hub) Publish(e Event) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.keep(e)
 	for l := range h.listeners {
 		select {
 		case l <- e:
@@ -102,4 +120,79 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 			close(l)
 		})
 	}
+}
+
+// keep adds e to its session's journal, when it is one of the kinds kept.
+func (h *Hub) keep(e Event) {
+	if h.Dir == "" || e.Type != Message && e.Type != Reply && e.Type != Result {
+		return
+	}
+
+	if e.Session == "" {
+		if e.Type == Message {
+			h.waiting = append(h.waiting, e)
+		}
+		return
+	}
+
+	list := []Event{e}
+	if e.Type == Reply {
+		list = append(h.waiting, e)
+		h.waiting = nil
+	}
+
+	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
+		log.Printf("events: journal: %v", err)
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(h.Dir, e.Session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		log.Printf("events: journal: %v", err)
+		return
+	}
+	defer f.Close()
+
+	out := json.NewEncoder(f)
+	for _, e := range list {
+		e.Session = ""
+		if err := out.Encode(e); err != nil {
+			log.Printf("events: journal: %v", err)
+			return
+		}
+	}
+}
+
+// Forget deletes the journal of session.
+func (h *Hub) Forget(session string) {
+	if h == nil || h.Dir == "" {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err := os.Remove(filepath.Join(h.Dir, session+".jsonl")); err != nil && !os.IsNotExist(err) {
+		log.Printf("events: journal: %v", err)
+	}
+}
+
+// Journal returns the kept events of session, oldest first. It returns an
+// error that matches os.ErrNotExist when the session has none.
+func Journal(dir, session string) ([]Event, error) {
+	f, err := os.Open(filepath.Join(dir, session+".jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var list []Event
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1<<20), 16<<20)
+	for scanner.Scan() {
+		var e Event
+		if json.Unmarshal(scanner.Bytes(), &e) == nil {
+			e.Session = session
+			list = append(list, e)
+		}
+	}
+	return list, scanner.Err()
 }

@@ -232,7 +232,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Title: l.Title, Updated: l.Updated, Turns: l.Turns, Job: jobs[l.ID]})
+			out = append(out, session{ID: l.ID, Title: l.Title, Updated: l.Updated, Turns: l.Turns, Kind: s.kind(l.ID, jobs)})
 		}
 		reply(w, out)
 	})
@@ -243,17 +243,15 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusBadRequest, errors.New("bad session id"))
 			return
 		}
-		list, err := sessions.Messages(s.cfg.Sessions, id)
-		if errors.Is(err, os.ErrNotExist) {
-			fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
-			return
-		}
-		if err != nil {
+		// A session from before the journal has nothing to show.
+		journal, err := events.Journal(s.events.Dir, id)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
-		if list == nil {
-			list = []sessions.Message{}
+		list := []message{}
+		for _, e := range journal {
+			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed})
 		}
 		reply(w, list)
 	})
@@ -392,8 +390,31 @@ type session struct {
 	Title   string    `json:"title"`
 	Updated time.Time `json:"updated"`
 	Turns   int       `json:"turns"`
-	// Job marks a job run's session.
-	Job bool `json:"job,omitempty"`
+	// Kind is chat, job for a job run's session, or background for a /bg
+	// task's.
+	Kind string `json:"kind"`
+}
+
+// message is one message of a session as the user saw it.
+type message struct {
+	// Mine marks the user's message; the others are den's.
+	Mine   bool      `json:"mine"`
+	Text   string    `json:"text"`
+	At     time.Time `json:"at"`
+	Failed bool      `json:"failed,omitempty"`
+}
+
+// kind tells a job run's session and a /bg task's from the chat's: a /bg
+// task's journal starts with the task, named.
+func (s *Server) kind(id string, jobs map[string]bool) string {
+	if jobs[id] {
+		return "job"
+	}
+	journal, _ := events.Journal(s.events.Dir, id)
+	if len(journal) > 0 && journal[0].Type == events.Message && journal[0].Title != "" {
+		return "background"
+	}
+	return "chat"
 }
 
 // setup answers with the chat's setup, after a change to it.

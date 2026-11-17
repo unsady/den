@@ -72,7 +72,7 @@ func (f *fakeAsker) Answer(id, outcome string) (string, bool) {
 
 func TestServer(t *testing.T) {
 	cfg := config.Config{Secrets: t.TempDir(), Sessions: t.TempDir()}
-	hub := &events.Hub{}
+	hub := &events.Hub{Dir: t.TempDir()}
 	c, a := &fakeChat{}, &fakeAsker{}
 	s := New(cfg, c, a, hub)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -164,8 +164,13 @@ func TestServer(t *testing.T) {
 	if status, _ := call("GET", "/sessions/..", token, ""); status == http.StatusOK {
 		t.Fatal("a path outside the sessions was read")
 	}
-	if status, _ := call("GET", "/sessions/missing", token, ""); status != http.StatusNotFound {
-		t.Fatalf("missing session: %d", status)
+	// A session shows what its journal kept, and one without a journal
+	// nothing.
+	if status, body := call("GET", "/sessions/s1", token, ""); status != http.StatusOK || !strings.Contains(body, `"text":"Hi"`) {
+		t.Fatalf("session: %d %s", status, body)
+	}
+	if status, body := call("GET", "/sessions/missing", token, ""); status != http.StatusOK || strings.TrimSpace(body) != "[]" {
+		t.Fatalf("missing session: %d %s", status, body)
 	}
 
 	// Results wait for an app that was away.

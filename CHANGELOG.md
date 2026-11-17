@@ -8,7 +8,7 @@ release notes.
 
 ### New
 
-- The den app: `den app pair` lets it into the chat over your Tailscale network with a token of its own. It shares the session, the models, job results, and questions with Telegram.
+- The den app: `den app pair` lets it into the chat over your Tailscale network with a token of its own. It shares the session, the models, job results, and questions with Telegram. It shows a session as you saw it, from a journal den keeps from now on; earlier sessions open empty.
 - A message you send while the agent works joins the turn, marked ✍, instead of waiting for it to end: the agent reads it after the step it is on, so "stop, not that file" or "check X too" changes what it does now. A photo, or a reply to a job's message, still waits for the next turn.
 
 ### Better

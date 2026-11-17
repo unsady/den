@@ -176,6 +176,9 @@ type entry struct {
 	label   string
 	// choice is the model of that session, nil for the chat's own.
 	choice *runner.Choice
+	// shown is the message as the user wrote it, when text adds den's
+	// notes for the agent, such as a file's path or the quoted message.
+	shown string
 }
 
 // saved is how an entry is kept in the chat's state.
@@ -199,7 +202,7 @@ func (e *entry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, s.Label, s.Choice}
+	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, s.Label, s.Choice, ""}
 	return nil
 }
 
@@ -346,7 +349,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 		bg:      map[string]context.CancelFunc{},
 		agent:   runner.NewAgent(cfg),
 		steered: map[string]bool{},
-		Events:  &events.Hub{},
+		Events:  &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
 	c.agent.OnTurn = c.steeredTurn
@@ -498,7 +501,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		c.tell(ctx, telegram, notices)
 
 	default:
-		c.queue(ctx, telegram, m, entry{text: quoted(m, m.Text)})
+		c.queue(ctx, telegram, m, entry{text: quoted(m, m.Text), shown: m.Text})
 	}
 }
 
@@ -560,7 +563,7 @@ func (c *Chat) switchTo(session string) []string {
 }
 
 // Forget drops a session that was deleted from what the chat remembers: its
-// place among the opened sessions and the replies tied to it. When it is the
+// place among the opened sessions, the replies tied to it, and its journal. When it is the
 // chat's own session, the next turn starts a new one, as after /new. It
 // refuses while a turn runs in the chat's session, which the user can /stop.
 func (c *Chat) Forget(session string) error {
@@ -574,6 +577,7 @@ func (c *Chat) Forget(session string) error {
 	c.state.Replies = slices.DeleteFunc(c.state.Replies, func(r sent) bool { return r.Session == session })
 	c.save()
 	c.mu.Unlock()
+	c.Events.Forget(session)
 
 	if current {
 		// The reports den held for the deleted session go with it.
@@ -634,6 +638,14 @@ func (c *Chat) opened(session string) {
 // is one of the agent's, and is marked with ✍.
 func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, entries ...entry) {
 	id := m.ID
+	c.mu.Lock()
+	for i, e := range entries {
+		if e.session == "" {
+			entries[i].session, entries[i].label, entries[i].choice = c.other(m.ReplyTo)
+		}
+	}
+	c.mu.Unlock()
+
 	c.published(entries)
 	if c.steer(ctx, m, entries) {
 		c.react(ctx, telegram, id, "✍")
@@ -641,12 +653,7 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 	}
 
 	c.mu.Lock()
-	for _, e := range entries {
-		if e.session == "" {
-			e.session, e.label, e.choice = c.other(m.ReplyTo)
-		}
-		c.inbox = append(c.inbox, e)
-	}
+	c.inbox = append(c.inbox, entries...)
 	c.save()
 	busy := c.stop != nil
 	c.mu.Unlock()

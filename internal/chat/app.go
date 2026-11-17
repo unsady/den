@@ -47,17 +47,23 @@ func (c *Chat) Post(ctx context.Context, text, session string) {
 	c.poke()
 }
 
-// published tells the app of the user's messages among entries.
+// published tells the app of the user's messages among entries, as the
+// user wrote them.
 func (c *Chat) published(entries []entry) {
 	session := c.session()
 	for _, e := range entries {
-		if !e.report && e.text != "" {
-			to := session
-			if e.session != "" {
-				to = e.session
-			}
-			c.Events.Publish(events.Event{Type: events.Message, Session: to, Text: e.text})
+		if e.report || e.text == "" {
+			continue
 		}
+		to := session
+		if e.session != "" {
+			to = e.session
+		}
+		text := e.text
+		if e.shown != "" {
+			text = e.shown
+		}
+		c.Events.Publish(events.Event{Type: events.Message, Session: to, Text: text})
 	}
 }
 
