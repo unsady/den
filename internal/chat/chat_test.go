@@ -1187,3 +1187,48 @@ func TestAppTurn(t *testing.T) {
 	}
 	expectFile(t, saved[0], png)
 }
+
+func TestAppBackground(t *testing.T) {
+	_, telegram, c := startChatWith(t, nil)
+	names := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "compare-models"}}}})
+	}))
+	t.Cleanup(names.Close)
+	original := nameURL
+	nameURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
+	t.Cleanup(func() { nameURL = original })
+	list, stop := c.Events.Listen()
+	defer stop()
+
+	// A /bg task from the app runs in a session of its own and answers only
+	// in the app, under its name.
+	if err := c.Post(context.Background(), "/bg slow: compare models", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	var message, reply *events.Event
+	timeout := time.After(5 * time.Second)
+	for message == nil || reply == nil {
+		select {
+		case e := <-list:
+			switch e.Type {
+			case events.Message:
+				message = &e
+			case events.Reply:
+				reply = &e
+			}
+		case <-timeout:
+			t.Fatalf("message %+v, reply %+v", message, reply)
+		}
+	}
+	if message.Text != "slow: compare models" || message.Title != "⚙ compare-models" || message.Session == "" {
+		t.Fatalf("message %+v", message)
+	}
+	if reply.Text != "resume=none msg=slow: compare models lines=1" || reply.Title != message.Title || reply.Session != message.Session {
+		t.Fatalf("reply %+v", reply)
+	}
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

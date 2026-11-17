@@ -33,9 +33,15 @@ var pictures = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
 // Post gives text and files from the app to the chat's session: it joins the
 // running turn, or waits for the next one. With another session, such as a
 // job run's, it goes there as its own turn, as a reply to a job's message
-// does. Files are saved in the inbox as Telegram's are, and pictures are
+// does. A /bg task starts in the background. Files are saved in the inbox as Telegram's are, and pictures are
 // attached to the turn.
 func (c *Chat) Post(ctx context.Context, text, session string, files []File) error {
+	// A /bg task runs in a session of its own, as it does from Telegram.
+	if task, ok := bgTask(text); ok && len(files) == 0 {
+		c.runBackground(ctx, nil, task)
+		return nil
+	}
+
 	entries := []entry{{text: text}}
 	if len(files) > 0 {
 		entries = nil

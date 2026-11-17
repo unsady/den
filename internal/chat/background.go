@@ -122,12 +122,19 @@ func cleanName(text string) string {
 
 // runBackground runs task in a new session of its own besides the chat's
 // turns. Its answer comes headed with the task's name, and a reply to it
-// goes on in its session.
+// goes on in its session. With no telegram, the task is the app's: nothing
+// is said in Telegram, and the answer comes only in the app.
 func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, task string) {
 	if task == "" {
-		c.send(ctx, telegram, "Send /bg with a task, such as: /bg compare these two models")
+		const hint = "Send /bg with a task, such as: /bg compare these two models"
+		if telegram == nil {
+			c.tell(ctx, nil, []string{hint})
+		} else {
+			c.send(ctx, telegram, hint)
+		}
 		return
 	}
+	app := telegram == nil
 	id := rand.Text()
 	asked := time.Now()
 	run, cancel := context.WithCancel(ctx)
@@ -141,11 +148,15 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 	}
 	c.mu.Unlock()
 	const after = " Its answer comes here; reply to it to go on there."
-	call, done := context.WithTimeout(ctx, time.Minute)
-	started, err := telegram.Post(call, "⚙ Background task started."+after)
-	done()
-	if err != nil {
-		log.Printf("chat: send: %v", err)
+	var started int64
+	if !app {
+		call, done := context.WithTimeout(ctx, time.Minute)
+		var err error
+		started, err = telegram.Post(call, "⚙ Background task started."+after)
+		done()
+		if err != nil {
+			log.Printf("chat: send: %v", err)
+		}
 	}
 
 	// A model names the task while it runs, and the message says the name
@@ -214,6 +225,10 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if reply.SessionID != "" {
 			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: label, Text: task})
 			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: label, Text: answer(reply, false), Failed: reply.Error != ""})
+		}
+		if app {
+			c.tell(ctx, nil, notices)
+			return
 		}
 		telegram, err := notify.Load(c.cfg)
 		if err != nil {
