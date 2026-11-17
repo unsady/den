@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.9.0
+
 ### New
 
 - The den app: `den app pair` lets it into the chat over your Tailscale network with a token of its own. It shares the session, the models, job results, and questions with Telegram. It shows a session as you saw it, from a journal den keeps from now on; earlier sessions open empty.
