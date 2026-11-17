@@ -933,15 +933,16 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.steerable = false
 	compacted := ""
 	switched := generation != c.generation
-	if other == "" && !switched && reply.SessionID != "" {
-		// A new session gets its title from its first exchange.
-		if session == "" && asked && reply.Error == "" {
-			said := reply.Output
-			if runner.IsSilent(said) {
-				said = ""
-			}
-			go c.name(reply.SessionID, prompt, said, provider, model)
+	// A new session gets its title from its first exchange, also when the
+	// chat has moved on.
+	if other == "" && session == "" && asked && reply.SessionID != "" && reply.Error == "" {
+		said := reply.Output
+		if runner.IsSilent(said) {
+			said = ""
 		}
+		go c.name(reply.SessionID, prompt, said, provider, model)
+	}
+	if other == "" && !switched && reply.SessionID != "" {
 		c.state.Session = reply.SessionID
 		c.opened(reply.SessionID)
 		if size := c.contextSize(started); size > 0 {
