@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unsady/den/internal/config"
@@ -399,13 +400,17 @@ func parse(stdout []byte) (askResult, error) {
 	return r, errors.New("fx printed a result den cannot read")
 }
 
-// tail keeps the last limit bytes written to it.
+// tail keeps the last limit bytes written to it. fx acp writes to it while
+// den reads it.
 type tail struct {
 	limit int
+	mu    sync.Mutex
 	buf   []byte
 }
 
 func (t *tail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.buf = append(t.buf, p...)
 	if over := len(t.buf) - t.limit; over > 0 {
 		t.buf = t.buf[over:]
@@ -413,7 +418,11 @@ func (t *tail) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (t *tail) String() string { return strings.TrimSpace(string(t.buf)) }
+func (t *tail) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(string(t.buf))
+}
 
 // lines calls emit with each complete line written to it.
 type lines struct {

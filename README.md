@@ -68,7 +68,7 @@ What den does not stop: inside its container the agent works with full access, i
 
 ## Chat
 
-Each message to the bot becomes a turn of the agent's current session, and the reply comes back to the chat. While a turn runs, one message shows its latest steps in short, such as `Searched “lightpanda 1.0”` or `→ Running grep…`, and goes away when the reply arrives. Messages you send while the agent works go together as the next turn.
+Each message to the bot becomes a turn of the agent's current session, and the reply comes back to the chat. While a turn runs, one message shows its latest steps in short, such as `Searched “lightpanda 1.0”` or `→ Running grep…`, and goes away when the reply arrives. A message you send while the agent works joins that turn, marked ✍: the agent reads it after the step it is on, such as a command that is running, and can change course without starting over. A photo, or a reply to a job's message, waits and goes as the next turn, marked 👀.
 
 | Command | What it does |
 |---|---|

@@ -37,7 +37,7 @@ func (c *Chat) showTyping(ctx context.Context, done <-chan struct{}) {
 // such as from a job's agent, or an earlier note waits.
 func (c *Chat) Note(turn, text string) {
 	c.mu.Lock()
-	running := turn != "" && turn == c.turnID
+	running := turn != "" && c.resolve(turn) == c.turnID
 	c.mu.Unlock()
 	if !running {
 		return
