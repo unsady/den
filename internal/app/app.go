@@ -41,7 +41,7 @@ const tokenFile = "app_token"
 
 // Chat is what the app does with the chat.
 type Chat interface {
-	Post(ctx context.Context, text string)
+	Post(ctx context.Context, text, session string)
 	Stop(ctx context.Context) bool
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
@@ -277,6 +277,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /messages", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Text string `json:"text"`
+			// Session is where it goes when it is not the chat's own, such
+			// as a job run's.
+			Session string `json:"session"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -287,7 +290,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		// The turn outlives the request; its reply comes as an event.
-		s.chat.Post(context.WithoutCancel(r.Context()), req.Text)
+		s.chat.Post(context.WithoutCancel(r.Context()), req.Text, req.Session)
 		reply(w, map[string]bool{"sent": true})
 	})
 

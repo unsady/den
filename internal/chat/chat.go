@@ -971,6 +971,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	if wrote == "" {
 		wrote = session
 	}
+	// The app shows each session apart, so its reply needs no label.
+	c.Events.Publish(events.Event{Type: events.Reply, Session: wrote, Text: text, Failed: reply.Error != ""})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
 	if other != "" || switched {
@@ -980,7 +982,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text
-	c.Events.Publish(events.Event{Type: events.Reply, Session: wrote, Text: text, Failed: reply.Error != ""})
 	if app {
 		return true
 	}

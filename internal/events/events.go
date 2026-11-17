@@ -5,7 +5,10 @@
 // client that missed some reads the state again.
 package events
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // The kinds of event.
 const (
@@ -33,9 +36,10 @@ const (
 // Event is one thing that happened. Fields that do not apply to its kind
 // are empty.
 type Event struct {
-	Type    string `json:"type"`
-	Session string `json:"session,omitempty"`
-	Text    string `json:"text,omitempty"`
+	Type    string    `json:"type"`
+	At      time.Time `json:"at"`
+	Session string    `json:"session,omitempty"`
+	Text    string    `json:"text,omitempty"`
 	// Title names a job above its result.
 	Title string `json:"title,omitempty"`
 	Model string `json:"model,omitempty"`
@@ -63,6 +67,9 @@ const buffer = 64
 func (h *Hub) Publish(e Event) {
 	if h == nil {
 		return
+	}
+	if e.At.IsZero() {
+		e.At = time.Now()
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()

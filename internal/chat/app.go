@@ -20,9 +20,22 @@ import (
 // only in the app, and one of Telegram's answers in both.
 
 // Post gives text from the app to the chat's session: it joins the running
-// turn, or waits for the next one.
-func (c *Chat) Post(ctx context.Context, text string) {
+// turn, or waits for the next one. With another session, such as a job
+// run's, it goes there as its own turn, as a reply to a job's message does.
+func (c *Chat) Post(ctx context.Context, text, session string) {
 	e := entry{text: text, app: true}
+	if session != "" && session != c.session() {
+		e.session = session
+		// A job's session goes on with the model that ran it.
+		c.mu.Lock()
+		for _, r := range slices.Backward(c.state.Replies) {
+			if r.Session == session {
+				e.label, e.choice = r.Label, r.Choice
+				break
+			}
+		}
+		c.mu.Unlock()
+	}
 	c.published([]entry{e})
 	if c.steer(ctx, notify.Message{}, []entry{e}) {
 		return

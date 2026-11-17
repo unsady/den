@@ -1127,7 +1127,7 @@ func TestAppTurn(t *testing.T) {
 	}
 
 	// A message from the app answers only there.
-	c.Post(context.Background(), "hello")
+	c.Post(context.Background(), "hello", "")
 	if e := next(events.Message); e.Text != "hello" {
 		t.Fatalf("message %+v", e)
 	}
@@ -1151,5 +1151,20 @@ func TestAppTurn(t *testing.T) {
 	telegram.expect(t, want)
 	if e := next(events.Reply); e.Text != want {
 		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+
+	// A reply to a job's run goes on in its session, and only in the app.
+	c.Post(context.Background(), "more", "job1")
+	if e := next(events.Message); e.Session != "job1" {
+		t.Fatalf("message %+v", e)
+	}
+	if e := next(events.Reply); !strings.HasPrefix(e.Text, "resume=job1 msg=more") {
+		t.Fatalf("reply %+v", e)
+	}
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

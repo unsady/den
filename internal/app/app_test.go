@@ -25,10 +25,10 @@ type fakeChat struct {
 	effort string
 }
 
-func (f *fakeChat) Post(_ context.Context, text string) {
+func (f *fakeChat) Post(_ context.Context, text, session string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.posted = append(f.posted, text)
+	f.posted = append(f.posted, text+session)
 }
 
 func (f *fakeChat) Stop(context.Context) bool { return false }
