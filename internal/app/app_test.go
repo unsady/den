@@ -25,10 +25,14 @@ type fakeChat struct {
 	effort string
 }
 
-func (f *fakeChat) Post(_ context.Context, text, session string) {
+func (f *fakeChat) Post(_ context.Context, text, session string, files []chat.File) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posted = append(f.posted, text+session)
+	for _, file := range files {
+		f.posted = append(f.posted, file.Name+":"+string(file.Data))
+	}
+	return nil
 }
 
 func (f *fakeChat) Stop(context.Context) bool { return false }
@@ -145,6 +149,9 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("POST", "/messages", token, `{"text":"Plan my week"}`); status != http.StatusOK || strings.Join(c.posted, "|") != "Plan my week" {
 		t.Fatalf("message: %d %v", status, c.posted)
+	}
+	if status, _ := call("POST", "/messages", token, `{"text":"","files":[{"name":"a.png","data":"aGk="}]}`); status != http.StatusOK || strings.Join(c.posted, "|") != "Plan my week||a.png:hi" {
+		t.Fatalf("file: %d %v", status, c.posted)
 	}
 
 	if status, body := call("PUT", "/effort", token, `{"effort":"high"}`); status != http.StatusOK || !strings.Contains(body, `"effort":"high"`) {

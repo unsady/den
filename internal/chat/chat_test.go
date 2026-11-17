@@ -1127,7 +1127,7 @@ func TestAppTurn(t *testing.T) {
 	}
 
 	// A message from the app answers only there.
-	c.Post(context.Background(), "hello", "")
+	c.Post(context.Background(), "hello", "", nil)
 	if e := next(events.Message); e.Text != "hello" {
 		t.Fatalf("message %+v", e)
 	}
@@ -1155,7 +1155,7 @@ func TestAppTurn(t *testing.T) {
 	next(events.Idle)
 
 	// A reply to a job's run goes on in its session, and only in the app.
-	c.Post(context.Background(), "more", "job1")
+	c.Post(context.Background(), "more", "job1", nil)
 	if e := next(events.Message); e.Session != "job1" {
 		t.Fatalf("message %+v", e)
 	}
@@ -1167,4 +1167,23 @@ func TestAppTurn(t *testing.T) {
 		t.Fatalf("Telegram got %q", got)
 	case <-time.After(300 * time.Millisecond):
 	}
+	next(events.Idle)
+
+	// Files from the app are saved, and a picture among them is attached.
+	png := "\x89PNG\r\n\x1a\n picture"
+	files := []File{{Name: "shot.png", Data: []byte(png)}, {Name: "notes.txt", Data: []byte("notes")}}
+	if err := c.Post(context.Background(), "look", "", files); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.Message); e.Text != "look\n📷 shot.png" {
+		t.Fatalf("message %+v", e)
+	}
+	if e := next(events.Reply); !strings.Contains(e.Text, "msg=look") || !strings.HasSuffix(e.Text, "images=1") {
+		t.Fatalf("reply %+v", e)
+	}
+	saved, _ := filepath.Glob(filepath.Join(c.cfg.Inbox, "*", "*"))
+	if len(saved) != 2 || !strings.HasSuffix(saved[0], "-0-shot.png") || !strings.HasSuffix(saved[1], "-1-notes.txt") {
+		t.Fatalf("saved %v", saved)
+	}
+	expectFile(t, saved[0], png)
 }

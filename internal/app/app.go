@@ -41,7 +41,7 @@ const tokenFile = "app_token"
 
 // Chat is what the app does with the chat.
 type Chat interface {
-	Post(ctx context.Context, text, session string)
+	Post(ctx context.Context, text, session string, files []chat.File) error
 	Stop(ctx context.Context) bool
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
@@ -279,17 +279,22 @@ func (s *Server) Handler() http.Handler {
 			// Session is where it goes when it is not the chat's own, such
 			// as a job run's.
 			Session string `json:"session"`
+			// Files are what the user attached, in base64.
+			Files []chat.File `json:"files"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if strings.TrimSpace(req.Text) == "" {
+		if strings.TrimSpace(req.Text) == "" && len(req.Files) == 0 {
 			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
 			return
 		}
 		// The turn outlives the request; its reply comes as an event.
-		s.chat.Post(context.WithoutCancel(r.Context()), req.Text, req.Session)
+		if err := s.chat.Post(context.WithoutCancel(r.Context()), req.Text, req.Session, req.Files); err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
 		reply(w, map[string]bool{"sent": true})
 	})
 

@@ -115,8 +115,6 @@ func (c *Chat) voiceText(ctx context.Context, path string, data []byte) string {
 
 // saveFile downloads the file into the day's inbox folder and returns its
 // path and contents.
-// The agent writes the file, so a link the agent planted in the inbox cannot
-// make den write where the agent cannot.
 func (c *Chat) saveFile(ctx context.Context, telegram *notify.Telegram, m notify.Message) (string, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -125,19 +123,27 @@ func (c *Chat) saveFile(ctx context.Context, telegram *notify.Telegram, m notify
 	if err := telegram.Download(ctx, m.File.ID, &data); err != nil {
 		return "", nil, err
 	}
-	contents := data.Bytes()
 
+	contents := data.Bytes()
+	path, err := c.writeFile(ctx, fmt.Sprintf("%d-%s", m.ID, fileName(m.File)), contents)
+	return path, contents, err
+}
+
+// writeFile writes contents as name in the day's inbox folder and returns
+// its path. The agent writes the file, so a link the agent planted in the
+// inbox cannot make den write where the agent cannot.
+func (c *Chat) writeFile(ctx context.Context, name string, contents []byte) (string, error) {
 	dir := filepath.Join(c.cfg.Inbox, time.Now().Format("2006-01-02"))
-	name := fmt.Sprintf("%d-%s", m.ID, fileName(m.File))
 	cmd, err := proc.Command(ctx, c.cfg, "/bin/sh", "-c", `set -C; umask 077; mkdir -p -- "$1" && cat > "$1/$2"`, "save", dir, name)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
+
 	cmd.Stdin = bytes.NewReader(contents)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", nil, fmt.Errorf("writing %s: %v: %s", name, err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("writing %s: %v: %s", name, err, strings.TrimSpace(string(out)))
 	}
-	return filepath.Join(dir, name), contents, nil
+	return filepath.Join(dir, name), nil
 }
 
 // fileName keeps a document's name readable and safe as one path element.

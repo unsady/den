@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
@@ -19,32 +21,76 @@ import (
 // session, its models, and its turns. A turn of the app's messages answers
 // only in the app, and one of Telegram's answers in both.
 
-// Post gives text from the app to the chat's session: it joins the running
-// turn, or waits for the next one. With another session, such as a job
-// run's, it goes there as its own turn, as a reply to a job's message does.
-func (c *Chat) Post(ctx context.Context, text, session string) {
-	e := entry{text: text, app: true}
-	if session != "" && session != c.session() {
-		e.session = session
+// File is a file the app sends with a message.
+type File struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+// images are the kinds of picture a model sees when attached to a turn.
+var pictures = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+// Post gives text and files from the app to the chat's session: it joins the
+// running turn, or waits for the next one. With another session, such as a
+// job run's, it goes there as its own turn, as a reply to a job's message
+// does. Files are saved in the inbox as Telegram's are, and pictures are
+// attached to the turn.
+func (c *Chat) Post(ctx context.Context, text, session string, files []File) error {
+	entries := []entry{{text: text}}
+	if len(files) > 0 {
+		entries = nil
+		stamp := time.Now().UnixMilli()
+		for i, f := range files {
+			path, err := c.writeFile(ctx, fmt.Sprintf("%d-%d-%s", stamp, i, fileName(&notify.File{Name: f.Name})), f.Data)
+			if err != nil {
+				return err
+			}
+
+			e := entry{text: "[The user sent a file, saved at " + path + "]", shown: "📎 " + f.Name}
+			if slices.Contains(pictures, http.DetectContentType(f.Data)) {
+				e = entry{text: "[The user sent a picture, attached and saved at " + path + "]", image: path, shown: "📷 " + f.Name}
+			}
+			entries = append(entries, e)
+		}
+		// The user's words come first and den's notes about the files after
+		// them.
+		if caption := strings.TrimSpace(text); caption != "" {
+			entries[0].text = caption + "\n" + entries[0].text
+			entries[0].shown = caption + "\n" + entries[0].shown
+		}
+	}
+
+	var label string
+	var choice *runner.Choice
+	if session == c.session() {
+		session = ""
+	}
+	if session != "" {
 		// A job's session goes on with the model that ran it.
 		c.mu.Lock()
 		for _, r := range slices.Backward(c.state.Replies) {
 			if r.Session == session {
-				e.label, e.choice = r.Label, r.Choice
+				label, choice = r.Label, r.Choice
 				break
 			}
 		}
 		c.mu.Unlock()
 	}
-	c.published([]entry{e})
-	if c.steer(ctx, notify.Message{}, []entry{e}) {
-		return
+	for i := range entries {
+		entries[i].app = true
+		entries[i].session, entries[i].label, entries[i].choice = session, label, choice
+	}
+
+	c.published(entries)
+	if c.steer(ctx, notify.Message{}, entries) {
+		return nil
 	}
 	c.mu.Lock()
-	c.inbox = append(c.inbox, e)
+	c.inbox = append(c.inbox, entries...)
 	c.save()
 	c.mu.Unlock()
 	c.poke()
+	return nil
 }
 
 // published tells the app of the user's messages among entries, as the
