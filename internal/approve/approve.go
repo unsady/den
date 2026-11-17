@@ -330,6 +330,26 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 		}
 	}
 	p.answer <- outcome
+
+	// Questions already waiting that the answer covers get it too, as they
+	// would have if they had been asked after it. Their waits shrink them in
+	// the chat and the app.
+	a.mu.Lock()
+	var covered []*question
+	for id, other := range a.pending {
+		if outcome == ForHour && other.Scope == p.Scope || outcome == Always && other.Rule == p.Rule {
+			delete(a.pending, id)
+			covered = append(covered, other)
+		}
+	}
+	a.mu.Unlock()
+	for _, other := range covered {
+		if outcome == ForHour {
+			other.answer <- ByHour
+		} else {
+			other.answer <- ByRule
+		}
+	}
 	return p.What + "\n" + answered(p.Question, outcome), true
 }
 

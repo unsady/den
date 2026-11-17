@@ -206,6 +206,86 @@ func TestAnsweredNamesWhatAlwaysAndAnHourAllow(t *testing.T) {
 	}
 }
 
+func TestAnswerCoversWaitingQuestions(t *testing.T) {
+	sent := make(chan string, 10)
+	edited := make(chan string, 10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			var id string
+			for _, row := range body["reply_markup"].(map[string]any)["inline_keyboard"].([]any) {
+				id = row.([]any)[0].(map[string]any)["callback_data"].(string)
+			}
+			sent <- strings.TrimPrefix(id, "ok:")
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			edited <- body["text"].(string)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 5}})
+	}))
+	defer server.Close()
+	notify.API = server.URL
+
+	dir := t.TempDir()
+	cfg := config.Config{Secrets: dir, State: dir}
+	for name, value := range map[string]string{"telegram_token": "token", "telegram_chat_id": "42"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := New(cfg)
+
+	// Two questions of one scope wait, and a third of another.
+	ask := func(q Question) (string, chan error) {
+		done := make(chan error, 1)
+		go func() { done <- a.Ask(context.Background(), q) }()
+		return <-sent, done
+	}
+	for _, c := range []struct {
+		outcome string
+		a, b    Question
+		other   Question
+	}{
+		{ForHour,
+			Question{Text: "A?", What: "crm: POST /a", Scope: "crm"},
+			Question{Text: "B?", What: "crm: POST /b", Scope: "crm"},
+			Question{Text: "C?", What: "wiki: POST /c", Scope: "wiki"}},
+		{Always,
+			Question{Text: "A?", What: "crm: POST /a", Rule: "crm post"},
+			Question{Text: "B?", What: "crm: POST /a", Rule: "crm post"},
+			Question{Text: "C?", What: "crm: POST /c", Rule: "crm other"}},
+	} {
+		first, firstDone := ask(c.a)
+		second, secondDone := ask(c.b)
+		third, thirdDone := ask(c.other)
+
+		if _, ok := a.Answer(first, c.outcome); !ok {
+			t.Fatalf("%s: the question was not waiting", c.outcome)
+		}
+		if err := <-firstDone; err != nil {
+			t.Fatalf("%s: first: %v", c.outcome, err)
+		}
+		if err := <-secondDone; err != nil {
+			t.Fatalf("%s: second: %v", c.outcome, err)
+		}
+		if _, ok := a.Answer(second, Allowed); ok {
+			t.Fatalf("%s: the covered question still waits", c.outcome)
+		}
+
+		// Both shrink in the chat, and the other kind still waits.
+		for range 2 {
+			<-edited
+		}
+		if got := a.Pending(); len(got) != 1 || got[0].ID != third {
+			t.Fatalf("%s: pending %+v, want only the other kind", c.outcome, got)
+		}
+		a.Answer(third, Denied)
+		<-thirdDone
+		<-edited
+	}
+}
+
 func TestAskWithFile(t *testing.T) {
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
