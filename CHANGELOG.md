@@ -13,6 +13,7 @@ release notes.
 
 ### Better
 
+- A new chat session gets a short title in /sessions and the app instead of its first message, made from your message and the reply, so a photo or a link gets a title too: den asks Claude's haiku through the claude command, or the chat's own model with other providers. Codex and Grok sessions keep the title fx gives them.
 - A question you answer shrinks to its answer wherever it shows, and so does one that expires.
 - A push that waits for your answer names its commits: the question lists each branch with its count of commits and files, their titles, and a link to the comparison on GitHub, and says when the push rewrites history. Allow moves the branch to the commits you saw; if the branch moved meanwhile, den leaves it alone and tells the agent.
 - A request too long to show in its question comes with its whole body as a file, sent before the buttons.

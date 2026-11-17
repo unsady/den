@@ -226,6 +226,7 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
+		s.events.Titled(list)
 		var jobs map[string]bool
 		if s.JobSessions != nil {
 			jobs = s.JobSessions()

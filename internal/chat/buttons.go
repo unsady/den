@@ -30,6 +30,7 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 		c.send(ctx, telegram, "Could not read the sessions: "+err.Error())
 		return
 	}
+	c.Events.Titled(all)
 	var ofJobs map[string]bool
 	if c.den != nil {
 		ofJobs = c.den.JobSessions()
@@ -141,6 +142,7 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 	switch kind {
 	case "s":
 		list, _ := sessions.List(c.cfg.Sessions, 1<<20)
+		c.Events.Titled(list)
 		answer = "That session no longer exists."
 		for _, s := range list {
 			if s.ID == ref {

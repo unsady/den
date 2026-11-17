@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"testing"
+
+	"github.com/unsady/den/internal/sessions"
 )
 
 func TestJournal(t *testing.T) {
@@ -31,5 +33,29 @@ func TestJournal(t *testing.T) {
 	h.Forget("job1")
 	if _, err := Journal(h.Dir, "job1"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("forgotten: %v", err)
+	}
+}
+
+func TestTitles(t *testing.T) {
+	h := &Hub{Dir: t.TempDir()}
+	l, stop := h.Listen()
+	defer stop()
+
+	// den's title takes the place of fx's, and the listeners hear of it.
+	h.Name("s1", "Jensen Huang's apology")
+	if e := <-l; e.Type != Titled || e.Session != "s1" || e.Text != "Jensen Huang's apology" {
+		t.Fatalf("event %+v", e)
+	}
+	list := []sessions.Summary{{ID: "s1", Title: "Summarize https://x.com/..."}, {ID: "s2", Title: "Model speed"}}
+	h.Titled(list)
+	if list[0].Title != "Jensen Huang's apology" || list[1].Title != "Model speed" {
+		t.Fatalf("titles %+v", list)
+	}
+
+	h.Forget("s1")
+	list[0].Title = "fx's"
+	h.Titled(list)
+	if list[0].Title != "fx's" {
+		t.Fatalf("forgotten title %q", list[0].Title)
 	}
 }

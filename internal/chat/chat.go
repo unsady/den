@@ -931,6 +931,14 @@ func (c *Chat) turn(ctx context.Context) bool {
 	compacted := ""
 	switched := generation != c.generation
 	if other == "" && !switched && reply.SessionID != "" {
+		// A new session gets its title from its first exchange.
+		if session == "" && asked && reply.Error == "" {
+			said := reply.Output
+			if runner.IsSilent(said) {
+				said = ""
+			}
+			go c.name(reply.SessionID, prompt, said, provider, model)
+		}
 		c.state.Session = reply.SessionID
 		c.opened(reply.SessionID)
 		if size := c.contextSize(started); size > 0 {
@@ -1042,6 +1050,7 @@ func (c *Chat) titled(session string) string {
 	if err != nil {
 		return "↩ " + title
 	}
+	c.Events.Titled(list)
 	for _, s := range list {
 		if s.ID == session && s.Title != "Untitled session" {
 			title = clipRunes(s.Title, 40)

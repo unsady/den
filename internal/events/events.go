@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/unsady/den/internal/sessions"
 )
 
 // The kinds of event.
@@ -40,6 +42,8 @@ const (
 	// Settings says the model, the effort, the second model, or the
 	// current session changed.
 	Settings = "settings"
+	// Titled gives a session the title den made for it.
+	Titled = "titled"
 )
 
 // Event is one thing that happened. Fields that do not apply to its kind
@@ -162,7 +166,7 @@ func (h *Hub) keep(e Event) {
 	}
 }
 
-// Forget deletes the journal of session.
+// Forget deletes the journal of session and its title.
 func (h *Hub) Forget(session string) {
 	if h == nil || h.Dir == "" {
 		return
@@ -170,8 +174,42 @@ func (h *Hub) Forget(session string) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if err := os.Remove(filepath.Join(h.Dir, session+".jsonl")); err != nil && !os.IsNotExist(err) {
-		log.Printf("events: journal: %v", err)
+	for _, name := range []string{session + ".jsonl", session + ".title"} {
+		if err := os.Remove(filepath.Join(h.Dir, name)); err != nil && !os.IsNotExist(err) {
+			log.Printf("events: journal: %v", err)
+		}
+	}
+}
+
+// Name keeps title as session's title, in place of fx's, and tells the
+// listeners.
+func (h *Hub) Name(session, title string) {
+	if h == nil || h.Dir == "" {
+		return
+	}
+
+	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
+		log.Printf("events: title: %v", err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(h.Dir, session+".title"), []byte(title), 0o600); err != nil {
+		log.Printf("events: title: %v", err)
+		return
+	}
+	h.Publish(Event{Type: Titled, Session: session, Text: title})
+}
+
+// Titled gives each session of list the title den made for it, where it
+// made one.
+func (h *Hub) Titled(list []sessions.Summary) {
+	if h == nil || h.Dir == "" {
+		return
+	}
+
+	for i, s := range list {
+		if title, err := os.ReadFile(filepath.Join(h.Dir, s.ID+".title")); err == nil && len(title) > 0 {
+			list[i].Title = string(title)
+		}
 	}
 }
 
