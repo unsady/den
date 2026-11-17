@@ -209,14 +209,15 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 	// cannot answer a new one.
 	id := rand.Text()
 	buttons := []notify.Button{{Text: "Allow", Data: "ok:" + id}, {Text: "Deny", Data: "no:" + id}}
-	options := []string{Allowed, Denied}
+	// The app answers with these names.
+	options := []string{"allow", "deny"}
 	if q.Rule != "" {
 		buttons = append(buttons, notify.Button{Text: "Always", Data: "al:" + id})
-		options = append(options, Always)
+		options = append(options, "always")
 	}
 	if q.Scope != "" {
 		buttons = append(buttons, notify.Button{Text: "1 hour", Data: "hr:" + id})
-		options = append(options, ForHour)
+		options = append(options, "hour")
 	}
 	p := &question{Question: q, answer: make(chan string, 1),
 		event: events.Event{Type: events.Ask, ID: id, What: q.What, Text: q.Text, Options: options}}

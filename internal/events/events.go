@@ -47,7 +47,8 @@ type Event struct {
 	Failed bool `json:"failed,omitempty"`
 	// ID is a question's, which the answer names.
 	ID string `json:"id,omitempty"`
-	// What is a question's one line, and Options the answers it takes.
+	// What is a question's one line, and Options the answers it takes:
+	// allow, deny, always, and hour.
 	What    string   `json:"what,omitempty"`
 	Options []string `json:"options,omitempty"`
 }
