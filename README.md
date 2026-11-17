@@ -10,7 +10,7 @@ den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent 
 
 ## What it does
 
-- **Chat** from Telegram: text, photos, files, and voice messages, with a short live line of what the agent is doing.
+- **Chat** from Telegram: text, photos, files, and voice messages, with a short live line of what the agent is doing. The den [app](#app) joins the same chat.
 - **Jobs and reminders**: "every morning at 9, send me today's three most important items". A job runs on its own and sends you its reply.
 - **Mail and calendar** through Gmail and Google Calendar, or any mailbox with an app password.
 - **GitHub**: the agent clones, commits, and opens pull requests in the repositories you allow.
@@ -91,6 +91,18 @@ When you reply to a message, the agent sees which one you mean. Photos, voice me
 After you have been away for 50 minutes, den compacts a long session while the provider still has it cached, so the next turns start small and cost less. The first reply after it says so: `🗜 While you were away, den compacted this session: 120k → 9k tokens.`
 
 A chat session is an ordinary fx session: `den fx` opens the agent in your terminal, and `den fx session resume` continues a session there.
+
+## App
+
+The den app is another way into the same chat: the same session, models, and questions as Telegram. A message you write in the app is answered there; one you write in Telegram is answered in both, and job results and questions show in both. Answer a question in one, and it shrinks in the other.
+
+```bash
+den app pair
+```
+
+`den app pair` publishes den's port, 4400, on this machine's Tailscale address only, so the app reaches den from anywhere in your tailnet and from nowhere else; `--address <ip>` picks another address of the machine instead. It prints a `den://` link with a new token to paste in the app's settings. den keeps only the token's hash, among its secrets, so the agent cannot read it, and every request without it is refused. Pairing again replaces the token; `den app unpair` shuts every app out and closes the port.
+
+Tailscale encrypts the connection. On an address outside it, such as your home network, the token and the chat travel unencrypted, so use one only on a network you trust.
 
 ## Jobs
 

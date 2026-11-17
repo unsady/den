@@ -21,11 +21,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/unsady/den/internal/app"
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/chat"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/fetch"
 	"github.com/unsady/den/internal/gitproxy"
 	"github.com/unsady/den/internal/google"
@@ -64,6 +66,8 @@ type daemon struct {
 	google *google.Google
 	models *models.Models
 	chat   *chat.Chat
+	// events tell the app what happens.
+	events *events.Hub
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -151,6 +155,8 @@ func Serve(cfg config.Config) error {
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
 	d.chat = chat.New(cfg, d, d.usage)
+	d.events = d.chat.Events
+	d.ask.Events = d.events
 	d.runs.Forget = d.forgetSession
 	d.google = google.New(cfg)
 	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
@@ -205,6 +211,13 @@ func Serve(cfg config.Config) error {
 
 	go d.loop()
 	d.wg.Go(func() { d.chat.Run(ctx) })
+	go func() {
+		a := app.New(cfg, d.chat, d.ask, d.events)
+		a.JobSessions = d.runs.Sessions
+		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
+			log.Printf("app: %v", err)
+		}
+	}()
 
 	log.Printf("den is listening on %s", cfg.Socket)
 	err = srv.Serve(ln)
@@ -423,6 +436,12 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 		text += "\n\n" + run.Output
 	}
 
+	result := run.Output
+	if run.Error != "" {
+		result = text
+	}
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: heading(j), Model: run.Model, Text: result, Failed: run.Error != ""})
+
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))
 	if err != nil {
@@ -469,6 +488,7 @@ func heading(j jobs.Job) string {
 }
 
 func (d *daemon) notify(text string) error {
+	d.events.Publish(events.Event{Type: events.Notice, Text: text})
 	_, err := d.send(text, false)
 	return err
 }

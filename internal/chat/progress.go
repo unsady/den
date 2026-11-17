@@ -50,7 +50,8 @@ func (c *Chat) Note(turn, text string) {
 
 // showProgress keeps one message in the chat that lists the latest steps fx
 // reported, and deletes it when done closes, before the reply is sent.
-func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-chan struct{}) {
+// Without show, as for a turn the app asked for, it only reads the steps.
+func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-chan struct{}, show bool) {
 	t := time.NewTicker(progressEvery)
 	defer t.Stop()
 
@@ -90,7 +91,7 @@ func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-cha
 			changed = true
 
 		case <-t.C:
-			if !changed {
+			if !changed || !show {
 				continue
 			}
 			telegram, err := notify.Load(c.cfg)

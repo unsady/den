@@ -216,13 +216,12 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 
 	case "ok", "no", "al", "hr":
 		// The answer to a question den asked, such as whether to send a
-		// request. The message shrinks to the action's one line and what
-		// the answer allowed, so answered questions take little room.
+		// request. den shrinks the message to the action's one line and
+		// what the answer allowed, so answered questions take little room.
 		outcome := map[string]string{"ok": approve.Allowed, "no": approve.Denied, "al": approve.Always, "hr": approve.ForHour}[kind]
 		answer = "This question has expired."
-		if shrunk, found := c.den.Answer(ref, outcome); found {
+		if _, found := c.den.Answer(ref, outcome); found {
 			answer = " "
-			c.editPlain(ctx, telegram, cb.Message, shrunk)
 		}
 
 	case "rf":

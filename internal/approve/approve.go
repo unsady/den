@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
 )
 
@@ -86,6 +87,8 @@ const (
 // and keeps the user's rules and the log of actions.
 type Asker struct {
 	cfg config.Config
+	// Events shows the questions in the app too, which can answer them.
+	Events *events.Hub
 
 	mu      sync.Mutex
 	pending map[string]*question
@@ -118,6 +121,19 @@ func (a *Asker) before(q Question) string {
 type question struct {
 	Question
 	answer chan string
+	// event is how the app sees the question.
+	event events.Event
+}
+
+// Pending are the questions that wait for an answer, as the app sees them.
+func (a *Asker) Pending() []events.Event {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	list := make([]events.Event, 0, len(a.pending))
+	for _, p := range a.pending {
+		list = append(list, p.event)
+	}
+	return list
 }
 
 func New(cfg config.Config) *Asker {
@@ -191,19 +207,22 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 
 	// The ID is random, so a button of a question from before a restart
 	// cannot answer a new one.
-	a.mu.Lock()
 	id := rand.Text()
-	p := &question{Question: q, answer: make(chan string, 1)}
-	a.pending[id] = p
-	a.mu.Unlock()
-
 	buttons := []notify.Button{{Text: "Allow", Data: "ok:" + id}, {Text: "Deny", Data: "no:" + id}}
+	options := []string{Allowed, Denied}
 	if q.Rule != "" {
 		buttons = append(buttons, notify.Button{Text: "Always", Data: "al:" + id})
+		options = append(options, Always)
 	}
 	if q.Scope != "" {
 		buttons = append(buttons, notify.Button{Text: "1 hour", Data: "hr:" + id})
+		options = append(options, ForHour)
 	}
+	p := &question{Question: q, answer: make(chan string, 1),
+		event: events.Event{Type: events.Ask, ID: id, What: q.What, Text: q.Text, Options: options}}
+	a.mu.Lock()
+	a.pending[id] = p
+	a.mu.Unlock()
 	call, cancel := context.WithTimeout(ctx, time.Minute)
 	var message int64
 	// Without the file the user would allow what they cannot read.
@@ -218,6 +237,7 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		a.forget(id)
 		return nil, fmt.Errorf("asking the user: %w", err)
 	}
+	a.Events.Publish(p.event)
 	return &sent{a: a, id: id, q: p, telegram: telegram, message: message}, nil
 }
 
@@ -235,6 +255,9 @@ func (s *sent) wait(ctx context.Context, limit time.Duration) error {
 	select {
 	case outcome := <-s.q.answer:
 		s.a.Note(s.q.What, outcome)
+		// Answered in Telegram or the app, the question shrinks in both to
+		// its one line and what the answer allowed.
+		s.done(s.q.What + "\n" + answered(s.q.Question, outcome))
 		if outcome == Denied {
 			return ErrDenied
 		}
@@ -252,15 +275,21 @@ func (s *sent) wait(ctx context.Context, limit time.Duration) error {
 	if ctx.Err() != nil {
 		result = "\n✗ Stopped before you answered"
 	}
-	call, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	if err := s.telegram.Edit(call, s.message, s.q.What+result); err != nil {
-		log.Printf("approve: %v", err)
-	}
+	s.done(s.q.What + result)
 	if ctx.Err() != nil {
 		return ErrRestarted
 	}
 	return ErrExpired
+}
+
+// done shrinks the question to text, which also takes its buttons away.
+func (s *sent) done(text string) {
+	s.a.Events.Publish(events.Event{Type: events.Answered, ID: s.id, Text: text})
+	call, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := s.telegram.Edit(call, s.message, text); err != nil {
+		log.Printf("approve: %v", err)
+	}
 }
 
 // Answer passes the user's answer to question id: Allowed, Denied, Always,

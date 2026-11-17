@@ -28,6 +28,7 @@ import (
 	"github.com/unsady/den/internal/acp"
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
@@ -161,6 +162,8 @@ type entry struct {
 	text string
 	// image is the saved path of a photo to attach.
 	image string
+	// app marks a message from the app, whose turn answers only there.
+	app bool
 	// report marks den's report of what came of an action, and notice is
 	// what den tells the user instead when the agent does not get it, after
 	// /stop or a switch; nothing when it is empty.
@@ -179,6 +182,7 @@ type entry struct {
 type saved struct {
 	Text    string         `json:"text,omitempty"`
 	Image   string         `json:"image,omitempty"`
+	App     bool           `json:"app,omitempty"`
 	Report  bool           `json:"report,omitempty"`
 	Notice  string         `json:"notice,omitempty"`
 	Session string         `json:"session,omitempty"`
@@ -187,7 +191,7 @@ type saved struct {
 }
 
 func (e entry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(saved{e.text, e.image, e.report, e.notice, e.session, e.label, e.choice})
+	return json.Marshal(saved{e.text, e.image, e.app, e.report, e.notice, e.session, e.label, e.choice})
 }
 
 func (e *entry) UnmarshalJSON(data []byte) error {
@@ -195,7 +199,7 @@ func (e *entry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	*e = entry{s.Text, s.Image, s.Report, s.Notice, s.Session, s.Label, s.Choice}
+	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, s.Label, s.Choice}
 	return nil
 }
 
@@ -204,6 +208,8 @@ type Chat struct {
 	path  string
 	den   Daemon
 	usage *usage.Store
+	// Events tells the app what the chat does.
+	Events *events.Hub
 
 	mu    sync.Mutex
 	state state
@@ -340,6 +346,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 		bg:      map[string]context.CancelFunc{},
 		agent:   runner.NewAgent(cfg),
 		steered: map[string]bool{},
+		Events:  &events.Hub{},
 	}
 	c.agent.OnDropped = c.undelivered
 	c.agent.OnTurn = c.steeredTurn
@@ -482,33 +489,41 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		}
 
 	case "/stop":
-		c.mu.Lock()
-		stop := c.stop
-		notices := c.dropReports(true)
-		c.inbox = nil
-		clear(c.steered)
-		c.save()
-		var stops []context.CancelFunc
-		for _, s := range c.bg {
-			stops = append(stops, s)
-		}
-		c.mu.Unlock()
-		if stop != nil {
-			stops = append(stops, stop)
-		}
-		if len(stops) == 0 {
-			c.send(ctx, telegram, "Nothing is running.")
-		} else {
-			for _, s := range stops {
-				s()
-			}
+		stopped, notices := c.halt()
+		if stopped {
 			c.send(ctx, telegram, "Stopped.")
+		} else {
+			c.send(ctx, telegram, "Nothing is running.")
 		}
 		c.tell(ctx, telegram, notices)
 
 	default:
 		c.queue(ctx, telegram, m, entry{text: quoted(m, m.Text)})
 	}
+}
+
+// halt stops the running turns, /bg's too, and drops what waits for the
+// next turn. It reports whether anything ran, and returns what den's
+// dropped reports would have told the agent, for the user.
+func (c *Chat) halt() (bool, []string) {
+	c.mu.Lock()
+	stop := c.stop
+	notices := c.dropReports(true)
+	c.inbox = nil
+	clear(c.steered)
+	c.save()
+	var stops []context.CancelFunc
+	for _, s := range c.bg {
+		stops = append(stops, s)
+	}
+	c.mu.Unlock()
+	if stop != nil {
+		stops = append(stops, stop)
+	}
+	for _, s := range stops {
+		s()
+	}
+	return len(stops) > 0, notices
 }
 
 // quoted adds the part of an earlier message that m replies to after text.
@@ -540,6 +555,7 @@ func (c *Chat) switchTo(session string) []string {
 	c.state.Compacted = 0
 	c.generation++
 	c.save()
+	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
 	return notices
 }
 
@@ -584,9 +600,13 @@ func (c *Chat) dropReports(all bool) []string {
 }
 
 // tell sends the user den's reports their agent did not get.
+// Without telegram, as for the app, only the app hears them.
 func (c *Chat) tell(ctx context.Context, telegram *notify.Telegram, notices []string) {
 	for _, n := range notices {
-		c.send(ctx, telegram, n)
+		c.Events.Publish(events.Event{Type: events.Notice, Text: n})
+		if telegram != nil {
+			c.send(ctx, telegram, n)
+		}
 	}
 }
 
@@ -614,6 +634,7 @@ func (c *Chat) opened(session string) {
 // is one of the agent's, and is marked with ✍.
 func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, entries ...entry) {
 	id := m.ID
+	c.published(entries)
 	if c.steer(ctx, m, entries) {
 		c.react(ctx, telegram, id, "✍")
 		return
@@ -697,6 +718,7 @@ func (c *Chat) steeredTurn(text string, reply runner.Reply) {
 	if reply.Error == "" && runner.IsSilent(reply.Output) {
 		return
 	}
+	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})
 
 	telegram, err := notify.Load(c.cfg)
 	if err != nil {
@@ -807,18 +829,25 @@ func (c *Chat) turn(ctx context.Context) bool {
 	var rest []entry
 	// A turn started by den's reports alone, such as that a den map run
 	// ended, may end without a word to the user.
-	reports := true
+	// A turn of the app's messages alone answers only in the app; den's
+	// reports go with the messages around them.
+	reports, app, asked := true, true, false
 	for _, e := range c.inbox {
 		if e.session != other {
 			rest = append(rest, e)
 			continue
 		}
 		reports = reports && e.report
+		if !e.report {
+			asked = true
+			app = app && e.app
+		}
 		texts = append(texts, e.text)
 		if e.image != "" {
 			images = append(images, e.image)
 		}
 	}
+	app = app && asked
 	prompt := strings.Join(texts, "\n\n")
 	c.inbox = rest
 	c.save()
@@ -853,9 +882,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 	done := make(chan struct{})
 	shown := make(chan struct{})
 	steps := make(chan string, 64)
-	go c.showTyping(turn, done)
+	if !app {
+		go c.showTyping(turn, done)
+	}
 	go func() {
-		c.showProgress(ctx, steps, done)
+		c.showProgress(ctx, steps, done, !app)
 		close(shown)
 	}()
 	req := runner.Request{
@@ -868,6 +899,9 @@ func (c *Chat) turn(ctx context.Context) bool {
 		Turn:       current,
 		MaySilence: true,
 		Progress: func(line string) {
+			if text, ok := step(line); ok {
+				c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+			}
 			select {
 			case steps <- line:
 			default:
@@ -911,6 +945,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 		c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 	}
+	// The app hears the turn end however it ends.
+	defer c.Events.Publish(events.Event{Type: events.Idle, Session: reply.SessionID})
 	if turn.Err() == context.Canceled {
 		// /stop already answered, or den is shutting down.
 		return true
@@ -944,6 +980,10 @@ func (c *Chat) turn(ctx context.Context) bool {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text
+	c.Events.Publish(events.Event{Type: events.Reply, Session: wrote, Text: text, Failed: reply.Error != ""})
+	if app {
+		return true
+	}
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
 		call, cancel := context.WithTimeout(ctx, time.Minute)

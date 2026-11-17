@@ -18,6 +18,7 @@ import (
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
@@ -632,14 +633,12 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "/new please")
 	telegram.expect(t, "resume=none msg=/new please lines=1")
 
-	// A button answers a question den asked, once.
+	// A button answers a question den asked, once; den shrinks it.
 	telegram.press("no:1")
-	telegram.expectEdit(t, "1: Send it?\n✗ Denied")
 	telegram.expectAnswer(t, "")
 	telegram.press("ok:1")
 	telegram.expectAnswer(t, "This question has expired.")
 	telegram.press("al:2")
-	telegram.expectEdit(t, "1: Push it?\n✓ Always")
 	telegram.expectAnswer(t, "")
 	if strings.Join(scheduler.answers, ",") != "1=denied,2=allowed for good" {
 		t.Fatalf("answers %v", scheduler.answers)
@@ -799,7 +798,7 @@ func TestProgressNote(t *testing.T) {
 	lines, done := make(chan string, 4), make(chan struct{})
 	shown := make(chan struct{})
 	go func() {
-		c.showProgress(context.Background(), lines, done)
+		c.showProgress(context.Background(), lines, done, true)
 		close(shown)
 	}()
 	defer func() {
@@ -1105,5 +1104,52 @@ func TestInboxSurvivesARestart(t *testing.T) {
 	case <-again.wake:
 	default:
 		t.Error("the worker is not woken for what waited")
+	}
+}
+
+func TestAppTurn(t *testing.T) {
+	_, telegram, c := startChatWith(t, nil)
+	list, stop := c.Events.Listen()
+	defer stop()
+
+	next := func(kind string) events.Event {
+		t.Helper()
+		for {
+			select {
+			case e := <-list:
+				if e.Type == kind {
+					return e
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no %s event", kind)
+			}
+		}
+	}
+
+	// A message from the app answers only there.
+	c.Post(context.Background(), "hello")
+	if e := next(events.Message); e.Text != "hello" {
+		t.Fatalf("message %+v", e)
+	}
+	first := next(events.Reply)
+	if first.Text != "resume=none msg=hello lines=1" || first.Session == "" {
+		t.Fatalf("reply %+v", first)
+	}
+	next(events.Idle)
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// One from Telegram answers in both.
+	telegram.message(42, "and you")
+	if e := next(events.Message); e.Text != "and you" {
+		t.Fatalf("message %+v", e)
+	}
+	want := "resume=" + first.Session + " msg=and you lines=1"
+	telegram.expect(t, want)
+	if e := next(events.Reply); e.Text != want {
+		t.Fatalf("reply %+v", e)
 	}
 }

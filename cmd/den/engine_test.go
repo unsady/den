@@ -24,6 +24,16 @@ func TestRunArgs(t *testing.T) {
 			t.Errorf("%s takes --cpus, not -c", e)
 		}
 	}
+
+	// The app's port is published only on the address den app pair chose.
+	c.App = "100.69.1.2"
+	if got := strings.Join(appleContainer.runArgs(c), " "); !strings.Contains(got, " -p 100.69.1.2:4400:4400 ") {
+		t.Errorf("published: %s", got)
+	}
+	c.App = "fd7a::1"
+	if got := strings.Join(docker.runArgs(c), " "); !strings.Contains(got, " -p [fd7a::1]:4400:4400 ") {
+		t.Errorf("published on IPv6: %s", got)
+	}
 }
 
 func TestPickEngine(t *testing.T) {

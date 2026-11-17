@@ -8,10 +8,12 @@ release notes.
 
 ### New
 
+- The den app: `den app pair` lets it into the chat over your Tailscale network with a token of its own. It shares the session, the models, job results, and questions with Telegram.
 - A message you send while the agent works joins the turn, marked ✍, instead of waiting for it to end: the agent reads it after the step it is on, so "stop, not that file" or "check X too" changes what it does now. A photo, or a reply to a job's message, still waits for the next turn.
 
 ### Better
 
+- A question you answer shrinks to its answer wherever it shows, and so does one that expires.
 - A push that waits for your answer names its commits: the question lists each branch with its count of commits and files, their titles, and a link to the comparison on GitHub, and says when the push rewrites history. Allow moves the branch to the commits you saw; if the branch moved meanwhile, den leaves it alone and tells the agent.
 - A request too long to show in its question comes with its whole body as a file, sent before the buttons.
 - `/log` shows the repeating jobs the agent added or removed.

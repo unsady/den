@@ -63,6 +63,9 @@ Usage:
                                 Let the agent call an API with your token, which
                                 it never sees; asks for the token
   den service ls | rm <name>
+  den app pair [--address <ip>] Let the den app connect, on this machine's Tailscale
+                                address by default; prints what to paste in the app
+  den app unpair                Shut every app out
 
 Every other command, such as den job ls, runs in the container.
 Settings: ~/.config/den/config.json
@@ -84,6 +87,9 @@ type hostConfig struct {
 	// Runtime is the tool that runs the container: container, Apple's, on
 	// a Mac, or docker or podman. Empty picks the first one installed.
 	Runtime string `json:"runtime,omitempty"`
+	// App is the address of this machine where the app reaches den, set by
+	// den app pair; empty keeps den's port closed.
+	App string `json:"app,omitempty"`
 }
 
 func (c hostConfig) engine() engine { return pickEngine(c.Runtime) }
@@ -186,6 +192,8 @@ func hostRun(args []string) error {
 		return hostLogin(c, args[1:])
 	case "connect":
 		return hostConnect(c, args[1:])
+	case "app":
+		return hostApp(c, args[1:])
 	case "service", "services":
 		if len(args) > 1 && args[1] == "add" {
 			token, err := ask("Token: ", true)

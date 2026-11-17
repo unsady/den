@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/unsady/den/internal/app"
 )
 
 // On the host, den runs its container with one of three tools: Apple's
@@ -60,6 +63,10 @@ func (e engine) runArgs(c hostConfig) []string {
 			"--pids-limit", "512")
 	}
 	args = append(args, "-v", c.Home+":/home/agent", "-v", c.Volume+":/var/lib/den")
+	if c.App != "" {
+		port := fmt.Sprint(app.Port)
+		args = append(args, "-p", net.JoinHostPort(c.App, port)+":"+port)
+	}
 	for k, v := range c.Env {
 		args = append(args, "-e", k+"="+v)
 	}
