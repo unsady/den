@@ -28,6 +28,7 @@ import (
 // prompt, which holds the user's words.
 const fakeFX = `#!/bin/sh
 case "$1" in
+acp) DEN_FAKE_ACP=1 exec "$DEN_TEST_BINARY" "$@" ;;
 status) printf '{"model_source":"%s","model":"auto","connected_providers":["p1","p2"]}\n' "${FX_PROVIDER:-p1}"; exit ;;
 models) printf '{"ids":["auto","fast-%s","big-%s"]}\n' "${FX_PROVIDER:-p1}" "${FX_PROVIDER:-p1}"; exit ;;
 esac
@@ -344,7 +345,7 @@ func TestChat(t *testing.T) {
 		"photo":   []any{map[string]any{"file_id": "small"}, map[string]any{"file_id": "large"}},
 	})
 	photo := filepath.Join(day, fmt.Sprintf("%d-photo.jpg", id))
-	telegram.expect(t, "resume=s1 msg=what is this lines=2 image="+photo)
+	telegram.expect(t, "resume=s1 msg=what is this lines=2 images=1")
 	expectFile(t, photo, "content of large")
 
 	// A document keeps a safe form of its name and is not attached.
@@ -379,18 +380,17 @@ func TestChat(t *testing.T) {
 	}
 	expectFile(t, filepath.Join(day, fmt.Sprintf("%d-voice.ogg", id)), "content of talk")
 
-	// Messages sent during a turn go together as the next one.
-	// They are marked with 👀; a message that starts a turn is not.
+	// Messages sent during a turn join it, each marked with ✍; a message
+	// that starts a turn is not marked.
 	slow := telegram.update(42, map[string]any{"text": "slow one"})
 	time.Sleep(300 * time.Millisecond)
 	a := telegram.update(42, map[string]any{"text": "a"})
 	b := telegram.update(42, map[string]any{"text": "b"})
-	telegram.expect(t, "resume=s1 msg=slow one lines=1")
-	telegram.expect(t, "resume=s1 msg=a lines=2")
+	telegram.expect(t, "resume=s1 msg=slow one lines=1 steered=a steered=b")
 	telegram.mu.Lock()
 	reacted := strings.Join(telegram.reacted, ", ")
 	telegram.mu.Unlock()
-	if want := fmt.Sprintf("%d 👀, %d 👀", a, b); reacted != want {
+	if want := fmt.Sprintf("%d ✍, %d ✍", a, b); reacted != want {
 		t.Fatalf("reacted %q, want %q (slow one is %d)", reacted, want, slow)
 	}
 
@@ -549,7 +549,7 @@ func TestChatControls(t *testing.T) {
 		"text":             "redo this",
 		"reply_to_message": map[string]any{"text": "Here is the plan", "from": map[string]any{"is_bot": true}},
 	})
-	telegram.expect(t, "resume=s1 msg=redo this lines=2")
+	telegram.expect(t, "resume=aaa msg=redo this lines=2")
 	prompt, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
 	if want := "redo this\n[In reply to your earlier message: «Here is the plan»]"; string(prompt) != want {
 		t.Fatalf("prompt %q, want %q", prompt, want)
@@ -618,24 +618,24 @@ func TestChatControls(t *testing.T) {
 	telegram.message(42, "/model")
 	telegram.expectPrefix(t, "⚙︎ <b>big-p2</b> · p2\nSecond: <b>big-p2</b> · p2 · low")
 	telegram.message(42, "hey")
-	telegram.expect(t, "resume=s1 msg=hey lines=1 provider=p2 model=big-p2 effort=high")
+	telegram.expect(t, "resume=aaa msg=hey lines=1 provider=p2 model=big-p2 effort=high")
 
 	// /again asks the second model in the same session, once.
 	telegram.message(42, "/again")
-	telegram.expect(t, "↻ big-p2\n\nresume=s1 msg=[The user asked you, a different model, to answer their last message again. The answer above came from another model: check it, correct it, and give your own best answer.] lines=1 provider=p2 model=big-p2 effort=low")
+	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=[The user asked you, a different model, to answer their last message again. The answer above came from another model: check it, correct it, and give your own best answer.] lines=1 provider=p2 model=big-p2 effort=low")
 	telegram.message(42, "/again what about tea")
-	telegram.expect(t, "↻ big-p2\n\nresume=s1 msg=what about tea lines=1 provider=p2 model=big-p2 effort=low")
+	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=what about tea lines=1 provider=p2 model=big-p2 effort=low")
 	telegram.message(42, "and coffee")
-	telegram.expect(t, "resume=s1 msg=and coffee lines=1 provider=p2 model=big-p2 effort=high")
+	telegram.expect(t, "resume=aaa msg=and coffee lines=1 provider=p2 model=big-p2 effort=high")
 
 	// When the main model's provider fails, a button offers the second
 	// one, which answers once pressed.
 	telegram.message(42, "quota is gone")
-	telegram.expect(t, "big-p2 failed: fx ask: API request failed · HTTP 402 · out of credits")
+	telegram.expect(t, "big-p2 failed: API request failed · HTTP 402 · out of credits")
 	telegram.expectButtons(t, "rs:")
 	telegram.press("rs:")
 	telegram.expectAnswer(t, "Asking big-p2")
-	telegram.expect(t, "↻ big-p2\n\nresume=s1 msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
+	telegram.expect(t, "↻ big-p2\n\nresume=aaa msg=quota is gone lines=1 provider=p2 model=big-p2 effort=low")
 	telegram.press("rs:")
 	telegram.expectAnswer(t, "This button is out of date.")
 	telegram.message(42, "/new")

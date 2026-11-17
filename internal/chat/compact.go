@@ -121,6 +121,9 @@ func (c *Chat) squeezeSession(ctx context.Context) (int, error) {
 	c.stop = stop
 	c.mu.Unlock()
 	defer stop()
+	// fx ask compacts the session on disk, which the agent's fx would
+	// write over with the session it holds.
+	c.agent.Close()
 
 	log.Printf("chat: compacting session %s at %d tokens", session, used)
 	started := time.Now()
