@@ -64,6 +64,9 @@ var (
 // service is how den uses one secret.
 type service struct {
 	label string
+	// source names where a request goes when the label covers several
+	// places, such as Gmail for Google; nil uses the label.
+	source func(u *url.URL) string
 	// file is the secret's file in the secrets directory.
 	file string
 	// token gives the secret instead of a file, such as an access token den
@@ -201,7 +204,10 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 		} else if body := display(req.Body); body != "" {
 			text += "\n\n" + body
 		}
-		q := approve.Question{Text: text, What: what}
+		q := approve.Question{Text: text, What: what, Source: s.label}
+		if s.source != nil {
+			q.Source = s.source(u)
+		}
 		// The user allows the whole body, so one too long for the question
 		// comes with it as a file.
 		if seen == "" && s.show == nil && cut(req.Body) {

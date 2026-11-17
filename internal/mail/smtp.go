@@ -131,7 +131,7 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
 		turn = s.Turn()
 	}
 	what := "Mail to " + strings.Join(to, ", ")
-	q := approve.Question{Text: text, What: what}
+	q := approve.Question{Text: text, What: what, Source: "Mail"}
 	if len(to) == 1 {
 		q.MailTo(to[0])
 	}

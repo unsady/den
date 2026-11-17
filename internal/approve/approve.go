@@ -41,6 +41,9 @@ type Question struct {
 	// What names the action in one line for the log, such as
 	// "crm: POST /api/deals".
 	What string
+	// Source names where the action goes in a word, such as "Gmail" or
+	// "GitHub", for the app's chip.
+	Source string
 	// Rule names the kind of action, so the user can allow it for good.
 	// Empty offers no such choice, for actions that differ each time, such
 	// as mail to several people.
@@ -220,7 +223,7 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		options = append(options, "hour")
 	}
 	p := &question{Question: q, answer: make(chan string, 1),
-		event: events.Event{Type: events.Ask, ID: id, What: q.What, Text: q.Text, Options: options}}
+		event: events.Event{Type: events.Ask, ID: id, What: q.What, Source: q.Source, Text: q.Text, Options: options}}
 	a.mu.Lock()
 	a.pending[id] = p
 	a.mu.Unlock()

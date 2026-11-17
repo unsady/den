@@ -18,8 +18,9 @@ import (
 // google reaches Gmail and Google Calendar with the account the user
 // connected with den connect google.
 var google = service{
-	label: "Google",
-	hosts: []string{"gmail.googleapis.com", "www.googleapis.com"},
+	label:  "Google",
+	source: googleSource,
+	hosts:  []string{"gmail.googleapis.com", "www.googleapis.com"},
 	token: func(ctx context.Context, f *Fetcher) (string, error) {
 		return f.google.Token(ctx)
 	},
@@ -109,6 +110,18 @@ func (f *Fetcher) guests(ctx context.Context, s service, u *url.URL) bool {
 
 // refuseGoogle turns away what den cannot review: a batch request carries
 // other requests inside it, such as one that sends mail.
+// googleSource names the Google API a request goes to by the first part of
+// its path, such as Gmail for /gmail/v1/users/me/messages/send.
+func googleSource(u *url.URL) string {
+	switch strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 2)[0] {
+	case "gmail":
+		return "Gmail"
+	case "calendar":
+		return "Calendar"
+	}
+	return "Google"
+}
+
 func refuseGoogle(u *url.URL) string {
 	if strings.HasPrefix(u.Path, "/batch") {
 		return "den does not pass on batch requests; send each request on its own"

@@ -65,6 +65,8 @@ type Event struct {
 	// allow, deny, always, and hour.
 	What    string   `json:"what,omitempty"`
 	Options []string `json:"options,omitempty"`
+	// Source names where a question's action goes, such as "Gmail".
+	Source string `json:"source,omitempty"`
 }
 
 // Hub passes events to whoever listens. The zero value has no listeners and

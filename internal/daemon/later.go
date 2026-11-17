@@ -58,7 +58,7 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 		text += "\n" + task
 	}
 	text += fmt.Sprintf("\n\n⚙︎ %s · %s\nProvider: %s\nThreads: %d", req.Model, effort, req.Provider, req.Workers)
-	q := approve.Question{Text: text, What: what, Rule: "map " + model, Label: "den map with " + model}
+	q := approve.Question{Text: text, What: what, Source: "den map", Rule: "map " + model, Label: "den map with " + model}
 	waiting, err := d.ask.Later(d.ctx, q, func(err error) { d.mapLater(req, what, err) })
 	switch {
 	case err != nil:

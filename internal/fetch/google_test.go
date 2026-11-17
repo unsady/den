@@ -161,3 +161,17 @@ func TestReadOnly(t *testing.T) {
 		t.Error("a second object was taken")
 	}
 }
+
+func TestGoogleSource(t *testing.T) {
+	cases := map[string]string{
+		"https://gmail.googleapis.com/gmail/v1/users/me/messages/send":    "Gmail",
+		"https://www.googleapis.com/calendar/v3/calendars/primary/events": "Calendar",
+		"https://www.googleapis.com/drive/v3/files":                       "Google",
+	}
+	for link, want := range cases {
+		u, _ := url.Parse(link)
+		if got := googleSource(u); got != want {
+			t.Errorf("googleSource(%s) = %q, want %q", link, got, want)
+		}
+	}
+}
