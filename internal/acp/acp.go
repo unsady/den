@@ -54,6 +54,16 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("acp: server error %d: %s", e.Code, e.Message)
 }
 
+// codeNotFound is ACP's code for a resource that does not exist, which fx
+// answers a session id with no saved session with.
+const codeNotFound = -32002
+
+// NotFound says whether err is fx's answer that a session does not exist.
+func NotFound(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.Code == codeNotFound
+}
+
 // The kinds of Event.
 const (
 	KindText       = "text"
@@ -269,12 +279,18 @@ func (c *Conn) Initialize(ctx context.Context) error {
 	return err
 }
 
-// NewSession opens a session that works in cwd and returns its id.
-func (c *Conn) NewSession(ctx context.Context, cwd string) (string, error) {
-	res, err := c.call(ctx, "session/new", map[string]any{
+// NewSession opens a session that works in cwd and returns its id: id,
+// when it is not empty, or one fx chooses. fx saves the session with its
+// first prompt, and until then a resume of it finds nothing.
+func (c *Conn) NewSession(ctx context.Context, cwd, id string) (string, error) {
+	params := map[string]any{
 		"cwd":        cwd,
 		"mcpServers": []any{},
-	})
+	}
+	if id != "" {
+		params["_meta"] = map[string]any{"fx": map[string]any{"sessionId": id}}
+	}
+	res, err := c.call(ctx, "session/new", params)
 	if err != nil {
 		return "", err
 	}

@@ -37,9 +37,9 @@ const compactPrompt = "[den: the user has been away for a while, so den compacte
 // is long enough to be worth it. The turn's reply is not sent.
 func (c *Chat) compact(ctx context.Context) {
 	c.mu.Lock()
-	session, used, waiting := c.state.Session, c.state.Context, len(c.inbox) > 0
+	used, waiting := c.state.Context, len(c.inbox) > 0
 	c.mu.Unlock()
-	if session == "" || waiting || used < compactAbove {
+	if waiting || used < compactAbove {
 		return
 	}
 	if window := c.currentWindow(ctx); window == 0 || used*100/window < compactPercent {
@@ -56,7 +56,7 @@ func (c *Chat) compactNow(ctx context.Context) string {
 	c.mu.Lock()
 	session, used := c.state.Session, c.state.Context
 	c.mu.Unlock()
-	if session == "" {
+	if !c.saved(session) {
 		return "There is no session to compact yet."
 	}
 	// fx compacts from compactPercent of the window, so a smaller session

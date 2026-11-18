@@ -11,8 +11,7 @@ import (
 func TestJournal(t *testing.T) {
 	h := &Hub{Dir: t.TempDir()}
 
-	// The messages to a new session wait for the reply that names it.
-	h.Publish(Event{Type: Message, Text: "hello"})
+	h.Publish(Event{Type: Message, Session: "s1", Text: "hello"})
 	h.Publish(Event{Type: Step, Session: "s1", Text: "Reading notes.md"})
 	h.Publish(Event{Type: Reply, Session: "s1", Text: "hi"})
 	h.Publish(Event{Type: Idle, Session: "s1"})

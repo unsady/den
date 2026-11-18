@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -239,9 +240,11 @@ func startChat(t *testing.T, den Daemon) (config.Config, *fakeTelegram) {
 	return cfg, telegram
 }
 
-// startChatWith is startChat that also returns the running chat.
+// startChatWith is startChat that also returns the running chat. Its new
+// sessions are s1, s2, and so on.
 func startChatWith(t *testing.T, den Daemon) (config.Config, *fakeTelegram, *Chat) {
 	t.Helper()
+	countSessions(t)
 	dir := t.TempDir()
 	cfg := config.Config{
 		State:      filepath.Join(dir, "state"),
@@ -287,6 +290,16 @@ func startChatWith(t *testing.T, den Daemon) (config.Config, *fakeTelegram, *Cha
 		<-done
 	})
 	return cfg, telegram, c
+}
+
+// countSessions names the new sessions s1, s2, and so on until the test ends.
+func countSessions(t *testing.T) {
+	original, n := newSession, 0
+	newSession = func() string {
+		n++
+		return fmt.Sprintf("s%d", n)
+	}
+	t.Cleanup(func() { newSession = original })
 }
 
 func TestChat(t *testing.T) {
@@ -336,7 +349,7 @@ func TestChat(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the progress message was not deleted")
 	}
-	telegram.expect(t, "resume=s1 msg=steps lines=1")
+	telegram.expect(t, "resume=s2 msg=steps lines=1")
 
 	// A photo is saved, named in the turn, and attached.
 	day := filepath.Join(cfg.Inbox, time.Now().Format("2006-01-02"))
@@ -345,7 +358,7 @@ func TestChat(t *testing.T) {
 		"photo":   []any{map[string]any{"file_id": "small"}, map[string]any{"file_id": "large"}},
 	})
 	photo := filepath.Join(day, fmt.Sprintf("%d-photo.jpg", id))
-	telegram.expect(t, "resume=s1 msg=what is this lines=2 images=1")
+	telegram.expect(t, "resume=s2 msg=what is this lines=2 images=1")
 	expectFile(t, photo, "content of large")
 
 	// A document keeps a safe form of its name and is not attached.
@@ -353,7 +366,7 @@ func TestChat(t *testing.T) {
 		"document": map[string]any{"file_id": "doc", "file_name": "../.Report v1.pdf"},
 	})
 	document := filepath.Join(day, fmt.Sprintf("%d-Report_v1.pdf", id))
-	telegram.expect(t, "resume=s1 msg=[The user sent a file, saved at "+document+"] lines=1")
+	telegram.expect(t, "resume=s2 msg=[The user sent a file, saved at "+document+"] lines=1")
 	expectFile(t, document, "content of doc")
 
 	// The files of an album reach the agent as one message.
@@ -366,14 +379,14 @@ func TestChat(t *testing.T) {
 		"document":       map[string]any{"file_id": "doc", "file_name": "b.csv"},
 	})
 	// Both files are in the one turn: two lines, not one turn each.
-	telegram.expect(t, fmt.Sprintf("resume=s1 msg=[The user sent a file, saved at %s] lines=2", filepath.Join(day, fmt.Sprintf("%d-a.md", first))))
+	telegram.expect(t, fmt.Sprintf("resume=s2 msg=[The user sent a file, saved at %s] lines=2", filepath.Join(day, fmt.Sprintf("%d-a.md", first))))
 
 	telegram.update(42, map[string]any{"sticker": map[string]any{"file_id": "s"}})
 	telegram.expect(t, "den reads text, photos, voice messages, and files for now.")
 
 	// A voice message comes with its transcript.
 	id = telegram.update(42, map[string]any{"voice": map[string]any{"file_id": "talk"}})
-	telegram.expect(t, "resume=s1 msg=heard content of talk lines=2")
+	telegram.expect(t, "resume=s2 msg=heard content of talk lines=2")
 	prompt, _ = os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
 	if !strings.HasPrefix(string(prompt), "heard content of talk\n[The user said this in a voice message") {
 		t.Fatalf("voice prompt %q", prompt)
@@ -386,7 +399,7 @@ func TestChat(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	a := telegram.update(42, map[string]any{"text": "a"})
 	b := telegram.update(42, map[string]any{"text": "b"})
-	telegram.expect(t, "resume=s1 msg=slow one lines=1 steered=a steered=b")
+	telegram.expect(t, "resume=s2 msg=slow one lines=1 steered=a steered=b")
 	telegram.mu.Lock()
 	reacted := strings.Join(telegram.reacted, ", ")
 	telegram.mu.Unlock()
@@ -829,18 +842,19 @@ func TestProgressNote(t *testing.T) {
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State))
-	c.turns = []turnRef{{id: "t1"}, {id: "t2", session: "job1", label: "⏰ news"}}
+	main := c.state.Session
+	c.turns = []turnRef{{id: "t1", session: main, own: true}, {id: "t2", session: "job1", label: "⏰ news"}}
 
 	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
 	}
-	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" {
+	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" || c.inbox[0].session != main {
 		t.Fatalf("inbox %+v", c.inbox)
 	}
 
 	// A new session is not the one the command's turn ran in: a report
 	// still waiting goes to the user, and the user's own message stays.
-	c.inbox = append(c.inbox, entry{text: "hi"})
+	c.inbox = append(c.inbox, entry{text: "hi", session: main})
 	notices := c.switchTo("")
 	if !slices.Equal(notices, []string{"done"}) || len(c.inbox) != 1 || c.inbox[0].text != "hi" {
 		t.Fatalf("notices %q, inbox %+v", notices, c.inbox)
@@ -868,20 +882,20 @@ func TestReplyTarget(t *testing.T) {
 	c.Sent([]int64{5, 6}, "job1", "⏰ news", job)
 	c.Sent([]int64{8}, "main", "", nil)
 
-	if s, l, ch := c.other(6); s != "job1" || l != "⏰ news" || ch == nil || *ch != *job {
-		t.Fatalf("other(6) = %q, %q, %+v", s, l, ch)
+	if s, l, ch := c.to(6); s != "job1" || l != "⏰ news" || ch == nil || *ch != *job {
+		t.Fatalf("to(6) = %q, %q, %+v", s, l, ch)
 	}
-	if s, _, _ := c.other(8); s != "" {
-		t.Fatalf("a reply in the chat's own session went to %q", s)
+	if s, l, ch := c.to(8); s != "main" || l != "" || ch != nil {
+		t.Fatalf("a reply in the chat's own session went to %q, %q, %+v", s, l, ch)
 	}
-	if s, _, _ := c.other(9); s != "" {
+	if s, _, _ := c.to(9); s != "main" {
 		t.Fatalf("an unknown message went to %q", s)
 	}
 
 	// The ids last across restarts.
 	c = New(cfg, nil, usage.Open(cfg.State))
-	if s, _, _ := c.other(5); s != "job1" {
-		t.Fatalf("after a restart other(5) = %q", s)
+	if s, _, _ := c.to(5); s != "job1" {
+		t.Fatalf("after a restart to(5) = %q", s)
 	}
 }
 
@@ -900,10 +914,10 @@ func TestForget(t *testing.T) {
 	if c.state.Session != "main" || !slices.Equal(c.state.Opened, []string{"main", "job1"}) {
 		t.Fatalf("after forgetting old: session %q, opened %v", c.state.Session, c.state.Opened)
 	}
-	if s, _, _ := c.other(5); s != "" {
+	if s, _, _ := c.to(5); s != "main" {
 		t.Fatalf("a reply stayed tied to the deleted session: %q", s)
 	}
-	if s, _, _ := c.other(6); s != "job1" {
+	if s, _, _ := c.to(6); s != "job1" {
 		t.Fatalf("a reply of another session went to %q", s)
 	}
 
@@ -921,13 +935,14 @@ func TestForget(t *testing.T) {
 	if err := c.Forget("main"); err != nil {
 		t.Fatal(err)
 	}
-	if c.state.Session != "" || !slices.Equal(c.state.Opened, []string{"job1"}) {
+	fresh := c.state.Session
+	if fresh == "" || fresh == "main" || !slices.Equal(c.state.Opened, []string{"job1"}) {
 		t.Fatalf("after forgetting main: session %q, opened %v", c.state.Session, c.state.Opened)
 	}
 
 	// The state lasts across restarts.
 	c = New(cfg, nil, usage.Open(cfg.State))
-	if c.state.Session != "" || len(c.state.Replies) != 1 {
+	if c.state.Session != fresh || len(c.state.Replies) != 1 {
 		t.Fatalf("after a restart: session %q, replies %v", c.state.Session, c.state.Replies)
 	}
 }
@@ -1154,7 +1169,9 @@ func TestAppTurn(t *testing.T) {
 	}
 	next(events.Idle)
 
-	// A reply to a job's run goes on in its session, and only in the app.
+	// A reply to a job's run goes on in its session, on the job's model, and
+	// only in the app.
+	c.Sent([]int64{900}, "job1", "⏰ news", &runner.Choice{Provider: "p2", Model: "m"})
 	c.Post(context.Background(), "more", "job1", nil)
 	if e := next(events.Message); e.Session != "job1" {
 		t.Fatalf("message %+v", e)
@@ -1186,6 +1203,68 @@ func TestAppTurn(t *testing.T) {
 		t.Fatalf("saved %v", saved)
 	}
 	expectFile(t, saved[0], png)
+}
+
+// TestNewSessions keeps each new session's messages and replies in it, by
+// the id den gave it, also when the chat moves on before its turn.
+func TestNewSessions(t *testing.T) {
+	_, _, c := startChatWith(t, nil)
+	list, stop := c.Events.Listen()
+	defer stop()
+	ctx := context.Background()
+
+	// s1 is the chat's session; while its turn runs, the app starts s2,
+	// writes in it, and starts s3 before s2's turn.
+	if err := c.Post(ctx, "slow first", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := c.Open(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	setup, err := c.Setup(ctx)
+	if err != nil || setup.Session != "s2" {
+		t.Fatalf("setup %+v: %v", setup, err)
+	}
+	if err := c.Post(ctx, "test", "s2", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Open(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string][]string{}
+	idle := map[string]bool{}
+	timeout := time.After(10 * time.Second)
+	for !idle["s1"] || !idle["s2"] {
+		select {
+		case e := <-list:
+			switch e.Type {
+			case events.Message, events.Reply:
+				got[e.Session] = append(got[e.Session], e.Text)
+			case events.Idle:
+				idle[e.Session] = true
+			}
+		case <-timeout:
+			t.Fatalf("events %q, idle %v", got, idle)
+		}
+	}
+	want := map[string][]string{
+		"s1": {"slow first", "resume=none msg=slow first lines=1"},
+		"s2": {"test", "resume=none msg=test lines=1"},
+	}
+	if !maps.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("events %q", got)
+	}
+	for session, texts := range want {
+		journal, err := events.Journal(c.Events.Dir, session)
+		if err != nil || len(journal) != 2 || journal[0].Text != texts[0] || journal[1].Text != texts[1] {
+			t.Fatalf("%s journal %+v: %v", session, journal, err)
+		}
+	}
+	if setup, _ := c.Setup(ctx); setup.Session != "s3" {
+		t.Fatalf("the chat left s3 for %q", setup.Session)
+	}
 }
 
 func TestAppBackground(t *testing.T) {

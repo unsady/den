@@ -8,13 +8,22 @@ import (
 	"html"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/sessions"
 )
+
+// saved says whether fx has saved session, which it does with the
+// session's first turn.
+func (c *Chat) saved(session string) bool {
+	list, _ := sessions.List(c.cfg.Sessions, 1<<20)
+	return slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == session })
+}
 
 // status says in a few lines what the chat runs on: the model, how full
 // its context is, the container's memory, and the jobs.
@@ -37,7 +46,7 @@ func (c *Chat) status(ctx context.Context) string {
 
 	window := c.window(setup.Provider, model)
 	switch {
-	case session == "":
+	case !c.saved(session):
 		lines = append(lines, "Context: new session")
 	case used > 0 && window > 0:
 		lines = append(lines, fmt.Sprintf("Context: %s of %s (%d%%)", tokens(used), tokens(window), used*100/window))

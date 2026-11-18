@@ -146,6 +146,9 @@ func TestSessionCalls(t *testing.T) {
 		if mcp, ok := params(req)["mcpServers"].([]any); !ok || len(mcp) != 0 {
 			t.Errorf("mcpServers = %v", params(req)["mcpServers"])
 		}
+		if _, ok := params(req)["_meta"]; ok {
+			t.Errorf("a session fx names sent _meta %v", params(req)["_meta"])
+		}
 		f.reply(req, map[string]any{"sessionId": "s1", "configOptions": []any{}})
 
 		req = f.expect("session/resume")
@@ -153,6 +156,15 @@ func TestSessionCalls(t *testing.T) {
 			t.Errorf("resume params = %v", params(req))
 		}
 		f.reply(req, map[string]any{})
+
+		req = f.expect("session/resume")
+		f.fail(req, -32002, "Session not found")
+
+		req = f.expect("session/new")
+		if meta, _ := params(req)["_meta"].(map[string]any); meta["fx"].(map[string]any)["sessionId"] != "chosen" {
+			t.Errorf("new session params = %v", params(req))
+		}
+		f.reply(req, map[string]any{"sessionId": "chosen"})
 
 		req = f.expect("session/set_config_option")
 		if params(req)["configId"] != "model" || params(req)["value"] != "gpt-x" || params(req)["sessionId"] != "s1" {
@@ -178,7 +190,7 @@ func TestSessionCalls(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		id, err := c.NewSession(ctx, "/work")
+		id, err := c.NewSession(ctx, "/work", "")
 		if err != nil || id != "s1" {
 			t.Fatalf("NewSession = %q, %v", id, err)
 		}
@@ -186,6 +198,16 @@ func TestSessionCalls(t *testing.T) {
 		err = c.Resume(ctx, "old", "/work")
 		if err != nil {
 			t.Fatal(err)
+		}
+
+		// A session den named is new until its first prompt saves it.
+		err = c.Resume(ctx, "chosen", "/work")
+		if !NotFound(err) {
+			t.Fatalf("Resume of an unsaved session = %v", err)
+		}
+		id, err = c.NewSession(ctx, "/work", "chosen")
+		if err != nil || id != "chosen" {
+			t.Fatalf("NewSession = %q, %v", id, err)
 		}
 
 		err = c.SetModel(ctx, "s1", "gpt-x", "high")
@@ -494,7 +516,7 @@ func TestServerExitsMidPrompt(t *testing.T) {
 			t.Error("Done is not closed")
 		}
 
-		_, err = c.NewSession(context.Background(), "/w")
+		_, err = c.NewSession(context.Background(), "/w", "")
 		if !errors.Is(err, ErrClosed) {
 			t.Errorf("call after exit: %v", err)
 		}

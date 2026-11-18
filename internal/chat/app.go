@@ -30,10 +30,11 @@ type File struct {
 // images are the kinds of picture a model sees when attached to a turn.
 var pictures = []string{"image/jpeg", "image/png", "image/gif", "image/webp"}
 
-// Post gives text and files from the app to the chat's session: it joins the
-// running turn, or waits for the next one. With another session, such as a
-// job run's, it goes there as its own turn, as a reply to a job's message
-// does. A /bg task starts in the background. Files are saved in the inbox as Telegram's are, and pictures are
+// Post gives text and files from the app to session, the chat's when it is
+// empty. In the chat's session it joins the running turn, or waits for the
+// next one; in another, such as a job run's or one the chat has left, it
+// waits for a turn of its own, as a reply to a job's message does. A /bg
+// task starts in the background. Files are saved in the inbox as Telegram's are, and pictures are
 // attached to the turn.
 func (c *Chat) Post(ctx context.Context, text, session string, files []File) error {
 	// A /bg task runs in a session of its own, as it does from Telegram.
@@ -68,27 +69,27 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 
 	var label string
 	var choice *runner.Choice
-	if session == c.session() {
-		session = ""
+	c.mu.Lock()
+	if session == "" {
+		session = c.state.Session
 	}
-	if session != "" {
+	if session != c.state.Session {
 		// A job's session goes on with the model that ran it.
-		c.mu.Lock()
 		for _, r := range slices.Backward(c.state.Replies) {
 			if r.Session == session {
 				label, choice = r.Label, r.Choice
 				break
 			}
 		}
-		c.mu.Unlock()
 	}
+	c.mu.Unlock()
 	for i := range entries {
 		entries[i].app = true
 		entries[i].session, entries[i].label, entries[i].choice = session, label, choice
 	}
 
 	c.published(entries)
-	if c.steer(ctx, notify.Message{}, entries) {
+	if c.steer(ctx, entries) {
 		return nil
 	}
 	c.mu.Lock()
@@ -102,20 +103,15 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 // published tells the app of the user's messages among entries, as the
 // user wrote them.
 func (c *Chat) published(entries []entry) {
-	session := c.session()
 	for _, e := range entries {
 		if e.report || e.text == "" {
 			continue
-		}
-		to := session
-		if e.session != "" {
-			to = e.session
 		}
 		text := e.text
 		if e.shown != "" {
 			text = e.shown
 		}
-		c.Events.Publish(events.Event{Type: events.Message, Session: to, Text: text})
+		c.Events.Publish(events.Event{Type: events.Message, Session: e.session, Text: text})
 	}
 }
 

@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- A message stays in the session it was sent to. den names a new session when you start it, rather than after its first reply, so a message sent to a new session while another one works, or just before you switch, no longer lands in the other session or leaves the app waiting. This needs the fx fork's den.5 build.
+
 ## v0.9.1
 
 ### Fixed

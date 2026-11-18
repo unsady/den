@@ -78,9 +78,6 @@ type Hub struct {
 
 	mu        sync.Mutex
 	listeners map[chan Event]bool
-	// waiting are the messages to a new session, which has no ID until
-	// the reply to them.
-	waiting []Event
 }
 
 // buffer is how many events wait for a slow listener before it misses some.
@@ -130,21 +127,8 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 
 // keep adds e to its session's journal, when it is one of the kinds kept.
 func (h *Hub) keep(e Event) {
-	if h.Dir == "" || e.Type != Message && e.Type != Reply && e.Type != Result {
+	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result {
 		return
-	}
-
-	if e.Session == "" {
-		if e.Type == Message {
-			h.waiting = append(h.waiting, e)
-		}
-		return
-	}
-
-	list := []Event{e}
-	if e.Type == Reply {
-		list = append(h.waiting, e)
-		h.waiting = nil
 	}
 
 	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
@@ -158,13 +142,9 @@ func (h *Hub) keep(e Event) {
 	}
 	defer f.Close()
 
-	out := json.NewEncoder(f)
-	for _, e := range list {
-		e.Session = ""
-		if err := out.Encode(e); err != nil {
-			log.Printf("events: journal: %v", err)
-			return
-		}
+	e.Session = ""
+	if err := json.NewEncoder(f).Encode(e); err != nil {
+		log.Printf("events: journal: %v", err)
 	}
 }
 

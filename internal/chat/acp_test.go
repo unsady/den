@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -28,6 +29,10 @@ func TestMain(m *testing.M) {
 // names the session it continued, "none" for a new one, the first line of
 // the prompt, its count of lines, its images, the flags fx started with, and a
 // message steered into the turn as steered=<text>.
+//
+// As fx does, it saves a session with its first prompt, in the index of
+// sessions/ beside the space, and answers a resume of one it has not saved
+// with ACP's resource-not-found code.
 func fakeACP(args []string) {
 	flags := ""
 	for i, arg := range args {
@@ -46,6 +51,7 @@ func fakeACP(args []string) {
 		steered []string
 		cancel  = make(chan struct{}, 1)
 		running bool
+		save    func(string)
 	)
 	out := bufio.NewWriter(os.Stdout)
 	send := func(v any) {
@@ -111,6 +117,7 @@ func fakeACP(args []string) {
 			}
 		}
 		resume = session
+		save(session)
 		held := steers
 		steers, steered, running = nil, nil, false
 		mu.Unlock()
@@ -127,6 +134,27 @@ func fakeACP(args []string) {
 		}
 	}
 
+	index := filepath.Join("sessions", "index.jsonl")
+	saved := func(id string) bool {
+		data, _ := os.ReadFile(index)
+		for line := range strings.Lines(string(data)) {
+			var e struct{ ID string }
+			if json.Unmarshal([]byte(line), &e) == nil && e.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	save = func(id string) {
+		if saved(id) {
+			return
+		}
+		os.MkdirAll("sessions", 0o755)
+		f, _ := os.OpenFile(index, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		fmt.Fprintf(f, `{"op":"put","id":%q,"role":"root","updated":%d}`+"\n", id, time.Now().UnixMilli())
+		f.Close()
+	}
+
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(nil, 1<<20)
 	for in.Scan() {
@@ -141,7 +169,8 @@ func fakeACP(args []string) {
 				} `json:"prompt"`
 				Meta struct {
 					Fx struct {
-						Steer bool `json:"steer"`
+						Steer     bool   `json:"steer"`
+						SessionID string `json:"sessionId"`
 					} `json:"fx"`
 				} `json:"_meta"`
 			} `json:"params"`
@@ -154,9 +183,13 @@ func fakeACP(args []string) {
 		case "initialize":
 			answer(m.ID, map[string]any{"protocolVersion": 1})
 		case "session/new":
-			session = "s1"
+			session, resume = cmp.Or(m.Params.Meta.Fx.SessionID, "s1"), "none"
 			answer(m.ID, map[string]any{"sessionId": session})
 		case "session/resume":
+			if !saved(m.Params.SessionID) {
+				send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32002, "message": "Session not found"}})
+				continue
+			}
 			session, resume = m.Params.SessionID, m.Params.SessionID
 			answer(m.ID, map[string]any{})
 		case "session/cancel":

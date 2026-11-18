@@ -53,7 +53,8 @@ func NewAgent(cfg config.Config) *Agent {
 // Key is what the commands the agent runs get as DEN_TURN.
 func (a *Agent) Key() string { return a.key }
 
-// Ask runs req as a turn, as runner.Ask does, in req.Resume or a new session.
+// Ask runs req as a turn, as runner.Ask does, in req.Resume, which it starts
+// when fx has no session by that id, or in a new session.
 // Images, CompactPercent, and Turn are not for an Agent: the chat compacts
 // with Ask, and the turn is the Agent's Key.
 func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
@@ -63,13 +64,13 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.JobTimeout)
 	defer cancel()
 
-	conn, session, err := a.open(ctx, req)
+	conn, session, started, err := a.open(ctx, req)
 	if err != nil {
 		reply.Error = err.Error()
 		reply.Stderr = a.stderrText()
 		return reply
 	}
-	reply.SessionID = session
+	reply.SessionID, reply.New = session, started
 
 	prompt := acp.Prompt{Text: req.Prompt}
 	for _, path := range req.Images {
@@ -159,11 +160,11 @@ func (a *Agent) Close() {
 // open returns fx for req, with the session it asks for open in it. It
 // starts fx again when it exited, or when req needs another session or
 // model.
-func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error) {
+func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session string, started bool, err error) {
 	choice := Choice{Provider: req.Provider, Model: req.Model, Effort: req.Effort}
 
 	a.mu.Lock()
-	conn := a.conn
+	conn = a.conn
 	alive := conn != nil
 	if alive {
 		select {
@@ -174,7 +175,7 @@ func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error
 	}
 	if alive && a.choice == choice && req.Resume != "" && req.Resume == a.session {
 		a.mu.Unlock()
-		return conn, a.session, nil
+		return conn, a.session, false, nil
 	}
 	a.mu.Unlock()
 	a.Close()
@@ -193,7 +194,7 @@ func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error
 	// does.
 	cmd, err := proc.Command(context.Background(), a.cfg, a.cfg.FX, args...)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
 	cmd.Dir = a.cfg.Space
 	cmd.Env = append(cmd.Env, "DEN_TURN="+a.key)
@@ -202,7 +203,7 @@ func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error
 
 	conn, err = acp.Start(ctx, cmd)
 	if err != nil {
-		return nil, "", fmt.Errorf("fx acp: %w", err)
+		return nil, "", false, fmt.Errorf("fx acp: %w", err)
 	}
 	conn.OnDropped = func(_, text string) {
 		if a.OnDropped != nil {
@@ -220,29 +221,32 @@ func (a *Agent) open(ctx context.Context, req Request) (*acp.Conn, string, error
 		a.OnTurn(text, reply)
 	}
 
-	session := req.Resume
-	if session == "" {
+	session = req.Resume
+	if session != "" {
+		err = conn.Resume(ctx, session, a.cfg.Space)
+	}
+	// A session den named before its first turn is not saved yet.
+	if session == "" || acp.NotFound(err) {
 		// fx reads the rules when a session starts, so a new one gets the
 		// notes as they are now.
 		if err := seed.WriteRules(a.cfg); err != nil {
 			log.Printf("rules: %v", err)
 		}
-		session, err = conn.NewSession(ctx, a.cfg.Space)
-	} else {
-		err = conn.Resume(ctx, session, a.cfg.Space)
+		session, err = conn.NewSession(ctx, a.cfg.Space, session)
+		started = true
 	}
 	if err != nil {
 		conn.Close()
 		if text := strings.TrimSpace(stderr.String()); text != "" {
 			err = fmt.Errorf("%w: %s", err, text)
 		}
-		return nil, "", fmt.Errorf("fx acp: %w", err)
+		return nil, "", false, fmt.Errorf("fx acp: %w", err)
 	}
 
 	a.mu.Lock()
 	a.conn, a.stderr, a.session, a.choice = conn, stderr, session, choice
 	a.mu.Unlock()
-	return conn, session, nil
+	return conn, session, started, nil
 }
 
 func (a *Agent) stderrText() string {

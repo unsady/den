@@ -100,6 +100,7 @@ type Request struct {
 	// Effort, when set, is the model's reasoning effort, such as high.
 	Effort string
 	// Resume continues this session id instead of starting a new session.
+	// An Agent starts the session under this id when fx has none by it.
 	Resume string
 	// Images are attached to the request, as fx ask --image does.
 	Images []string
@@ -129,6 +130,8 @@ type Reply struct {
 	// Input and Output tokens are what fx reported, 0 when it reported none.
 	InputTokens  int64
 	OutputTokens int64
+	// New says the turn started its session.
+	New bool
 }
 
 // Ask runs fx ask as the agent in the space, bounded by cfg.JobTimeout.
