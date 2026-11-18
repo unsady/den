@@ -3,6 +3,7 @@ package events
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/unsady/den/internal/sessions"
