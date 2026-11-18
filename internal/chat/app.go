@@ -14,7 +14,6 @@ import (
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
-	"github.com/unsady/den/internal/sessions"
 )
 
 // What the app asks of the chat. The app and Telegram share the chat: its
@@ -67,25 +66,15 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 		}
 	}
 
-	var label string
-	var choice *runner.Choice
-	c.mu.Lock()
 	if session == "" {
-		session = c.state.Session
-	}
-	if session != c.state.Session {
-		// A job's session goes on with the model that ran it.
-		for _, r := range slices.Backward(c.state.Replies) {
-			if r.Session == session {
-				label, choice = r.Label, r.Choice
-				break
-			}
+		var err error
+		if session, err = c.joined(appClient); err != nil {
+			return err
 		}
 	}
-	c.mu.Unlock()
 	for i := range entries {
 		entries[i].app = true
-		entries[i].session, entries[i].label, entries[i].choice = session, label, choice
+		entries[i].session = session
 	}
 
 	c.published(entries)
@@ -122,19 +111,18 @@ func (c *Chat) Stop(ctx context.Context) bool {
 	return stopped
 }
 
-// Open makes the chat go on in session, or start a new one when it is
-// empty.
+// Open makes the app go on in session, or start a new one with its next
+// message when session is empty.
 func (c *Chat) Open(ctx context.Context, session string) error {
 	if session != "" {
-		list, err := sessions.List(c.cfg.Sessions, 1<<20)
-		if err != nil {
-			return err
-		}
-		if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == session }) {
+		if _, err := c.store.Session(ctx, session); err != nil {
 			return fmt.Errorf("no session %s", session)
 		}
 	}
-	c.tell(ctx, nil, c.switchTo(session))
+	if err := c.enter(appClient, session); err != nil {
+		return err
+	}
+	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
 	return nil
 }
 
@@ -170,7 +158,7 @@ func (c *Chat) Setup(ctx context.Context) (Setup, error) {
 	}
 
 	c.mu.Lock()
-	s := Setup{Session: c.state.Session, Busy: c.stop != nil, Providers: setup.Providers}
+	s := Setup{Session: c.cursor(appClient), Busy: c.stop != nil, Providers: setup.Providers}
 	effort, second, recent := c.state.Effort, c.state.Second, slices.Clone(c.state.Recent)
 	c.mu.Unlock()
 
@@ -232,7 +220,7 @@ func (c *Chat) ChooseSecondEffort(ctx context.Context, level string) error {
 // changed tells the app the settings changed, unless err says they did not.
 func (c *Chat) changed(err error) error {
 	if err == nil {
-		c.Events.Publish(events.Event{Type: events.Settings, Session: c.session()})
+		c.Events.Publish(events.Event{Type: events.Settings, Session: c.cursor(appClient)})
 	}
 	return err
 }

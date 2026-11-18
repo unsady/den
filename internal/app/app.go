@@ -30,7 +30,7 @@ import (
 	"github.com/unsady/den/internal/chat"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
-	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/store"
 )
 
 // Port is where the server listens in the container.
@@ -51,6 +51,7 @@ type Chat interface {
 	ChooseEffort(ctx context.Context, level string) error
 	ChooseSecond(ctx context.Context, provider, model string) error
 	ChooseSecondEffort(ctx context.Context, level string) error
+	Sessions(ctx context.Context) ([]store.Session, error)
 }
 
 // Asker is what the app does with the questions den asks.
@@ -64,8 +65,6 @@ type Server struct {
 	chat   Chat
 	ask    Asker
 	events *events.Hub
-	// JobSessions marks the sessions of job runs in the list of sessions.
-	JobSessions func() map[string]bool
 
 	mu sync.Mutex
 	// results are the latest job results and notices, for an app that was
@@ -236,19 +235,14 @@ func (s *Server) Handler() http.Handler {
 	}))
 
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		list, err := sessions.List(s.cfg.Sessions, 100)
+		list, err := s.chat.Sessions(r.Context())
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
-		s.events.Titled(list)
-		var jobs map[string]bool
-		if s.JobSessions != nil {
-			jobs = s.JobSessions()
-		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Title: l.Title, Name: l.Name, Updated: l.Updated, Turns: l.Turns, Kind: s.kind(l.ID, jobs)})
+			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Title: l.Title, Updated: l.Updated})
 		}
 		reply(w, out)
 	})
@@ -416,15 +410,14 @@ type choice struct {
 
 // session is one session in the app's list.
 type session struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	// Name is its short name, empty for a session den did not name.
-	Name    string    `json:"name,omitempty"`
-	Updated time.Time `json:"updated"`
-	Turns   int       `json:"turns"`
-	// Kind is chat, job for a job run's session, or background for a /bg
-	// task's.
+	ID string `json:"id"`
+	// Kind is chat, bg for a /bg task's session, or job for a job run's.
 	Kind string `json:"kind"`
+	// Parent is the session it was started from, if any.
+	Parent string `json:"parent,omitempty"`
+	// Title is empty until den names the session.
+	Title   string    `json:"title,omitempty"`
+	Updated time.Time `json:"updated"`
 }
 
 // message is one message of a session as the user saw it.
@@ -437,19 +430,6 @@ type message struct {
 	// Files are the files den sent with it, each of which
 	// GET /sessions/{id}/files/{file} returns.
 	Files []events.Attachment `json:"files,omitempty"`
-}
-
-// kind tells a job run's session and a /bg task's from the chat's: a /bg
-// task's journal starts with the task, named.
-func (s *Server) kind(id string, jobs map[string]bool) string {
-	if jobs[id] {
-		return "job"
-	}
-	journal, _ := events.Journal(s.events.Dir, id)
-	if len(journal) > 0 && journal[0].Type == events.Message && journal[0].Title != "" {
-		return "background"
-	}
-	return "chat"
 }
 
 // setup answers with the chat's setup, after a change to it.

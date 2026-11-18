@@ -32,11 +32,11 @@ func (c *Chat) Send(ctx context.Context, turn string, f Upload) error {
 		c.mu.Unlock()
 		return nil
 	}
-	var session, label string
+	var session string
 	app := false
 	for _, t := range c.turns {
 		if t.id == turn {
-			session, label, app = t.session, t.label, t.app
+			session, app = t.session, t.app
 		}
 	}
 	c.mu.Unlock()
@@ -53,7 +53,7 @@ func (c *Chat) Send(ctx context.Context, turn string, f Upload) error {
 		return err
 	}
 	ids, err := telegram.SendFiles(ctx, []notify.Upload{f.Upload})
-	c.Sent(ids, session, label, nil)
+	c.Sent(ids, session)
 	return err
 }
 

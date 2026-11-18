@@ -16,11 +16,15 @@ import (
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/store"
 )
 
 // saved says whether fx has saved session, which it does with the
 // session's first turn.
 func (c *Chat) saved(session string) bool {
+	if session == "" {
+		return false
+	}
 	list, _ := sessions.List(c.cfg.Sessions, 1<<20)
 	return slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == session })
 }
@@ -28,8 +32,9 @@ func (c *Chat) saved(session string) bool {
 // status says in a few lines what the chat runs on: the model, how full
 // its context is, the container's memory, and the jobs.
 func (c *Chat) status(ctx context.Context) string {
+	session := c.cursor(store.Telegram)
 	c.mu.Lock()
-	provider, model, effort, used, session := c.state.Provider, c.state.Model, c.state.Effort, c.state.Context, c.state.Session
+	provider, model, effort, used := c.state.Provider, c.state.Model, c.state.Effort, c.state.Context
 	c.mu.Unlock()
 
 	var lines []string

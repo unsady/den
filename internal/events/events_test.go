@@ -5,8 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/unsady/den/internal/sessions"
 )
 
 func TestJournal(t *testing.T) {
@@ -33,39 +31,6 @@ func TestJournal(t *testing.T) {
 	h.Forget("job1")
 	if _, err := Journal(h.Dir, "job1"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("forgotten: %v", err)
-	}
-}
-
-func TestTitles(t *testing.T) {
-	h := &Hub{Dir: t.TempDir()}
-	l, stop := h.Listen()
-	defer stop()
-
-	// den's title takes the place of fx's, the name goes beside it, and
-	// the listeners hear of both.
-	h.Name("s1", "Jensen Huang's apology", "Apology")
-	if e := <-l; e.Type != Titled || e.Session != "s1" || e.Title != "Jensen Huang's apology" || e.Name != "Apology" {
-		t.Fatalf("event %+v", e)
-	}
-	list := []sessions.Summary{{ID: "s1", Title: "Summarize https://x.com/..."}, {ID: "s2", Title: "Model speed"}}
-	h.Titled(list)
-	if list[0].Title != "Jensen Huang's apology" || list[0].Name != "Apology" || list[1].Title != "Model speed" || list[1].Name != "" {
-		t.Fatalf("titles %+v", list)
-	}
-
-	// An empty name keeps the one before.
-	h.Name("s1", "Apology of Jensen Huang", "")
-	<-l
-	h.Titled(list)
-	if list[0].Title != "Apology of Jensen Huang" || list[0].Name != "Apology" {
-		t.Fatalf("titles %+v", list)
-	}
-
-	h.Forget("s1")
-	list[0].Title, list[0].Name = "fx's", ""
-	h.Titled(list)
-	if list[0].Title != "fx's" || list[0].Name != "" {
-		t.Fatalf("forgotten %+v", list[0])
 	}
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/usage"
 )
 
@@ -95,8 +96,6 @@ type Daemon interface {
 	// LastContext is the size of the last prompt since a time, in tokens,
 	// or 0 when unknown.
 	LastContext(since time.Time) int
-	// JobSessions are the sessions of the job runs den keeps.
-	JobSessions() map[string]bool
 	// Busy says whether work that a chat turn started, such as a den map
 	// run, still goes on in den's background.
 	Busy(turn string) bool
@@ -111,17 +110,11 @@ func help() string {
 }
 
 type state struct {
-	// Session is the fx session the chat continues. den names a new one
-	// itself, and fx saves it under that id with its first turn.
-	Session string `json:"session"`
 	// Offset is the next Telegram update to read.
 	Offset int64 `json:"offset"`
 	// Provider and Model are what /model chose, empty for fx's own choice.
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
-	// Opened are the sessions the chat used last, newest first, for the
-	// order of /sessions.
-	Opened []string `json:"opened,omitempty"`
 	// Recent are the models /model chose last, as provider/model, newest
 	// first.
 	Recent []string `json:"recent,omitempty"`
@@ -135,29 +128,10 @@ type state struct {
 	// Second is the second model, which jobs can run on, empty until /model
 	// chooses one.
 	Second *runner.Choice `json:"second,omitempty"`
-	// Replies tie the bot's latest messages to the fx session that wrote
-	// them, oldest first, so a reply to one continues that session.
-	Replies []sent `json:"replies,omitempty"`
 	// Inbox are the messages that wait for a turn, so a restart of den
 	// does not lose them. A turn's own messages leave it when it starts.
 	Inbox []entry `json:"inbox,omitempty"`
 }
-
-// sent is one message of the bot's and the session that wrote it.
-type sent struct {
-	Message int64  `json:"message"`
-	Session string `json:"session"`
-	// Label names the session above its replies, such as a job's heading;
-	// empty for the chat's own sessions.
-	Label string `json:"label,omitempty"`
-	// Choice is the model that wrote it, so a reply goes on with the same
-	// one; nil when the chat's own model does.
-	Choice *runner.Choice `json:"choice,omitempty"`
-}
-
-// keptReplies is how many of the bot's latest messages a reply can go back
-// to.
-const keptReplies = 500
 
 // entry is one message waiting for the next turn.
 type entry struct {
@@ -172,12 +146,8 @@ type entry struct {
 	report bool
 	notice string
 	// session is where the message goes: the chat's session when it came,
-	// or another, such as a job's whose message it replies to. label names
-	// another session above the answer.
+	// or another, such as a job's whose message it replies to.
 	session string
-	label   string
-	// choice is the model of that session, nil for the chat's own.
-	choice *runner.Choice
 	// shown is the message as the user wrote it, when text adds den's
 	// notes for the agent, such as a file's path or the quoted message.
 	shown string
@@ -185,18 +155,16 @@ type entry struct {
 
 // saved is how an entry is kept in the chat's state.
 type saved struct {
-	Text    string         `json:"text,omitempty"`
-	Image   string         `json:"image,omitempty"`
-	App     bool           `json:"app,omitempty"`
-	Report  bool           `json:"report,omitempty"`
-	Notice  string         `json:"notice,omitempty"`
-	Session string         `json:"session,omitempty"`
-	Label   string         `json:"label,omitempty"`
-	Choice  *runner.Choice `json:"choice,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Image   string `json:"image,omitempty"`
+	App     bool   `json:"app,omitempty"`
+	Report  bool   `json:"report,omitempty"`
+	Notice  string `json:"notice,omitempty"`
+	Session string `json:"session,omitempty"`
 }
 
 func (e entry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(saved{e.text, e.image, e.app, e.report, e.notice, e.session, e.label, e.choice})
+	return json.Marshal(saved{e.text, e.image, e.app, e.report, e.notice, e.session})
 }
 
 func (e *entry) UnmarshalJSON(data []byte) error {
@@ -204,7 +172,7 @@ func (e *entry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, s.Label, s.Choice, ""}
+	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, ""}
 	return nil
 }
 
@@ -213,16 +181,16 @@ type Chat struct {
 	path  string
 	den   Daemon
 	usage *usage.Store
+	// store keeps the sessions, each client's cursor, and which session
+	// wrote each of the bot's messages.
+	store *store.Store
 	// Events tells the app what the chat does.
 	Events *events.Hub
 
 	mu    sync.Mutex
 	state state
-	// generation changes on /new, so a turn that was running then does not
-	// put its session back.
-	generation int
-	inbox      []entry
-	stop       context.CancelFunc
+	inbox []entry
+	stop  context.CancelFunc
 	// menu is set once the command menu was sent to Telegram.
 	menu bool
 	wake chan struct{}
@@ -237,9 +205,8 @@ type Chat struct {
 	// attached are the files the running turn sent, which go with its
 	// reply.
 	attached []Upload
-	// turns are the latest turns' IDs with their generation, so den can
-	// tell the agent of the session a turn ran in what came of a command
-	// it started.
+	// turns are the latest turns, so den can tell the agent of the session
+	// a turn ran in what came of a command it started.
 	turns []turnRef
 	// bg stops each turn that /bg runs, by its ID, while it runs, and
 	// background waits for them to end.
@@ -248,26 +215,23 @@ type Chat struct {
 	// albums hold the files of an album until the last one is saved.
 	albums map[string]*album
 
-	// agent runs the turns in the chat's own session. steerable says the
-	// running turn is one of them, which a message can join, and agentTurn
-	// is the latest of them, which the agent's DEN_TURN stands for.
+	// agent runs the turns in chat sessions. steering is the session of the
+	// running turn when it is one of them, which a message for that session
+	// can join, and agentTurn is the latest of them, which the agent's
+	// DEN_TURN stands for.
 	agent     *runner.Agent
-	steerable bool
+	steering  string
 	agentTurn string
-	// steered are the messages passed to the running turn, which come back
-	// as a turn of their own if fx did not deliver them, unless /stop or
-	// /new dropped them.
-	steered map[string]bool
+	// steered are the messages passed to the running turn, by the session
+	// they went to, which come back as a turn of their own if fx did not
+	// deliver them, unless /stop dropped them.
+	steered map[string]string
 }
 
 type turnRef struct {
-	id         string
-	generation int
-	// session is the turn's, and own says it was the chat's when the turn
-	// began. label names another session above its answer.
+	id string
+	// session is the turn's.
 	session string
-	own     bool
-	label   string
 	// bg marks a /bg turn, whose session is known only once it ends;
 	// reports for it wait in pending until then.
 	bg      bool
@@ -299,9 +263,9 @@ func (c *Chat) Current() string {
 	return ""
 }
 
-// Tell gives the agent text as a new turn, such as what came of a command
-// that waited for the user after the agent's turn ended. It returns false
-// when turn is not one of the chat's in its current session, such as a
+// Tell gives the agent text as a new turn in the session of turn, such as
+// what came of a command that waited for the user after the agent's turn
+// ended. It returns false when the chat does not know turn, such as a
 // job's, and the caller tells the user instead.
 func (c *Chat) Tell(turn, text, notice string) bool {
 	c.mu.Lock()
@@ -311,14 +275,12 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 		if t.id != turn {
 			continue
 		}
-		e := entry{text: text, report: true, notice: notice, session: t.session, label: t.label}
-		switch {
-		case t.bg && t.session == "":
-			found = true
+		e := entry{text: text, report: true, notice: notice, session: t.session}
+		found = true
+		if t.bg && t.session == "" {
 			c.turns[i].pending = append(t.pending, e)
-		// A switch leaves another session's turns where they are.
-		case !t.own || t.generation == c.generation:
-			found, wake = true, true
+		} else {
+			wake = true
 			c.inbox = append(c.inbox, e)
 			c.save()
 		}
@@ -374,18 +336,19 @@ func (c *Chat) poke() {
 	}
 }
 
-func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
+func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Chat {
 	c := &Chat{
 		cfg:     cfg,
 		path:    filepath.Join(cfg.State, "chat.json"),
 		den:     den,
 		usage:   usage,
+		store:   st,
 		wake:    make(chan struct{}, 1),
 		squeeze: make(chan struct{}, 1),
 		notes:   make(chan string, 1),
 		bg:      map[string]context.CancelFunc{},
 		agent:   runner.NewAgent(cfg),
-		steered: map[string]bool{},
+		steered: map[string]string{},
 		Events:  &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
@@ -398,14 +361,13 @@ func New(cfg config.Config, den Daemon, usage *usage.Store) *Chat {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("chat: %v", err)
 	}
-	if c.state.Session == "" {
-		c.state.Session = newSession()
-	}
 	c.inbox = c.state.Inbox
 	for i := range c.inbox {
 		// An older den kept the chat's own messages without a session.
 		if c.inbox[i].session == "" {
-			c.inbox[i].session = c.state.Session
+			if c.inbox[i].session, err = c.joined(store.Telegram); err != nil {
+				log.Printf("chat: %v", err)
+			}
 		}
 	}
 	if len(c.inbox) > 0 {
@@ -497,7 +459,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 		c.send(ctx, telegram, help())
 
 	case "/new":
-		c.tell(ctx, telegram, c.switchTo(""))
+		c.switchTo("")
 		text := "✦ New session"
 		if model := c.modelName(ctx); model != "" {
 			text += " · " + model
@@ -569,7 +531,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 func (c *Chat) halt() (bool, []string) {
 	c.mu.Lock()
 	stop := c.stop
-	notices := c.dropReports(true)
+	notices := c.dropReports()
 	c.inbox = nil
 	clear(c.steered)
 	c.save()
@@ -601,67 +563,47 @@ func quoted(m notify.Message, text string) string {
 	return text + "\n[In reply to " + who + ": «" + m.Quote + "»]"
 }
 
-// switchTo makes the next turn continue session, or start a new one when it
-// is empty.
-// It returns what den's waiting reports would have told the old session's
-// agent, for the user.
-func (c *Chat) switchTo(session string) []string {
-	fresh := session == ""
-	if fresh {
-		session = newSession()
+// switchTo puts Telegram's chat in session, or makes its next message start
+// a new one when session is empty. Turns that run in the session it leaves
+// go on there.
+func (c *Chat) switchTo(session string) {
+	if err := c.enter(store.Telegram, session); err != nil {
+		log.Printf("chat: switch: %v", err)
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	notices := c.dropReports(false)
-	clear(c.steered)
-	// What comes next is for the new session, not for the turn running in
-	// the old one.
-	c.steerable = false
-	c.state.Session = session
-	// A new session joins the opened ones with its first turn.
-	if !fresh {
-		c.opened(session)
-	}
 	c.state.Context = 0
 	c.state.Compacted = 0
-	c.generation++
-	c.save()
-	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
-	return notices
-}
-
-// Forget drops a session that was deleted from what the chat remembers: its
-// place among the opened sessions, the replies tied to it, and its journal. When it is the
-// chat's own session, the next turn starts a new one, as after /new. It
-// refuses while a turn runs in the chat's session, which the user can /stop.
-func (c *Chat) Forget(session string) error {
-	c.mu.Lock()
-	current := c.state.Session == session
-	if current && c.stop != nil {
-		c.mu.Unlock()
-		return fmt.Errorf("the chat is working in this session; send /stop first")
-	}
-	c.state.Opened = slices.DeleteFunc(c.state.Opened, func(id string) bool { return id == session })
-	c.state.Replies = slices.DeleteFunc(c.state.Replies, func(r sent) bool { return r.Session == session })
 	c.save()
 	c.mu.Unlock()
-	c.Events.Forget(session)
+	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
+}
 
-	if current {
-		// The reports den held for the deleted session go with it.
-		c.switchTo("")
+// Forget drops a session that was deleted from what the chat remembers.
+// Telegram's chat, or the app, starts a new one with its next message when
+// it was in it. It refuses while a turn runs in the session, which the user
+// can /stop.
+func (c *Chat) Forget(session string) error {
+	c.mu.Lock()
+	running := c.stop != nil && slices.ContainsFunc(c.turns, func(t turnRef) bool { return t.id == c.turnID && t.session == session })
+	c.mu.Unlock()
+	if running {
+		return fmt.Errorf("the chat is working in this session; send /stop first")
 	}
+
+	if err := c.store.DeleteSession(context.Background(), session); err != nil {
+		return err
+	}
+	c.Events.Forget(session)
 	return nil
 }
 
-// dropReports takes den's reports for the chat's session, or all of them,
-// out of the inbox and returns what to tell the user about them instead.
-// The caller holds c.mu.
-func (c *Chat) dropReports(all bool) []string {
+// dropReports takes den's reports out of the inbox and returns what to
+// tell the user about them instead. The caller holds c.mu.
+func (c *Chat) dropReports() []string {
 	var notices []string
 	kept := c.inbox[:0]
 	for _, e := range c.inbox {
-		if !e.report || (!all && e.session != c.state.Session) {
+		if !e.report {
 			kept = append(kept, e)
 		} else if e.notice != "" {
 			notices = append(notices, e.notice)
@@ -682,23 +624,6 @@ func (c *Chat) tell(ctx context.Context, telegram *notify.Telegram, notices []st
 	}
 }
 
-// openedSessions is how many sessions the chat remembers using.
-const openedSessions = 30
-
-// opened puts session first among the ones the chat used. c.mu is held.
-func (c *Chat) opened(session string) {
-	if session == "" {
-		return
-	}
-	list := []string{session}
-	for _, id := range c.state.Opened {
-		if id != session && len(list) < openedSessions {
-			list = append(list, id)
-		}
-	}
-	c.state.Opened = list
-}
-
 // queue keeps a message for the next turn. While a turn runs, it marks the
 // message with 👀, so the user sees it waits.
 //
@@ -706,13 +631,15 @@ func (c *Chat) opened(session string) {
 // is one of the agent's, and is marked with ✍.
 func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, entries ...entry) {
 	id := m.ID
-	c.mu.Lock()
-	for i, e := range entries {
-		if e.session == "" {
-			entries[i].session, entries[i].label, entries[i].choice = c.to(m.ReplyTo)
-		}
+	session, err := c.target(m.ReplyTo)
+	if err != nil {
+		log.Printf("chat: queue: %v", err)
+		c.send(ctx, telegram, "den could not keep the message: "+err.Error())
+		return
 	}
-	c.mu.Unlock()
+	for i := range entries {
+		entries[i].session = session
+	}
 
 	c.published(entries)
 	if c.steer(ctx, entries) {
@@ -737,10 +664,11 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 // keeps them for the next turn instead.
 func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 	c.mu.Lock()
-	ok := c.steerable
+	session := c.steering
+	ok := session != ""
 	var texts []string
 	for _, e := range entries {
-		ok = ok && e.session == c.state.Session && e.image == "" && !e.report
+		ok = ok && e.session == session && e.image == "" && !e.report
 		texts = append(texts, e.text)
 	}
 	c.mu.Unlock()
@@ -750,7 +678,7 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 
 	text := strings.Join(texts, "\n\n")
 	c.mu.Lock()
-	c.steered[text] = true
+	c.steered[text] = session
 	c.mu.Unlock()
 	if err := c.agent.Steer(ctx, text); err != nil {
 		c.mu.Lock()
@@ -765,13 +693,13 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 }
 
 // undelivered runs a message passed to a turn that fx did not deliver as a
-// turn of its own, unless /stop or /new dropped it meanwhile.
+// turn of its own in its session, unless /stop dropped it meanwhile.
 func (c *Chat) undelivered(text string) {
 	c.mu.Lock()
-	kept := c.steered[text]
+	session, kept := c.steered[text]
 	delete(c.steered, text)
 	if kept {
-		c.inbox = append(c.inbox, entry{text: text, session: c.state.Session})
+		c.inbox = append(c.inbox, entry{text: text, session: session})
 		c.save()
 	}
 	c.mu.Unlock()
@@ -800,11 +728,15 @@ func (c *Chat) steeredTurn(text string, reply runner.Reply) {
 	}
 	call, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	ids, err := telegram.SendIDs(call, answer(reply, true))
+	out := answer(reply, true)
+	if label := c.label(reply.SessionID); label != "" {
+		out = label + "\n\n" + out
+	}
+	ids, err := telegram.SendIDs(call, out)
 	if err != nil {
 		log.Printf("chat: send: %v", err)
 	}
-	c.Sent(ids, reply.SessionID, "", nil)
+	c.Sent(ids, reply.SessionID)
 }
 
 // react marks the user's message id, unless it is 0.
@@ -817,42 +749,6 @@ func (c *Chat) react(ctx context.Context, telegram *notify.Telegram, id int64, e
 	if err := telegram.React(call, id, emoji); err != nil {
 		log.Printf("chat: react: %v", err)
 	}
-}
-
-// Sent ties the bot's messages ids to session, which wrote them, so a reply
-// to one continues it, on choice when it is not nil. label names the session
-// above its replies.
-func (c *Chat) Sent(ids []int64, session, label string, choice *runner.Choice) {
-	if session == "" || len(ids) == 0 {
-		return
-	}
-	// fx's own choice is not one to keep: it may change.
-	if choice != nil && *choice == (runner.Choice{}) {
-		choice = nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, id := range ids {
-		c.state.Replies = append(c.state.Replies, sent{Message: id, Session: session, Label: label, Choice: choice})
-	}
-	if len(c.state.Replies) > keptReplies {
-		c.state.Replies = c.state.Replies[len(c.state.Replies)-keptReplies:]
-	}
-	c.save()
-}
-
-// to returns where a message that replies to the bot's message id goes: the
-// session that wrote it, with its label and model when it is not the chat's
-// own, or the chat's session. The caller holds c.mu.
-func (c *Chat) to(id int64) (session, label string, choice *runner.Choice) {
-	for i := len(c.state.Replies) - 1; i >= 0 && id != 0; i-- {
-		r := c.state.Replies[i]
-		if r.Message != id || r.Session == c.state.Session {
-			continue
-		}
-		return r.Session, r.Label, r.Choice
-	}
-	return c.state.Session, "", nil
 }
 
 // work runs the waiting messages as turns, one turn at a time, and
@@ -892,9 +788,21 @@ func (c *Chat) turn(ctx context.Context) bool {
 		return false
 	}
 	// Messages for another session, such as replies to a job's message,
-	// wait for a turn of their own.
-	session, label, chosen := c.inbox[0].session, c.inbox[0].label, c.inbox[0].choice
-	own := session == c.state.Session
+	// wait for a turn of their own. Only this worker takes messages out of
+	// the inbox, so the first stays first while the lock is let go.
+	session := c.inbox[0].session
+	c.mu.Unlock()
+	choice, agent, err := c.choiceOf(session)
+	untitled := c.untitled(session)
+	c.mu.Lock()
+	if err != nil {
+		// The session is gone, or den cannot read it: its messages go too.
+		log.Printf("chat: messages for session %s dropped: %v", session, err)
+		c.inbox = slices.DeleteFunc(c.inbox, func(e entry) bool { return e.session == session })
+		c.save()
+		c.mu.Unlock()
+		return true
+	}
 	var texts, images []string
 	var rest []entry
 	// A turn started by den's reports alone, such as that a den map run
@@ -921,24 +829,18 @@ func (c *Chat) turn(ctx context.Context) bool {
 	prompt := strings.Join(texts, "\n\n")
 	c.inbox = rest
 	c.save()
-	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
-	// A reply to a job's message goes on with the model that wrote it.
-	if chosen != nil {
-		provider, model, effort = chosen.Provider, chosen.Model, chosen.Effort
-	}
-	generation := c.generation
+	provider, model, effort := choice.Provider, choice.Model, choice.Effort
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
 	current := rand.Text()
 	c.turnID = current
 	c.attached = nil
-	c.turns = append(c.turns, turnRef{id: current, generation: generation, session: session, own: own, label: label, app: app})
-	// A turn in one of the chat's sessions runs on the agent, which starts a
-	// session den named before its first turn; one in a job's session runs
-	// once with fx ask, on the job's model.
-	agent := chosen == nil
-	c.steerable = own
+	c.turns = append(c.turns, turnRef{id: current, session: session, app: app})
+	// A turn in a chat session runs on the agent, which starts a session
+	// den named before its first turn; one in a job's or a /bg task's
+	// session runs once with fx ask, on the model that ran it.
 	if agent {
+		c.steering = session
 		c.agentTurn = current
 	}
 	if len(c.turns) > keptTurns {
@@ -947,6 +849,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.mu.Unlock()
 	defer stop()
 	started := time.Now()
+	// A chat session gets its title from the user's first message, while
+	// its first turn runs.
+	if untitled && asked {
+		go c.title(session, prompt)
+	}
 
 	done := make(chan struct{})
 	shown := make(chan struct{})
@@ -991,20 +898,13 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.turnID = ""
 	files := c.attached
 	c.attached = nil
-	c.steerable = false
+	c.steering = ""
 	compacted := ""
-	switched := generation != c.generation
-	// A new session gets its title from its first exchange, also when the
-	// chat has moved on.
-	if reply.New && asked && reply.Error == "" {
-		said := reply.Output
-		if runner.IsSilent(said) {
-			said = ""
-		}
-		go c.name(session, prompt, said, provider, model)
+	if err := c.store.Touch(context.Background(), session); err != nil {
+		log.Printf("chat: touch %s: %v", session, err)
 	}
-	if own && !switched {
-		c.opened(session)
+	// What /status and /compact tell of the context is Telegram's session's.
+	if session == c.cursor(store.Telegram) {
 		if size := c.contextSize(started); size > 0 {
 			c.state.Context = size
 		}
@@ -1059,10 +959,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Files: c.keep(session, files)})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
-	if !own || switched {
-		if label == "" {
-			label = c.titled(session)
-		}
+	if label := c.label(session); label != "" {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text
@@ -1086,11 +983,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 			}
 			ids = append(ids, sent...)
 		}
-		var used *runner.Choice
-		if !own {
-			used = &runner.Choice{Provider: provider, Model: model, Effort: effort}
-		}
-		c.Sent(ids, session, label, used)
+		c.Sent(ids, session)
 	}
 	return true
 }
@@ -1119,22 +1012,6 @@ func answer(reply runner.Reply, resumed bool) string {
 		return "(no reply)"
 	}
 	return reply.Output
-}
-
-// titled names session above its replies by its title, cut short.
-func (c *Chat) titled(session string) string {
-	title := "Earlier session"
-	list, err := sessions.List(c.cfg.Sessions, 1<<20)
-	if err != nil {
-		return "↩ " + title
-	}
-	c.Events.Titled(list)
-	for _, s := range list {
-		if s.ID == session && s.Title != "Untitled session" {
-			title = clipRunes(s.Title, 40)
-		}
-	}
-	return "↩ " + title
 }
 
 // setMenu sends the command menu and reports whether Telegram took it. A
@@ -1189,12 +1066,6 @@ func (c *Chat) sendButtons(ctx context.Context, telegram *notify.Telegram, text 
 	if _, err := telegram.SendButtons(call, text, rows); err != nil {
 		log.Printf("chat: send: %v", err)
 	}
-}
-
-func (c *Chat) session() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.state.Session
 }
 
 func (c *Chat) offset() int64 {

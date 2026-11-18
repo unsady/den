@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -35,14 +34,11 @@ func (r Run) Status() string {
 	return "ok"
 }
 
-// Runs keeps run records as one file per run under dir/<job id>/, and
-// the fx session of every run it saved in dir/sessions.
+// Runs keeps run records as one file per run under dir/<job id>/. A run's
+// session outlives its record: den keeps it with the sessions.
 type Runs struct {
 	dir  string
 	keep int
-	// Forget, when set, is told the fx session of each run that pruning
-	// drops, so the session can go too.
-	Forget func(session string)
 }
 
 func NewRuns(dir string) *Runs {
@@ -59,13 +55,6 @@ func (r *Runs) Save(run Run) error {
 	name := fmt.Sprintf("%d.json", run.Started.UnixNano())
 	if err := writeFile(filepath.Join(dir, name), append(data, '\n')); err != nil {
 		return err
-	}
-	// The list outlives the run's record, so its session stays a job's
-	// after pruning, even when it could not be deleted.
-	if run.SessionID != "" {
-		if err := appendLine(filepath.Join(r.dir, "sessions"), run.SessionID); err != nil {
-			return err
-		}
 	}
 	return r.prune(dir)
 }
@@ -91,64 +80,16 @@ func (r *Runs) Last(jobID string, n int) ([]Run, error) {
 	return runs, nil
 }
 
-// Sessions returns the fx sessions of every job run den saved.
-func (r *Runs) Sessions() map[string]bool {
-	sessions := map[string]bool{}
-	if data, err := os.ReadFile(filepath.Join(r.dir, "sessions")); err == nil {
-		for id := range strings.FieldsSeq(string(data)) {
-			sessions[id] = true
-		}
-	}
-	jobs, _ := os.ReadDir(r.dir)
-	for _, job := range jobs {
-		if !job.IsDir() {
-			continue
-		}
-		names, _ := r.names(filepath.Join(r.dir, job.Name()))
-		for _, name := range names {
-			data, err := os.ReadFile(filepath.Join(r.dir, job.Name(), name))
-			if err != nil {
-				continue
-			}
-			var run Run
-			if json.Unmarshal(data, &run) == nil && run.SessionID != "" {
-				sessions[run.SessionID] = true
-			}
-		}
-	}
-	return sessions
-}
-
 func (r *Runs) prune(dir string) error {
 	names, err := r.names(dir)
 	if err != nil {
 		return err
 	}
 	for len(names) > r.keep {
-		path := filepath.Join(dir, names[0])
-		var run Run
-		if data, err := os.ReadFile(path); err == nil && json.Unmarshal(data, &run) == nil && run.SessionID != "" && r.Forget != nil {
-			r.Forget(run.SessionID)
-		}
-		_ = os.Remove(path)
+		_ = os.Remove(filepath.Join(dir, names[0]))
 		names = names[1:]
 	}
 	return nil
-}
-
-func appendLine(path, line string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(line + "\n")
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	return err
 }
 
 // names lists run files oldest first.

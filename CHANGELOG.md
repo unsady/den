@@ -10,10 +10,12 @@ release notes.
 
 - Charts in the app: the agent describes a line or bar chart as data and sends it with its picture, so Telegram shows the picture and the den app draws the chart itself, in its own theme. Other files the agent sends show under its reply in the app too.
 - The files the agent sends in a turn, such as charts, arrive with its reply instead of before it, one by one: in the app they are part of the reply, and in Telegram they follow it, the pictures together as one album. A turn you started in the app sends its files only there.
-- Each session has a short name beside its title, for the app's chips: a job's run goes by the job's name, a /bg task by its own, and a chat by a name of a word or two that den makes with its title.
+- den keeps its sessions in a database of its own, `den.db` in its state, and brings over the ones it had. A new session has no title until den makes one from your first message, in its language; a /bg task gets its title the same way.
 
 ### Fixed
 
+- A reply in Telegram is marked as coming from another session only when it does: the app no longer moves Telegram's chat to the session it opens, so after /new your next reply no longer comes headed with an old session's title.
+- A job run that wrote to you keeps its session, so a reply to its message goes on there however many runs come after it.
 - The app stays paired on every device: `den app pair` makes a link for one more device, such as a phone and a laptop, rather than shutting out the one before. `den app unpair` still shuts every device out.
 - A message stays in the session it was sent to. den names a new session when you start it, rather than after its first reply, so a message sent to a new session while another one works, or just before you switch, no longer lands in the other session or leaves the app waiting. This needs the fx fork's den.5 build.
 

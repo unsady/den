@@ -17,6 +17,7 @@ import (
 	"github.com/unsady/den/internal/chat"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/store"
 )
 
 type fakeChat struct {
@@ -38,6 +39,8 @@ func (f *fakeChat) Post(_ context.Context, text, session string, files []chat.Fi
 func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
+
+func (f *fakeChat) Sessions(context.Context) ([]store.Session, error) { return nil, nil }
 
 func (f *fakeChat) Setup(context.Context) (chat.Setup, error) {
 	f.mu.Lock()

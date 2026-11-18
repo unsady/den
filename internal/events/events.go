@@ -19,8 +19,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/unsady/den/internal/sessions"
 )
 
 // The kinds of event.
@@ -46,7 +44,7 @@ const (
 	// Settings says the model, the effort, the second model, or the
 	// current session changed.
 	Settings = "settings"
-	// Titled gives a session the title and the name den made for it.
+	// Titled gives a session the title den made for it.
 	Titled = "titled"
 	// File carries files the agent sent outside a turn's reply, such as
 	// from a command that outlived the turn.
@@ -60,11 +58,9 @@ type Event struct {
 	At      time.Time `json:"at"`
 	Session string    `json:"session,omitempty"`
 	Text    string    `json:"text,omitempty"`
-	// Title is the session's title, and Name its short name, such as a
-	// job's: a job's result carries both, as do a /bg task's message and
-	// reply, and the event that titles a session.
+	// Title is the session's title: a job's result carries it, as do a /bg
+	// task's message and reply, and the event that titles a session.
 	Title string `json:"title,omitempty"`
-	Name  string `json:"name,omitempty"`
 	Model string `json:"model,omitempty"`
 	// Failed marks a job's failure, or a turn's.
 	Failed bool `json:"failed,omitempty"`
@@ -173,7 +169,7 @@ func (h *Hub) keep(e Event) {
 	}
 }
 
-// Forget deletes the journal of session, its title, and its name.
+// Forget deletes the journal of session and its files.
 func (h *Hub) Forget(session string) {
 	if h == nil || h.Dir == "" {
 		return
@@ -181,7 +177,7 @@ func (h *Hub) Forget(session string) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, name := range []string{session + ".jsonl", session + ".title", session + ".name", session + ".files"} {
+	for _, name := range []string{session + ".jsonl", session + ".files"} {
 		if err := os.RemoveAll(filepath.Join(h.Dir, name)); err != nil {
 			log.Printf("events: journal: %v", err)
 		}
@@ -207,46 +203,6 @@ func (h *Hub) SaveFile(session, name string, data []byte) (string, error) {
 // FilePath is where session keeps file.
 func (h *Hub) FilePath(session, file string) string {
 	return filepath.Join(h.Dir, session+".files", file)
-}
-
-// Name keeps title as session's title, in place of fx's, and name as its
-// short name, and tells the listeners. An empty one keeps what was there.
-func (h *Hub) Name(session, title, name string) {
-	if h == nil || h.Dir == "" {
-		return
-	}
-
-	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
-		log.Printf("events: title: %v", err)
-		return
-	}
-	for ext, value := range map[string]string{".title": title, ".name": name} {
-		if value == "" {
-			continue
-		}
-		if err := os.WriteFile(filepath.Join(h.Dir, session+ext), []byte(value), 0o600); err != nil {
-			log.Printf("events: title: %v", err)
-			return
-		}
-	}
-	h.Publish(Event{Type: Titled, Session: session, Title: title, Name: name})
-}
-
-// Titled gives each session of list the title and the name den made for
-// it, where it made them.
-func (h *Hub) Titled(list []sessions.Summary) {
-	if h == nil || h.Dir == "" {
-		return
-	}
-
-	for i, s := range list {
-		if title, err := os.ReadFile(filepath.Join(h.Dir, s.ID+".title")); err == nil && len(title) > 0 {
-			list[i].Title = string(title)
-		}
-		if name, err := os.ReadFile(filepath.Join(h.Dir, s.ID+".name")); err == nil && len(name) > 0 {
-			list[i].Name = string(name)
-		}
-	}
 }
 
 // Journal returns the kept events of session, oldest first. It returns an

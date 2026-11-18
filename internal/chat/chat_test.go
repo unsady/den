@@ -23,6 +23,7 @@ import (
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/usage"
 )
 
@@ -50,13 +51,16 @@ done
 printf '%s' "$*" > last-prompt
 if [ -n "$FX_AUTO_COMPACT_PERCENT" ]; then echo "$FX_AUTO_COMPACT_PERCENT $resume" > compacted; fi
 first=$(printf '%s\n' "$*" | head -n 1)
+# A resumed session keeps its id; a new one, such as a /bg task's, is fx's.
+session=$resume
+if [ "$session" = none ]; then session=ask1; fi
 lines=$(printf '%s\n' "$*" | grep -c .)
 case "$first" in
 slow*) sleep 1 ;;
 steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
-"[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"s1"}\n'; exit ;;
+"[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"%s"}\n' "$session"; exit ;;
 esac
-printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"s1","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image"
+printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"%s","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image" "$session"
 `
 
 type fakeTelegram struct {
@@ -302,7 +306,7 @@ func startChatWith(t *testing.T, den Daemon) (config.Config, *fakeTelegram, *Cha
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	c := New(cfg, den, usage.Open(cfg.State))
+	c := New(cfg, den, usage.Open(cfg.State), testStore(t, cfg))
 	go func() {
 		c.Run(ctx)
 		close(done)
@@ -545,21 +549,15 @@ func (f *fakeTelegram) expectPrefix(t *testing.T, want string) string {
 func TestChatControls(t *testing.T) {
 	next := time.Date(2026, 11, 10, 4, 0, 0, 0, time.Local)
 	scheduler := &fakeDaemon{questions: map[string]string{"1": "Send it?", "2": "Push it?"}, list: []jobs.Job{{ID: "j1", Name: "reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill.", NextRun: next}}}
-	cfg, telegram := startChat(t, scheduler)
+	cfg, telegram, c := startChatWith(t, scheduler)
 
 	now := time.Now()
-	index := fmt.Sprintf(`{"op":"put","id":"aaa","role":"root","title":"Taxes","updated":%d}
-{"op":"put","id":"bbb","role":"root","title":"Trip","updated":%d}
-{"op":"put","id":"ccc","role":"child","title":"A subagent","updated":%d}
-`, now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli(), now.UnixMilli())
-	if err := os.MkdirAll(cfg.Sessions, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg.Sessions, "index.jsonl"), []byte(index), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	seed(t, c,
+		store.Session{ID: "aaa", Kind: store.Chat, Title: "Taxes", Updated: now.Add(-2 * time.Hour)},
+		store.Session{ID: "bbb", Kind: store.Chat, Title: "Trip", Updated: now.Add(-time.Hour)},
+	)
 
-	// /sessions lists root sessions, newest first, and a button switches.
+	// /sessions lists chat sessions, newest first, and a button switches.
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions:")
 	telegram.expectButtons(t, "s:bbb", "s:aaa", "sj:", "x:")
@@ -778,17 +776,14 @@ func TestCompactCommand(t *testing.T) {
 
 func TestSessionsList(t *testing.T) {
 	den := &fakeDaemon{jobSessions: map[string]bool{"job": true}}
-	cfg, telegram := startChat(t, den)
+	_, telegram, c := startChatWith(t, den)
 
 	now := time.Now()
-	index := fmt.Sprintf(`{"op":"put","id":"aaa","role":"root","title":"Taxes","updated":%d}
-{"op":"put","id":"bbb","role":"root","title":"Trip","updated":%d}
-{"op":"put","id":"job","role":"root","title":"News alerts","updated":%d}
-{"op":"put","id":"gone","role":"root","title":"Gone","updated":%d}
-{"op":"del","id":"gone","ts":1}
-`, now.Add(-3*time.Hour).UnixMilli(), now.Add(-2*time.Hour).UnixMilli(), now.Add(-time.Hour).UnixMilli(), now.UnixMilli())
-	os.MkdirAll(cfg.Sessions, 0o755)
-	os.WriteFile(filepath.Join(cfg.Sessions, "index.jsonl"), []byte(index), 0o644)
+	seed(t, c,
+		store.Session{ID: "aaa", Kind: store.Chat, Title: "Taxes", Updated: now.Add(-3 * time.Hour)},
+		store.Session{ID: "bbb", Kind: store.Chat, Title: "Trip", Updated: now.Add(-2 * time.Hour)},
+		store.Session{ID: "job", Kind: store.Job, Title: "News alerts", Updated: now.Add(-time.Hour)},
+	)
 
 	// Job runs stay out, and the session switched to last comes first.
 	telegram.message(42, "/sessions")
@@ -801,7 +796,7 @@ func TestSessionsList(t *testing.T) {
 	telegram.expectButtons(t)
 	telegram.message(42, "/sessions")
 	telegram.expect(t, "Recent sessions:")
-	telegram.expectLabels(t, "• Taxes · 3h ago", "Trip · 2h ago", "⏰ Job runs", "✕")
+	telegram.expectLabels(t, "• Taxes · just now", "Trip · 2h ago", "⏰ Job runs", "✕")
 	telegram.expectButtons(t, "s:aaa", "s:bbb", "sj:", "x:")
 
 	// Job runs have a list of their own, and the chats come back.
@@ -825,7 +820,7 @@ func TestSessionsList(t *testing.T) {
 
 func TestProgressNote(t *testing.T) {
 	cfg, telegram := startChat(t, nil)
-	c := New(cfg, nil, usage.Open(cfg.State))
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
 	c.turnID = "t1"
 
 	// A note from before the turn is not shown.
@@ -863,42 +858,38 @@ func TestProgressNote(t *testing.T) {
 
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State))
-	main := c.state.Session
-	c.turns = []turnRef{{id: "t1", session: main, own: true}, {id: "t2", session: "job1", label: "⏰ news"}}
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "t2", session: "job1"}}
 
 	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
 	}
-	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" || c.inbox[0].session != main {
+	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" || c.inbox[0].session != "main" {
 		t.Fatalf("inbox %+v", c.inbox)
 	}
 
-	// A new session is not the one the command's turn ran in: a report
-	// still waiting goes to the user, and the user's own message stays.
-	c.inbox = append(c.inbox, entry{text: "hi", session: main})
-	notices := c.switchTo("")
-	if !slices.Equal(notices, []string{"done"}) || len(c.inbox) != 1 || c.inbox[0].text != "hi" {
-		t.Fatalf("notices %q, inbox %+v", notices, c.inbox)
-	}
-	if c.Tell("t1", "[den: done]", "done") {
-		t.Fatal("a turn of the old session took the note")
-	}
-
-	// A turn in another session, such as a reply to a job's message, gets
-	// its note whatever session the chat is in.
-	c.inbox = nil
-	if !c.Tell("t2", "[den: sent]", "sent") || c.inbox[0].session != "job1" || c.inbox[0].label != "⏰ news" {
+	// A report goes to its turn's session however the chat's cursor moves.
+	c.inbox = append(c.inbox, entry{text: "hi", session: "main"})
+	c.switchTo("")
+	if !c.Tell("t1", "[den: again]", "again") || len(c.inbox) != 3 || c.inbox[2].session != "main" {
 		t.Fatalf("inbox %+v", c.inbox)
 	}
-	if notices := c.switchTo(""); len(notices) != 0 || len(c.inbox) != 1 {
-		t.Fatalf("notices %q, inbox %+v", notices, c.inbox)
+
+	// A turn in another session, such as a reply to a job's message.
+	if !c.Tell("t2", "[den: sent]", "sent") || c.inbox[3].session != "job1" {
+		t.Fatalf("inbox %+v", c.inbox)
+	}
+
+	// /stop still drops the reports and returns their notices.
+	stopped, notices := c.halt()
+	if stopped || !slices.Equal(notices, []string{"done", "again", "sent"}) || len(c.inbox) != 0 {
+		t.Fatalf("stopped %v, notices %q, inbox %+v", stopped, notices, c.inbox)
 	}
 }
 
 func TestNotify(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State))
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
 	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "bg1", bg: true}}
 	c.bg = map[string]context.CancelFunc{"bg1": func() {}}
 
@@ -920,74 +911,85 @@ func TestNotify(t *testing.T) {
 
 func TestReplyTarget(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State))
-	c.state.Session = "main"
-	job := &runner.Choice{Provider: "codex", Model: "gpt", Effort: "high"}
-	c.Sent([]int64{5, 6}, "job1", "⏰ news", job)
-	c.Sent([]int64{8}, "main", "", nil)
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	ctx := context.Background()
+	for _, s := range []store.Session{{ID: "main", Kind: store.Chat}, {ID: "job1", Kind: store.Job, Title: "news"}} {
+		if err := c.store.AddSession(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.enter(store.Telegram, "main"); err != nil {
+		t.Fatal(err)
+	}
+	c.Sent([]int64{5, 6}, "job1")
+	c.Sent([]int64{8}, "main")
 
-	if s, l, ch := c.to(6); s != "job1" || l != "⏰ news" || ch == nil || *ch != *job {
-		t.Fatalf("to(6) = %q, %q, %+v", s, l, ch)
+	for message, want := range map[int64]string{6: "job1", 8: "main", 9: "main", 0: "main"} {
+		if got, err := c.target(message); err != nil || got != want {
+			t.Fatalf("target(%d) = %q, %v, want %q", message, got, err, want)
+		}
 	}
-	if s, l, ch := c.to(8); s != "main" || l != "" || ch != nil {
-		t.Fatalf("a reply in the chat's own session went to %q, %q, %+v", s, l, ch)
+	if got := c.label("job1"); got != "⏰ news" {
+		t.Fatalf("label = %q", got)
 	}
-	if s, _, _ := c.to(9); s != "main" {
-		t.Fatalf("an unknown message went to %q", s)
+	if got := c.label("main"); got != "" {
+		t.Fatalf("the cursor's own session got the label %q", got)
 	}
 
 	// The ids last across restarts.
-	c = New(cfg, nil, usage.Open(cfg.State))
-	if s, _, _ := c.to(5); s != "job1" {
-		t.Fatalf("after a restart to(5) = %q", s)
+	c = New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	if got, _ := c.target(5); got != "job1" {
+		t.Fatalf("after a restart target(5) = %q", got)
 	}
 }
 
 func TestForget(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State))
-	c.state.Session = "main"
-	c.state.Opened = []string{"main", "old", "job1"}
-	c.Sent([]int64{5}, "old", "", nil)
-	c.Sent([]int64{6}, "job1", "⏰ news", nil)
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	ctx := context.Background()
+	for _, id := range []string{"main", "old", "job1"} {
+		if err := c.store.AddSession(ctx, store.Session{ID: id, Kind: store.Chat}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.enter(store.Telegram, "main"); err != nil {
+		t.Fatal(err)
+	}
+	c.Sent([]int64{5}, "old")
+	c.Sent([]int64{6}, "job1")
 
-	// A session the chat does not hold goes from the lists and nothing else.
+	// A session the chat is not in goes, with its message links.
 	if err := c.Forget("old"); err != nil {
 		t.Fatal(err)
 	}
-	if c.state.Session != "main" || !slices.Equal(c.state.Opened, []string{"main", "job1"}) {
-		t.Fatalf("after forgetting old: session %q, opened %v", c.state.Session, c.state.Opened)
+	if _, err := c.store.Session(ctx, "old"); err == nil {
+		t.Fatal("old is still in the store")
 	}
-	if s, _, _ := c.to(5); s != "main" {
-		t.Fatalf("a reply stayed tied to the deleted session: %q", s)
+	if got, _ := c.target(5); got != "main" {
+		t.Fatalf("a reply stayed tied to the deleted session: %q", got)
 	}
-	if s, _, _ := c.to(6); s != "job1" {
-		t.Fatalf("a reply of another session went to %q", s)
+	if got, _ := c.target(6); got != "job1" {
+		t.Fatalf("a reply of another session went to %q", got)
 	}
 
-	// While a turn runs in the chat's session, it stays.
+	// While a turn runs in the session, it stays.
 	c.stop = func() {}
+	c.turnID = "t1"
+	c.turns = []turnRef{{id: "t1", session: "main"}}
 	if err := c.Forget("main"); err == nil {
 		t.Fatal("forgot the session a turn runs in")
 	}
-	if c.state.Session != "main" {
-		t.Fatalf("session = %q", c.state.Session)
+	if c.cursor(store.Telegram) != "main" {
+		t.Fatalf("cursor = %q", c.cursor(store.Telegram))
 	}
 
-	// The chat's own session ends, and the next turn starts a new one.
-	c.stop = nil
+	// Once it ends, the cursor goes with the session.
+	c.stop, c.turnID = nil, ""
 	if err := c.Forget("main"); err != nil {
 		t.Fatal(err)
 	}
-	fresh := c.state.Session
-	if fresh == "" || fresh == "main" || !slices.Equal(c.state.Opened, []string{"job1"}) {
-		t.Fatalf("after forgetting main: session %q, opened %v", c.state.Session, c.state.Opened)
-	}
-
-	// The state lasts across restarts.
-	c = New(cfg, nil, usage.Open(cfg.State))
-	if c.state.Session != fresh || len(c.state.Replies) != 1 {
-		t.Fatalf("after a restart: session %q, replies %v", c.state.Session, c.state.Replies)
+	if got := c.cursor(store.Telegram); got != "" {
+		t.Fatalf("cursor = %q after forgetting its session", got)
 	}
 }
 
@@ -1006,7 +1008,7 @@ func TestSwitchDuringTurn(t *testing.T) {
 }
 
 func TestBackground(t *testing.T) {
-	_, telegram := startChat(t, nil)
+	cfg, telegram := startChat(t, nil)
 	names := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Model    string `json:"model"`
@@ -1019,31 +1021,34 @@ func TestBackground(t *testing.T) {
 			http.Error(w, "wrong model", http.StatusBadRequest)
 			return
 		}
-		name := "Modèles comparés.\nBecause the task compares them."
+		title := "Modèles comparés."
 		if strings.HasPrefix(body.Messages[1].Content, "slow: fail") {
-			name = ""
+			title = ""
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": name}}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": title}}}})
 	}))
 	t.Cleanup(names.Close)
-	original := nameURL
-	nameURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
-	t.Cleanup(func() { nameURL = original })
+	original := askURL
+	askURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
+	t.Cleanup(func() { askURL = original })
 
 	// A /bg task runs besides the chat: the chat answers first while it
-	// still runs, and its answer comes headed with the name a model gave it.
+	// still runs, and its answer comes headed with the title a model gave it.
 	telegram.message(42, "/bg slow: compare two models\nwith care")
 	telegram.expect(t, "⚙ Background task started. Its answer comes here; reply to it to go on there.")
-	telegram.expectEdit(t, "7: ⚙ modèles-comparés runs in the background. Its answer comes here; reply to it to go on there.")
+	telegram.expectEdit(t, "7: ⚙ Modèles comparés runs in the background. Its answer comes here; reply to it to go on there.")
 	telegram.message(42, "hi")
 	telegram.expect(t, "resume=none msg=hi lines=1")
-	telegram.expect(t, "⚙ modèles-comparés\n\nresume=none msg=slow: compare two models lines=2")
+	telegram.expect(t, "⚙ Modèles comparés\n\nresume=none msg=slow: compare two models lines=2")
+	// Its session is kept as a /bg task's, titled.
+	if s, err := testStore(t, cfg).Session(context.Background(), "ask1"); err != nil || s.Kind != store.Background || s.Title != "Modèles comparés" {
+		t.Fatalf("background session %+v, %v", s, err)
+	}
 
-	// Without a name from the model, the task's first words name it.
+	// Without a title from the model, the heading says only the kind.
 	telegram.message(42, "/bg slow: fail me")
 	telegram.expect(t, "⚙ Background task started. Its answer comes here; reply to it to go on there.")
-	telegram.expectEdit(t, "7: ⚙ slow-fail-me runs in the background. Its answer comes here; reply to it to go on there.")
-	telegram.expect(t, "⚙ slow-fail-me\n\nresume=none msg=slow: fail me lines=1")
+	telegram.expect(t, "⚙ Background task\n\nresume=none msg=slow: fail me lines=1")
 
 	telegram.message(42, "/bg")
 	telegram.expect(t, "Send /bg with a task, such as: /bg compare these two models")
@@ -1051,8 +1056,8 @@ func TestBackground(t *testing.T) {
 
 func TestBackgroundReports(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State))
-	c.turns = []turnRef{{id: "b1", label: "⚙ task", bg: true}}
+	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	c.turns = []turnRef{{id: "b1", bg: true}}
 	c.bg["b1"] = func() {}
 
 	// While the turn runs its session is not known, so the report waits.
@@ -1068,16 +1073,7 @@ func TestBackgroundReports(t *testing.T) {
 	}
 }
 
-func TestBgName(t *testing.T) {
-	for task, want := range map[string]string{
-		"Compare GLM and DeepSeek, please": "compare-glm-and",
-		"Café über alles":                  "café-über-alles",
-		"!!!":                              "task",
-	} {
-		if got := bgName(task); got != want {
-			t.Errorf("bgName(%q) = %q, want %q", task, got, want)
-		}
-	}
+func TestBgTask(t *testing.T) {
 	if task, ok := bgTask("/bg@den_bot do it\nnow"); !ok || task != "do it\nnow" {
 		t.Errorf("bgTask = %q, %v", task, ok)
 	}
@@ -1143,20 +1139,20 @@ func TestAnswerFailure(t *testing.T) {
 
 func TestInboxSurvivesARestart(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, nil)
+	c := New(cfg, nil, nil, testStore(t, cfg))
 	c.mu.Lock()
 	c.inbox = append(c.inbox,
 		entry{text: "Call the bank", image: "/inbox/a.jpg"},
-		entry{text: "[den: Mail to a@example.com was not sent.]", report: true, session: "s1", label: "⏰ morning", choice: &runner.Choice{Model: "m"}},
+		entry{text: "[den: Mail to a@example.com was not sent.]", report: true, session: "s1"},
 	)
 	c.save()
 	c.mu.Unlock()
 
-	again := New(cfg, nil, nil)
+	again := New(cfg, nil, nil, testStore(t, cfg))
 	if len(again.inbox) != 2 || again.inbox[0].text != "Call the bank" || again.inbox[0].image != "/inbox/a.jpg" {
 		t.Fatalf("inbox = %+v", again.inbox)
 	}
-	if e := again.inbox[1]; !e.report || e.session != "s1" || e.label != "⏰ morning" || e.choice == nil || e.choice.Model != "m" {
+	if e := again.inbox[1]; !e.report || e.session != "s1" {
 		t.Errorf("the report came back as %+v", e)
 	}
 	select {
@@ -1206,7 +1202,8 @@ func TestAppTurn(t *testing.T) {
 	if e := next(events.Message); e.Text != "and you" {
 		t.Fatalf("message %+v", e)
 	}
-	want := "resume=" + first.Session + " msg=and you lines=1"
+	// Telegram has a cursor of its own, so this starts its own session.
+	want := "resume=none msg=and you lines=1"
 	telegram.expect(t, want)
 	if e := next(events.Reply); e.Text != want {
 		t.Fatalf("reply %+v", e)
@@ -1215,12 +1212,14 @@ func TestAppTurn(t *testing.T) {
 
 	// A reply to a job's run goes on in its session, on the job's model, and
 	// only in the app.
-	c.Sent([]int64{900}, "job1", "⏰ news", &runner.Choice{Provider: "p2", Model: "m"})
+	if err := c.store.AddSession(context.Background(), store.Session{ID: "job1", Kind: store.Job, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}}); err != nil {
+		t.Fatal(err)
+	}
 	c.Post(context.Background(), "more", "job1", nil)
 	if e := next(events.Message); e.Session != "job1" {
 		t.Fatalf("message %+v", e)
 	}
-	if e := next(events.Reply); !strings.HasPrefix(e.Text, "resume=job1 msg=more") {
+	if e := next(events.Reply); !strings.HasPrefix(e.Text, "resume=job1 msg=more") || !strings.Contains(e.Text, "provider=p2 model=m") {
 		t.Fatalf("reply %+v", e)
 	}
 	select {
@@ -1257,8 +1256,8 @@ func TestNewSessions(t *testing.T) {
 	defer stop()
 	ctx := context.Background()
 
-	// s1 is the chat's session; while its turn runs, the app starts s2,
-	// writes in it, and starts s3 before s2's turn.
+	// s1 is the app's session; while its turn runs, the app leaves it,
+	// writes in a new one, s2, and leaves that before s2's turn.
 	if err := c.Post(ctx, "slow first", "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1266,12 +1265,14 @@ func TestNewSessions(t *testing.T) {
 	if err := c.Open(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	setup, err := c.Setup(ctx)
-	if err != nil || setup.Session != "s2" {
+	if setup, err := c.Setup(ctx); err != nil || setup.Session != "" {
 		t.Fatalf("setup %+v: %v", setup, err)
 	}
-	if err := c.Post(ctx, "test", "s2", nil); err != nil {
+	if err := c.Post(ctx, "test", "", nil); err != nil {
 		t.Fatal(err)
+	}
+	if setup, _ := c.Setup(ctx); setup.Session != "s2" {
+		t.Fatalf("the app is in %q", setup.Session)
 	}
 	if err := c.Open(ctx, ""); err != nil {
 		t.Fatal(err)
@@ -1306,8 +1307,8 @@ func TestNewSessions(t *testing.T) {
 			t.Fatalf("%s journal %+v: %v", session, journal, err)
 		}
 	}
-	if setup, _ := c.Setup(ctx); setup.Session != "s3" {
-		t.Fatalf("the chat left s3 for %q", setup.Session)
+	if setup, _ := c.Setup(ctx); setup.Session != "" {
+		t.Fatalf("the app is still in %q", setup.Session)
 	}
 }
 
@@ -1317,9 +1318,9 @@ func TestAppBackground(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "compare-models"}}}})
 	}))
 	t.Cleanup(names.Close)
-	original := nameURL
-	nameURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
-	t.Cleanup(func() { nameURL = original })
+	original := askURL
+	askURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
+	t.Cleanup(func() { askURL = original })
 	list, stop := c.Events.Listen()
 	defer stop()
 
@@ -1343,10 +1344,10 @@ func TestAppBackground(t *testing.T) {
 			t.Fatalf("message %+v, reply %+v", message, reply)
 		}
 	}
-	if message.Text != "slow: compare models" || message.Title != "compare-models" || message.Name != "compare-models" || message.Session == "" {
+	if message.Text != "slow: compare models" || message.Title != "compare-models" || message.Session == "" {
 		t.Fatalf("message %+v", message)
 	}
-	if reply.Text != "resume=none msg=slow: compare models lines=1" || reply.Title != message.Title || reply.Name != message.Name || reply.Session != message.Session {
+	if reply.Text != "resume=none msg=slow: compare models lines=1" || reply.Title != message.Title || reply.Session != message.Session {
 		t.Fatalf("reply %+v", reply)
 	}
 	select {
@@ -1445,15 +1446,34 @@ func TestSend(t *testing.T) {
 	telegram.expect(t, "📎 sendDocument job.pdf")
 }
 
-func TestTitleLines(t *testing.T) {
-	for answer, want := range map[string][2]string{
-		"Тестовый график и посты\nГрафики\n":         {"Тестовый график и посты", "Графики"},
-		"Sure:\n\n«Lightpanda release».\nLightpanda": {"Lightpanda release", "Lightpanda"},
-		"Only a title": {"Only a title", ""},
-		"  \n":         {"", ""},
-	} {
-		if title, name := titleLines(answer); title != want[0] || name != want[1] {
-			t.Errorf("titleLines(%q) = %q, %q, want %q", answer, title, name, want)
+// testStore opens a store in cfg's state, which a test that makes a second
+// chat on the same state shares.
+func testStore(t *testing.T, cfg config.Config) *store.Store {
+	t.Helper()
+	s, err := store.Open(filepath.Join(cfg.State, store.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+// seed adds sessions to the chat's store, and to fx's index, where fx keeps
+// the sessions it can resume.
+func seed(t *testing.T, c *Chat, sessions ...store.Session) {
+	t.Helper()
+	if err := os.MkdirAll(c.cfg.Sessions, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(c.cfg.Sessions, "index.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, s := range sessions {
+		if err := c.store.AddSession(context.Background(), s); err != nil {
+			t.Fatal(err)
 		}
+		fmt.Fprintf(f, `{"op":"put","id":%q,"role":"root","title":%q,"updated":%d}`+"\n", s.ID, s.Title, s.Updated.UnixMilli())
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +12,7 @@ import (
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/notify"
-	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/store"
 )
 
 // The /sessions and /jobs lists, and the buttons under den's messages.
@@ -22,51 +21,24 @@ import (
 var closeButton = notify.Button{Text: "✕", Data: "x:"}
 
 // listSessions lists sessions to continue, in a new message or in place of
-// edit. The chat's own come first, the ones used last on top; job runs are
-// a list of their own, and words find sessions of either kind by title.
+// edit, the ones used last on top. Job runs are a list of their own, and
+// words find sessions of any kind by title.
 func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, words string, jobRuns bool, edit int64) {
-	all, err := sessions.List(c.cfg.Sessions, 1<<20)
+	query := strings.TrimSpace(words)
+	filter := store.Filter{Query: query, Limit: recentSessions}
+	switch {
+	case query != "":
+	case jobRuns:
+		filter.Kinds = []store.Kind{store.Job}
+	default:
+		filter.Kinds = []store.Kind{store.Chat, store.Background}
+	}
+	list, err := c.store.Sessions(ctx, filter)
 	if err != nil {
 		c.send(ctx, telegram, "Could not read the sessions: "+err.Error())
 		return
 	}
-	c.Events.Titled(all)
-	var ofJobs map[string]bool
-	if c.den != nil {
-		ofJobs = c.den.JobSessions()
-	}
-
-	c.mu.Lock()
-	current := c.state.Session
-	rank := map[string]int{}
-	for i, id := range c.state.Opened {
-		rank[id] = i + 1
-	}
-	c.mu.Unlock()
-
-	var list []sessions.Summary
-	query := strings.ToLower(strings.TrimSpace(words))
-	for _, s := range all {
-		switch {
-		case query != "":
-			if !strings.Contains(strings.ToLower(s.Title), query) {
-				continue
-			}
-		case ofJobs[s.ID] != jobRuns:
-			continue
-		}
-		list = append(list, s)
-	}
-	if query == "" && !jobRuns {
-		// sessions.List is newest first; the chat's own go before the rest.
-		sort.SliceStable(list, func(a, b int) bool {
-			ra, rb := rank[list[a].ID], rank[list[b].ID]
-			return ra != 0 && (rb == 0 || ra < rb)
-		})
-	}
-	if len(list) > recentSessions {
-		list = list[:recentSessions]
-	}
+	current := c.cursor(store.Telegram)
 
 	var text string
 	switch {
@@ -90,9 +62,9 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 	// • marks the current one.
 	var rows [][]notify.Button
 	for _, s := range list {
-		label := clipRunes(s.Title, 40) + " · " + ago(s.Updated)
-		if ofJobs[s.ID] && !jobRuns {
-			label = "⏰ " + label
+		label := clipRunes(titleOf(s), 40) + " · " + ago(s.Updated)
+		if s.Kind != store.Chat && !jobRuns {
+			label = icons[s.Kind] + " " + label
 		}
 		rows = append(rows, []notify.Button{{Text: mark(label, s.ID == current), Data: "s:" + s.ID}})
 	}
@@ -141,20 +113,16 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 
 	switch kind {
 	case "s":
-		list, _ := sessions.List(c.cfg.Sessions, 1<<20)
-		c.Events.Titled(list)
 		answer = "That session no longer exists."
-		for _, s := range list {
-			if s.ID == ref {
-				// The list turns into the one line that names the choice.
-				c.tell(ctx, telegram, c.switchTo(s.ID))
-				answer = " "
-				line := "↺ " + html.EscapeString(s.Title)
-				if model := c.modelName(ctx); model != "" {
-					line += " · " + model
-				}
-				c.editHTML(ctx, telegram, cb.Message, line, nil)
+		if s, err := c.store.Session(ctx, ref); err == nil {
+			// The list turns into the one line that names the choice.
+			c.switchTo(s.ID)
+			answer = " "
+			line := "↺ " + html.EscapeString(titleOf(s))
+			if model := c.modelName(ctx); model != "" {
+				line += " · " + model
 			}
+			c.editHTML(ctx, telegram, cb.Message, line, nil)
 		}
 
 	case "sj", "sc":

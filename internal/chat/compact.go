@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/store"
 )
 
 // A provider keeps a prompt's start cached for a while, often an hour, and
@@ -53,8 +54,9 @@ func (c *Chat) compact(ctx context.Context) {
 // compactNow compacts the session at the user's request, for /compact, and
 // says how it went.
 func (c *Chat) compactNow(ctx context.Context) string {
+	session := c.cursor(store.Telegram)
 	c.mu.Lock()
-	session, used := c.state.Session, c.state.Context
+	used := c.state.Context
 	c.mu.Unlock()
 	if !c.saved(session) {
 		return "There is no session to compact yet."
@@ -109,10 +111,13 @@ func (c *Chat) currentWindow(ctx context.Context) int {
 // squeezeSession runs the turn that makes fx compact the session, and
 // returns the session's size after it, 0 when unknown.
 func (c *Chat) squeezeSession(ctx context.Context) (int, error) {
+	session := c.cursor(store.Telegram)
+	if session == "" {
+		return 0, errors.New("no session")
+	}
 	c.mu.Lock()
-	session, used := c.state.Session, c.state.Context
+	used := c.state.Context
 	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
-	generation := c.generation
 	if len(c.inbox) > 0 {
 		c.mu.Unlock()
 		return 0, errors.New("a message is waiting")
@@ -140,10 +145,16 @@ func (c *Chat) squeezeSession(ctx context.Context) (int, error) {
 		after = c.den.LastContext(started)
 	}
 
+	// fx gives the compacted session an id of its own, which the store's
+	// session takes, with the cursors in it and the bot's messages.
+	if reply.Error == "" && reply.SessionID != "" && reply.SessionID != session {
+		if err := c.store.RenameSession(context.Background(), session, reply.SessionID); err != nil {
+			log.Printf("chat: compacted session %s: %v", session, err)
+		}
+	}
 	c.mu.Lock()
 	c.stop = nil
-	if generation == c.generation && reply.Error == "" && reply.SessionID != "" {
-		c.state.Session = reply.SessionID
+	if reply.Error == "" && reply.SessionID != "" {
 		c.state.Context = after
 		// The next reply tells the user about the compaction.
 		c.state.Compacted = used

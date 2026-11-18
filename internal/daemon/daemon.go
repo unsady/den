@@ -42,6 +42,7 @@ import (
 	"github.com/unsady/den/internal/search"
 	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/transcribe"
 	"github.com/unsady/den/internal/usage"
 )
@@ -56,10 +57,12 @@ var defaultJobs = []jobs.Job{
 }
 
 type daemon struct {
-	ctx    context.Context
-	cfg    config.Config
-	store  *jobs.Store
-	runs   *jobs.Runs
+	ctx   context.Context
+	cfg   config.Config
+	store *jobs.Store
+	runs  *jobs.Runs
+	// db keeps the sessions and the rest of den's own state.
+	db     *store.Store
 	usage  *usage.Store
 	ask    *approve.Asker
 	fetch  *fetch.Fetcher
@@ -104,11 +107,11 @@ func Serve(cfg config.Config) error {
 		return err
 	}
 
-	store, created, err := jobs.Open(filepath.Join(cfg.State, "jobs.json"))
+	jobStore, created, err := jobs.Open(filepath.Join(cfg.State, "jobs.json"))
 	if err != nil {
 		return err
 	}
-	if err := addDefaultJobs(store, filepath.Join(cfg.State, "default-jobs"), created); err != nil {
+	if err := addDefaultJobs(jobStore, filepath.Join(cfg.State, "default-jobs"), created); err != nil {
 		return err
 	}
 
@@ -139,6 +142,15 @@ func Serve(cfg config.Config) error {
 		}()
 	}
 
+	db, err := store.Open(filepath.Join(cfg.State, store.File))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := importLegacy(ctx, cfg, db); err != nil {
+		log.Printf("import: %v", err)
+	}
+
 	ln, err := listen(cfg.Socket)
 	if err != nil {
 		return err
@@ -147,8 +159,9 @@ func Serve(cfg config.Config) error {
 	d := &daemon{
 		ctx:     ctx,
 		cfg:     cfg,
-		store:   store,
+		store:   jobStore,
 		runs:    jobs.NewRuns(filepath.Join(cfg.State, "runs")),
+		db:      db,
 		usage:   usage.Open(cfg.State),
 		ask:     approve.New(cfg),
 		running: map[string]bool{},
@@ -159,10 +172,9 @@ func Serve(cfg config.Config) error {
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
-	d.chat = chat.New(cfg, d, d.usage)
+	d.chat = chat.New(cfg, d, d.usage, db)
 	d.events = d.chat.Events
 	d.ask.Events = d.events
-	d.runs.Forget = d.forgetSession
 	d.google = google.New(cfg)
 	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
 	d.fetch = fetch.New(cfg, later, d.google)
@@ -218,7 +230,6 @@ func Serve(cfg config.Config) error {
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.events)
-		a.JobSessions = d.runs.Sessions
 		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
 			log.Printf("app: %v", err)
 		}
@@ -409,24 +420,27 @@ func (d *daemon) ListJobs() []jobs.Job { return d.store.List() }
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
 
-// JobSessions serves the chat's /sessions, which keeps job runs apart.
-func (d *daemon) JobSessions() map[string]bool { return d.runs.Sessions() }
-
 // deleteSession deletes the fx session id and makes the chat forget it. On
 // an error it returns the HTTP status that suits it.
 func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {
+	if _, err := d.db.Session(ctx, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return http.StatusNotFound, fmt.Errorf("no session %s", id)
+		}
+		return http.StatusInternalServerError, err
+	}
+	if err := d.chat.Forget(id); err != nil {
+		return http.StatusConflict, err
+	}
+
+	// fx saves a session with its first turn, so it may not have this one.
 	list, err := sessions.List(d.cfg.Sessions, 1<<20)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
 	if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id }) {
-		return http.StatusNotFound, fmt.Errorf("no session %s", id)
+		return http.StatusOK, nil
 	}
-
-	if err := d.chat.Forget(id); err != nil {
-		return http.StatusConflict, err
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
@@ -473,13 +487,19 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	if run.Error != "" {
 		result = text
 	}
-	// The run's session goes by the job's name in the app, as its title
-	// and its short name, not by fx's title made from the prompt.
+	// A run that writes to the user keeps its session, named after the
+	// job, so a reply to its message goes on there on the same model.
 	name := jobName(j)
 	if run.SessionID != "" {
-		d.events.Name(run.SessionID, name, name)
+		err := d.db.AddSession(d.ctx, store.Session{
+			ID: run.SessionID, Kind: store.Job, Job: j.ID, Title: name, Created: run.Started,
+			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
+		})
+		if err != nil {
+			log.Printf("job %s: session: %v", j.Label(), err)
+		}
 	}
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: name, Name: name, Model: run.Model, Text: result, Failed: run.Error != ""})
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: name, Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))
@@ -487,25 +507,8 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 		log.Printf("job %s: deliver: %v", j.Label(), err)
 		return false
 	}
-	d.chat.Sent(ids, run.SessionID, heading(j), &choice)
+	d.chat.Sent(ids, run.SessionID)
 	return true
-}
-
-// forgetSession deletes the fx session of a job run whose record den
-// dropped, unless the user went on in it from the chat.
-func (d *daemon) forgetSession(id string) {
-	list, err := sessions.List(d.cfg.Sessions, 1<<20)
-	if err != nil {
-		log.Printf("job session %s: %v", id, err)
-		return
-	}
-	i := slices.IndexFunc(list, func(s sessions.Summary) bool { return s.ID == id })
-	if i < 0 || list[i].Turns > 1 {
-		return
-	}
-	if err := d.deleteJobSession(id); err != nil {
-		log.Printf("job session %s: %v", id, err)
-	}
 }
 
 func (d *daemon) deleteJobSession(id string) error {
@@ -521,7 +524,7 @@ func silent(j jobs.Job, run jobs.Run) bool {
 
 // heading names the job above its reply, which would otherwise read like a
 // reply in the chat.
-// jobName is a job's short name: its own, or what kind of job it is.
+// jobName is a job's name: its own, or what kind of job it is.
 func jobName(j jobs.Job) string {
 	switch {
 	case j.Name != "":
