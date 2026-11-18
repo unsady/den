@@ -32,6 +32,7 @@ The style sets the size (6 × 6 inches at 200 dpi, 1200 px wide), the colors, th
 - One point per chart. Two points make two charts, sent together.
 - The title says what the chart shows, in the user's language: "Expenses fell in March", not "Expenses by month".
 - At most four or five series. Name lines at their right ends with `ax.annotate` in the line's color rather than in a legend; when two ends are close, move one label up or down a little with `xytext`, and use a legend only when many ends crowd together.
+- At most 24 points per series. Group dense data, such as hourly values over days, into 6-hour or daily medians first: the trend is what the user reads, not every sample.
 - Keep labels short: round numbers, `1.2k` for 1200, `14:00` or `Mar` on dates, and no axis label the title already says.
 - The first color is the main one. When one series matters, draw it in the first color and the rest in `#3a3f4b`.
 - Bars sort by value unless their order means something, such as time. With long category names, use horizontal bars (`ax.barh`) so the names stay readable.
