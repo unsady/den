@@ -100,7 +100,7 @@ The den app is another way into the same chat: the same session, models, and que
 den app pair
 ```
 
-`den app pair` publishes den's port, 4400, on this machine's Tailscale address only, so the app reaches den from anywhere in your tailnet and from nowhere else; `--address <ip>` picks another address of the machine instead. It prints a `den://` link with a new token to paste in the app's settings. den keeps only the token's hash, among its secrets, so the agent cannot read it, and every request without it is refused. Pairing again replaces the token; `den app unpair` shuts every app out and closes the port.
+`den app pair` publishes den's port, 4400, on this machine's Tailscale address only, so the app reaches den from anywhere in your tailnet and from nowhere else; `--address <ip>` picks another address of the machine instead. It prints a `den://` link with a new token to paste in the app's settings. den keeps only the token's hash, among its secrets, so the agent cannot read it, and every request without it is refused. Each link is for one device: run `den app pair` again for a phone and a laptop, and both stay in; `den app unpair` shuts every app out and closes the port.
 
 Tailscale encrypts the connection. On an address outside it, such as your home network, the token and the chat travel unencrypted, so use one only on a network you trust.
 

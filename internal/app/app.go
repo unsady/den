@@ -1,8 +1,8 @@
 // Package app serves den to its app over HTTP: the chat, its sessions and
 // models, the questions den asks, and a stream of what happens.
 //
-// Every request carries the token that den app pair printed. den keeps only
-// its hash, among its secrets, so the agent can neither read it nor find it
+// Every request carries a token that den app pair printed, one for each
+// device. den keeps only their hashes, among its secrets, so the agent can neither read it nor find it
 // in a file. The server listens on every address in the container; the host
 // publishes the port only on the address den app pair chose, such as the
 // machine's Tailscale address.
@@ -36,7 +36,8 @@ import (
 // Port is where the server listens in the container.
 const Port = 4400
 
-// tokenFile holds the hash of the app's token, among den's secrets.
+// tokenFile holds the hashes of the app's tokens, one a line, among den's
+// secrets.
 const tokenFile = "app_token"
 
 // Chat is what the app does with the chat.
@@ -123,21 +124,29 @@ func (s *Server) keep(ctx context.Context) {
 	}
 }
 
-// Pair makes a new token for the app, which replaces the one before, and
-// returns it. Only its hash is kept.
+// Pair makes a new token for one more device and returns it; the tokens
+// made before keep working. Only its hash is kept.
 func Pair(cfg config.Config) (string, error) {
 	token := rand.Text()
 	sum := sha256.Sum256([]byte(token))
 	if err := os.MkdirAll(cfg.Secrets, 0o700); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(cfg.Secrets, tokenFile), []byte(hex.EncodeToString(sum[:])), 0o600); err != nil {
+
+	path := filepath.Join(cfg.Secrets, tokenFile)
+	kept, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	hashes := append(strings.Fields(string(kept)), hex.EncodeToString(sum[:]))
+	if err := os.WriteFile(path, []byte(strings.Join(hashes, "\n")+"\n"), 0o600); err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
-// Unpair forgets the token, so no app gets in until the next Pair.
+// Unpair forgets every token, so no app gets in until the next Pair.
 func Unpair(cfg config.Config) error {
 	err := os.Remove(filepath.Join(cfg.Secrets, tokenFile))
 	if errors.Is(err, os.ErrNotExist) {
@@ -146,8 +155,8 @@ func Unpair(cfg config.Config) error {
 	return err
 }
 
-// allowed says whether r carries the token. The hash is read on every
-// request, so a new pairing applies at once.
+// allowed says whether r carries one of the tokens. The hashes are read on
+// every request, so a new pairing applies at once.
 func (s *Server) allowed(r *http.Request) bool {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
@@ -157,9 +166,15 @@ func (s *Server) allowed(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
+
 	sum := sha256.Sum256([]byte(token))
-	got := hex.EncodeToString(sum[:])
-	return subtle.ConstantTimeCompare([]byte(got), []byte(strings.TrimSpace(string(want)))) == 1
+	got := []byte(hex.EncodeToString(sum[:]))
+	for _, line := range strings.Fields(string(want)) {
+		if subtle.ConstantTimeCompare(got, []byte(line)) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // answers are the app's names for the answers to a question.

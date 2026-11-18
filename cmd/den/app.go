@@ -13,8 +13,8 @@ import (
 	"github.com/unsady/den/internal/config"
 )
 
-// appCommand runs den app in the container: token makes the app's token,
-// and unpair forgets it.
+// appCommand runs den app in the container: token makes a token for one
+// more device, and unpair forgets them all.
 func appCommand(cfg config.Config, args []string) error {
 	if err := admin(); err != nil {
 		return err
@@ -37,8 +37,8 @@ func appCommand(cfg config.Config, args []string) error {
 }
 
 // hostApp runs den app on the host. pair publishes den's port for the app
-// on one address of this machine and prints what the app needs to connect;
-// unpair takes both away.
+// on one address of this machine and prints what one more device needs to
+// connect; unpair takes the port and every device's token away.
 func hostApp(c hostConfig, args []string) error {
 	if len(args) == 0 {
 		return errors.New("app needs a subcommand: pair or unpair")
@@ -109,7 +109,7 @@ func pair(c hostConfig, address string) error {
 
 	link := fmt.Sprintf("den://%s@%s", token, net.JoinHostPort(ip.String(), fmt.Sprint(app.Port)))
 	fmt.Printf("\nPaste this in the app's settings, under Server:\n\n%s\n\n", link)
-	fmt.Println("It works until den app pair runs again or den app unpair; keep it to yourself.")
+	fmt.Println("It lets one device in until den app unpair; keep it to yourself. Run den app pair again for another device.")
 	return nil
 }
 

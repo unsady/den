@@ -8,6 +8,7 @@ release notes.
 
 ### Fixed
 
+- The app stays paired on every device: `den app pair` makes a link for one more device, such as a phone and a laptop, rather than shutting out the one before. `den app unpair` still shuts every device out.
 - A message stays in the session it was sent to. den names a new session when you start it, rather than after its first reply, so a message sent to a new session while another one works, or just before you switch, no longer lands in the other session or leaves the app waiting. This needs the fx fork's den.5 build.
 
 ## v0.9.1

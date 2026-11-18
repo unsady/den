@@ -193,15 +193,19 @@ func TestServer(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// A new pairing shuts the old token out, and unpairing every token.
+	// Another device pairs beside the first, and unpairing shuts both out.
 	again, _ := Pair(cfg)
-	if status, _ := call("GET", "/setup", token, ""); status != http.StatusUnauthorized {
-		t.Fatalf("old token: %d", status)
+	for _, device := range []string{token, again} {
+		if status, _ := call("GET", "/setup", device, ""); status != http.StatusOK {
+			t.Fatalf("paired device: %d", status)
+		}
 	}
 	if err := Unpair(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := call("GET", "/setup", again, ""); status != http.StatusUnauthorized {
-		t.Fatalf("after unpair: %d", status)
+	for _, device := range []string{token, again} {
+		if status, _ := call("GET", "/setup", device, ""); status != http.StatusUnauthorized {
+			t.Fatalf("after unpair: %d", status)
+		}
 	}
 }
