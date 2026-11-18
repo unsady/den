@@ -295,7 +295,7 @@ func notifyCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("notify needs text, as arguments or on stdin")
 	}
 
-	if err := client.New(cfg).Do(http.MethodPost, "/notify", daemon.NotifyRequest{Text: text}, nil); err != nil {
+	if err := client.New(cfg).Do(http.MethodPost, "/notify", daemon.NotifyRequest{Text: text, Turn: os.Getenv("DEN_TURN")}, nil); err != nil {
 		return err
 	}
 	fmt.Println("sent")

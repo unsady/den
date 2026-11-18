@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,6 +72,9 @@ type daemon struct {
 
 	mu      sync.Mutex
 	running map[string]bool
+	// held are the notices of the job runs going on, by turn, which go to
+	// the app with the run's session once it ends.
+	held map[string][]string
 	// grants are the den map runs the user allowed, by the grant den
 	// started each with.
 	grants map[string]MapRequest
@@ -148,6 +152,7 @@ func Serve(cfg config.Config) error {
 		usage:   usage.Open(cfg.State),
 		ask:     approve.New(cfg),
 		running: map[string]bool{},
+		held:    map[string][]string{},
 		grants:  map[string]MapRequest{},
 		maps:    map[string]*mapRun{},
 		slots:   make(chan struct{}, jobSlots(cfg)),
@@ -353,7 +358,26 @@ func (d *daemon) start(j jobs.Job) bool {
 
 		log.Printf("job %s: started", j.Label())
 		choice := d.chat.Choice(d.ctx, j.Slot)
-		run := runner.Run(d.ctx, d.cfg, j, choice)
+		turn := "job-" + rand.Text()[:12]
+		d.mu.Lock()
+		d.held[turn] = nil
+		d.mu.Unlock()
+
+		run := runner.Run(d.ctx, d.cfg, j, choice, turn)
+
+		// A silent run's session goes, so its notices go without one.
+		session := run.SessionID
+		if silent(j, run) {
+			session = ""
+		}
+		d.mu.Lock()
+		held := d.held[turn]
+		delete(d.held, turn)
+		d.mu.Unlock()
+		for _, text := range held {
+			d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
+		}
+
 		run.Delivered = d.deliver(j, run, choice)
 		// A silent run leaves nothing to go on with, so its session goes
 		// now instead of with the run's record.
@@ -522,10 +546,33 @@ func heading(j jobs.Job) string {
 	return "⏰ Scheduled job " + j.ID
 }
 
-func (d *daemon) notify(text string) error {
-	d.events.Publish(events.Event{Type: events.Notice, Text: text})
+// notify sends text to the user's Telegram at once, and to the app in the
+// session of turn, which a job run or a /bg turn knows only when it ends:
+// until then the app's notice waits. Text from no turn, or from one den
+// does not know, has no session.
+func (d *daemon) notify(turn, text string) error {
+	if !d.hold(turn, text) {
+		session, held := d.chat.Notify(turn, text)
+		if !held {
+			d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
+		}
+	}
+
 	_, err := d.send(text, false)
 	return err
+}
+
+// hold keeps text for the app until turn, a job run's, ends, and says
+// whether turn is one.
+func (d *daemon) hold(turn, text string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	held, ok := d.held[turn]
+	if ok {
+		d.held[turn] = append(held, text)
+	}
+	return ok
 }
 
 // quietly says whether a job's reply arrives without a sound: den's nightly
@@ -577,6 +624,8 @@ type SlotRequest struct {
 // NotifyRequest is the body of POST /notify.
 type NotifyRequest struct {
 	Text string `json:"text"`
+	// Turn is the DEN_TURN of the agent that sent it, if any.
+	Turn string `json:"turn,omitempty"`
 }
 
 // ProgressRequest is the body of POST /progress: what a running command
@@ -773,7 +822,7 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
 			return
 		}
-		if err := d.notify(req.Text); err != nil {
+		if err := d.notify(req.Turn, req.Text); err != nil {
 			fail(w, http.StatusServiceUnavailable, err)
 			return
 		}

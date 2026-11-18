@@ -194,11 +194,13 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		c.mu.Lock()
 		delete(c.bg, id)
 		var pending []entry
+		var held []string
 		for i := range c.turns {
 			if c.turns[i].id == id {
 				c.turns[i].session = reply.SessionID
 				c.turns[i].label = label
 				pending, c.turns[i].pending = c.turns[i].pending, nil
+				held, c.turns[i].held = c.turns[i].held, nil
 			}
 		}
 		var notices []string
@@ -220,12 +222,17 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 
 		if run.Err() == context.Canceled {
 			// /stop already answered, or den is shutting down.
+			c.publishHeld(reply.SessionID, held)
 			return
 		}
 		// The task's name is its session's title and short name.
 		if reply.SessionID != "" {
 			c.Events.Name(reply.SessionID, name, name)
 			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: name, Name: name, Text: task})
+		}
+		// The notices came while the task ran: after it, before its answer.
+		c.publishHeld(reply.SessionID, held)
+		if reply.SessionID != "" {
 			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: name, Name: name, Text: answer(reply, false), Failed: reply.Error != ""})
 		}
 		if app {
@@ -245,4 +252,12 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		}
 		c.Sent(ids, reply.SessionID, label, &runner.Choice{Provider: provider, Model: model, Effort: effort})
 	})
+}
+
+// publishHeld gives the app the notices a /bg turn held, in session, or in
+// none when the turn left no session.
+func (c *Chat) publishHeld(session string, held []string) {
+	for _, text := range held {
+		c.Events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
+	}
 }

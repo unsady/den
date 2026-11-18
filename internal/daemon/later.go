@@ -169,7 +169,7 @@ func (d *daemon) report(turn, agent, user string) {
 	if user == "" {
 		return
 	}
-	if err := d.notify(user); err != nil {
+	if err := d.notify(turn, user); err != nil {
 		log.Printf("report: %v", err)
 	}
 }

@@ -72,9 +72,10 @@ type Choice struct {
 	Effort   string `json:"effort,omitempty"`
 }
 
-// Run runs j on the model choice names.
-func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice) jobs.Run {
-	reply := Ask(ctx, cfg, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort})
+// Run runs j on the model choice names, as turn, which its commands get as
+// DEN_TURN.
+func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn string) jobs.Run {
+	reply := Ask(ctx, cfg, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Turn: turn})
 	return jobs.Run{
 		JobID:     j.ID,
 		Started:   reply.Started,

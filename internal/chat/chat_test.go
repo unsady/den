@@ -896,6 +896,28 @@ func TestTell(t *testing.T) {
 	}
 }
 
+func TestNotify(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg, nil, usage.Open(cfg.State))
+	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "bg1", bg: true}}
+	c.bg = map[string]context.CancelFunc{"bg1": func() {}}
+
+	if s, held := c.Notify("", "hi"); s != "" || held {
+		t.Fatalf("no turn: %q, %v", s, held)
+	}
+	if s, held := c.Notify("job", "hi"); s != "" || held {
+		t.Fatalf("unknown turn: %q, %v", s, held)
+	}
+	if s, held := c.Notify("t1", "hi"); s != "main" || held {
+		t.Fatalf("known turn: %q, %v", s, held)
+	}
+
+	// A /bg turn has no session until it ends: its notice waits.
+	if s, held := c.Notify("bg1", "later"); s != "" || !held || !slices.Equal(c.turns[1].held, []string{"later"}) {
+		t.Fatalf("running /bg turn: %q, %v, %+v", s, held, c.turns[1])
+	}
+}
+
 func TestReplyTarget(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State))

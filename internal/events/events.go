@@ -35,7 +35,9 @@ const (
 	Idle = "idle"
 	// Result is a job's reply or failure.
 	Result = "result"
-	// Notice is a message the agent sent the user, such as with den notify.
+	// Notice is a message the agent sent the user, such as with den notify,
+	// in the session of the turn that sent it, or in none, such as for a
+	// report of den's own.
 	Notice = "notice"
 	// Ask is a question den asks before an action, and Answered says it no
 	// longer waits.
@@ -150,7 +152,7 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 
 // keep adds e to its session's journal, when it is one of the kinds kept.
 func (h *Hub) keep(e Event) {
-	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result && e.Type != File {
+	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result && e.Type != File && e.Type != Notice {
 		return
 	}
 

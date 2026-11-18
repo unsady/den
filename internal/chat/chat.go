@@ -272,6 +272,9 @@ type turnRef struct {
 	// reports for it wait in pending until then.
 	bg      bool
 	pending []entry
+	// held are the notices the turn sent the user while its session was
+	// unknown, which go to the app once it is.
+	held []string
 	// app marks a turn that answers only in the app.
 	app bool
 }
@@ -326,6 +329,32 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 		c.poke()
 	}
 	return found
+}
+
+// Notify says which session a notice from turn, the agent's DEN_TURN,
+// belongs in. A /bg turn knows its session only when it ends, so the
+// notice waits until then, and held says so. A turn the chat does not
+// know gives no session.
+func (c *Chat) Notify(turn, text string) (session string, held bool) {
+	if turn == "" {
+		return "", false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	turn = c.resolve(turn)
+	for i, t := range c.turns {
+		if t.id != turn {
+			continue
+		}
+		if t.bg && c.bg[t.id] != nil {
+			c.turns[i].held = append(t.held, text)
+			return "", true
+		}
+		return t.session, false
+	}
+	return "", false
 }
 
 // resolve returns the turn the agent's DEN_TURN stands for, its latest, and
