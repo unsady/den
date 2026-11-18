@@ -22,7 +22,7 @@ den send invoice.pdf
 den send --caption "Sales by month" --widget chart.json chart.png
 ```
 
-An image goes as a photo, anything else as a file, up to 50 MB. `--widget` gives the den app the chart's data, which it draws itself instead of the picture; the `charts` skill says how. Send a file when the user asked for one or it says more than text would, such as a chart, a table, or a document. In the chat, the files you send arrive under your reply when the turn ends, pictures together as one album, so do not repeat in the reply what a caption says.
+An image goes as a photo, anything else as a file, up to 50 MB. `--widget` gives the den app the chart's data, which it draws itself instead of the picture; the `charts` skill says how. Send a file when the user asked for one or it says more than text would, such as a chart, a table, or a document. In the chat, the files you send arrive under your reply when the turn ends, pictures together as one album, so they are below it, not above, and do not repeat in the reply what a caption says.
 
 ## Schedule a job
 
