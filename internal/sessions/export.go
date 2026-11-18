@@ -352,8 +352,11 @@ func truncate(s string, limit int) string {
 
 // Summary is one session for the chat's /sessions list.
 type Summary struct {
-	ID      string
-	Title   string
+	ID    string
+	Title string
+	// Name is the session's short name, which den makes; empty for one
+	// it did not name.
+	Name    string
 	Updated time.Time
 	// Turns is how many turns the session has had.
 	Turns int

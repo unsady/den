@@ -248,7 +248,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Title: l.Title, Updated: l.Updated, Turns: l.Turns, Kind: s.kind(l.ID, jobs)})
+			out = append(out, session{ID: l.ID, Title: l.Title, Name: l.Name, Updated: l.Updated, Turns: l.Turns, Kind: s.kind(l.ID, jobs)})
 		}
 		reply(w, out)
 	})
@@ -416,8 +416,10 @@ type choice struct {
 
 // session is one session in the app's list.
 type session struct {
-	ID      string    `json:"id"`
-	Title   string    `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Name is its short name, empty for a session den did not name.
+	Name    string    `json:"name,omitempty"`
 	Updated time.Time `json:"updated"`
 	Turns   int       `json:"turns"`
 	// Kind is chat, job for a job run's session, or background for a /bg

@@ -41,22 +41,31 @@ func TestTitles(t *testing.T) {
 	l, stop := h.Listen()
 	defer stop()
 
-	// den's title takes the place of fx's, and the listeners hear of it.
-	h.Name("s1", "Jensen Huang's apology")
-	if e := <-l; e.Type != Titled || e.Session != "s1" || e.Text != "Jensen Huang's apology" {
+	// den's title takes the place of fx's, the name goes beside it, and
+	// the listeners hear of both.
+	h.Name("s1", "Jensen Huang's apology", "Apology")
+	if e := <-l; e.Type != Titled || e.Session != "s1" || e.Title != "Jensen Huang's apology" || e.Name != "Apology" {
 		t.Fatalf("event %+v", e)
 	}
 	list := []sessions.Summary{{ID: "s1", Title: "Summarize https://x.com/..."}, {ID: "s2", Title: "Model speed"}}
 	h.Titled(list)
-	if list[0].Title != "Jensen Huang's apology" || list[1].Title != "Model speed" {
+	if list[0].Title != "Jensen Huang's apology" || list[0].Name != "Apology" || list[1].Title != "Model speed" || list[1].Name != "" {
+		t.Fatalf("titles %+v", list)
+	}
+
+	// An empty name keeps the one before.
+	h.Name("s1", "Apology of Jensen Huang", "")
+	<-l
+	h.Titled(list)
+	if list[0].Title != "Apology of Jensen Huang" || list[0].Name != "Apology" {
 		t.Fatalf("titles %+v", list)
 	}
 
 	h.Forget("s1")
-	list[0].Title = "fx's"
+	list[0].Title, list[0].Name = "fx's", ""
 	h.Titled(list)
-	if list[0].Title != "fx's" {
-		t.Fatalf("forgotten title %q", list[0].Title)
+	if list[0].Title != "fx's" || list[0].Name != "" {
+		t.Fatalf("forgotten %+v", list[0])
 	}
 }
 

@@ -1321,10 +1321,10 @@ func TestAppBackground(t *testing.T) {
 			t.Fatalf("message %+v, reply %+v", message, reply)
 		}
 	}
-	if message.Text != "slow: compare models" || message.Title != "⚙ compare-models" || message.Session == "" {
+	if message.Text != "slow: compare models" || message.Title != "compare-models" || message.Name != "compare-models" || message.Session == "" {
 		t.Fatalf("message %+v", message)
 	}
-	if reply.Text != "resume=none msg=slow: compare models lines=1" || reply.Title != message.Title || reply.Session != message.Session {
+	if reply.Text != "resume=none msg=slow: compare models lines=1" || reply.Title != message.Title || reply.Name != message.Name || reply.Session != message.Session {
 		t.Fatalf("reply %+v", reply)
 	}
 	select {
@@ -1421,4 +1421,17 @@ func TestSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	telegram.expect(t, "📎 sendDocument job.pdf")
+}
+
+func TestTitleLines(t *testing.T) {
+	for answer, want := range map[string][2]string{
+		"Тестовый график и посты\nГрафики\n":         {"Тестовый график и посты", "Графики"},
+		"Sure:\n\n«Lightpanda release».\nLightpanda": {"Lightpanda release", "Lightpanda"},
+		"Only a title": {"Only a title", ""},
+		"  \n":         {"", ""},
+	} {
+		if title, name := titleLines(answer); title != want[0] || name != want[1] {
+			t.Errorf("titleLines(%q) = %q, %q, want %q", answer, title, name, want)
+		}
+	}
 }

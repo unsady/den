@@ -167,10 +167,9 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if name == "" {
 			name = bgName(task)
 		}
-		label := "⚙ " + name
-		named <- label
+		named <- name
 		if started != 0 {
-			c.editPlain(ctx, telegram, started, label+" runs in the background."+after)
+			c.editPlain(ctx, telegram, started, "⚙ "+name+" runs in the background."+after)
 		}
 	})
 
@@ -190,7 +189,8 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 
 		// Reports that came while the turn ran go to its session now that
 		// it is known, or to the user when there is none.
-		label := <-named
+		name := <-named
+		label := "⚙ " + name
 		c.mu.Lock()
 		delete(c.bg, id)
 		var pending []entry
@@ -222,9 +222,11 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 			// /stop already answered, or den is shutting down.
 			return
 		}
+		// The task's name is its session's title and short name.
 		if reply.SessionID != "" {
-			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: label, Text: task})
-			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: label, Text: answer(reply, false), Failed: reply.Error != ""})
+			c.Events.Name(reply.SessionID, name, name)
+			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: name, Name: name, Text: task})
+			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: name, Name: name, Text: answer(reply, false), Failed: reply.Error != ""})
 		}
 		if app {
 			c.tell(ctx, nil, notices)

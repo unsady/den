@@ -449,12 +449,13 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	if run.Error != "" {
 		result = text
 	}
-	// The run's session carries the job's name in the app's list, not fx's
-	// title made from the prompt.
+	// The run's session goes by the job's name in the app, as its title
+	// and its short name, not by fx's title made from the prompt.
+	name := jobName(j)
 	if run.SessionID != "" {
-		d.events.Name(run.SessionID, heading(j))
+		d.events.Name(run.SessionID, name, name)
 	}
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: heading(j), Model: run.Model, Text: result, Failed: run.Error != ""})
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: name, Name: name, Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))
@@ -496,6 +497,17 @@ func silent(j jobs.Job, run jobs.Run) bool {
 
 // heading names the job above its reply, which would otherwise read like a
 // reply in the chat.
+// jobName is a job's short name: its own, or what kind of job it is.
+func jobName(j jobs.Job) string {
+	switch {
+	case j.Name != "":
+		return j.Name
+	case j.Once:
+		return "reminder"
+	}
+	return "job " + j.ID
+}
+
 func heading(j jobs.Job) string {
 	switch {
 	case j.Name == "reflect":

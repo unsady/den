@@ -19,11 +19,13 @@ import (
 // titleTimeout bounds the making of one title.
 const titleTimeout = 2 * time.Minute
 
-// titlePrompt asks for a session's title from its first exchange.
-const titlePrompt = "Write a title of 2 to 6 words for a conversation that starts as below, in the user's language, which is the assistant's when the user sent only a link, a file, or a photo. Reply with the title alone, without quotes or a period.\n\n"
+// titlePrompt asks for a session's title and short name from its first
+// exchange.
+const titlePrompt = "Write a title of 2 to 6 words for a conversation that starts as below, and a name of 1 or 2 words for its tab, both in the user's language, which is the assistant's when the user sent only a link, a file, or a photo. Reply with two lines, the title on the first and the name on the second, without quotes or periods.\n\n"
 
-// name makes a title for a new session from its first exchange, the user's
-// message and the reply, and keeps it in place of fx's. The reply says what
+// name makes a title and a short name for a new session from its first
+// exchange, the user's message and the reply, and keeps the title in place
+// of fx's. The reply says what
 // a photo, a link, or a short message was about. fx titles the sessions of
 // Codex and Grok itself, and those of other providers with the message
 // alone. Claude answers through the claude command, the other providers
@@ -66,11 +68,30 @@ func (c *Chat) name(session, message, reply, provider, model string) {
 		return
 	}
 
-	title := strings.Trim(strings.TrimSpace(lastLine(answer)), "\"'«»“”.")
+	title, name := titleLines(answer)
 	if title == "" {
 		return
 	}
-	c.Events.Name(session, clipRunes(title, 80))
+	c.Events.Name(session, clipRunes(title, 80), clipRunes(name, 24))
+}
+
+// titleLines reads the title and the name from the last two lines of
+// answer, which a model may open with words of its own. A lone line is the
+// title.
+func titleLines(answer string) (title, name string) {
+	var lines []string
+	for line := range strings.Lines(answer) {
+		if line = strings.Trim(strings.TrimSpace(line), "\"'«»“”."); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	switch len(lines) {
+	case 0:
+		return "", ""
+	case 1:
+		return lines[0], ""
+	}
+	return lines[len(lines)-2], lines[len(lines)-1]
 }
 
 // complete asks provider's model for one answer to prompt through den's

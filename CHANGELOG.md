@@ -10,6 +10,7 @@ release notes.
 
 - Charts in the app: the agent describes a line or bar chart as data and sends it with its picture, so Telegram shows the picture and the den app draws the chart itself, in its own theme. Other files the agent sends show under its reply in the app too.
 - The files the agent sends in a turn, such as charts, arrive with its reply instead of before it, one by one: in the app they are part of the reply, and in Telegram they follow it, the pictures together as one album. A turn you started in the app sends its files only there.
+- Each session has a short name beside its title, for the app's chips: a job's run goes by the job's name, a /bg task by its own, and a chat by a name of a word or two that den makes with its title.
 
 ### Fixed
 
