@@ -252,9 +252,18 @@ func (s *Server) Handler() http.Handler {
 		}
 		list := []message{}
 		for _, e := range journal {
-			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed})
+			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, File: e.File})
 		}
 		reply(w, list)
+	})
+
+	mux.HandleFunc("GET /sessions/{id}/files/{file}", func(w http.ResponseWriter, r *http.Request) {
+		id, file := r.PathValue("id"), r.PathValue("file")
+		if strings.ContainsAny(id+file, `/\`) || id == ".." || file == ".." {
+			fail(w, http.StatusBadRequest, errors.New("bad file name"))
+			return
+		}
+		http.ServeFile(w, r, s.events.FilePath(id, file))
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/open", func(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +417,9 @@ type message struct {
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
 	Failed bool      `json:"failed,omitempty"`
+	// File is a file den sent with it, which GET /sessions/{id}/files/{file}
+	// returns.
+	File string `json:"file,omitempty"`
 }
 
 // kind tells a job run's session and a /bg task's from the chat's: a /bg

@@ -620,6 +620,9 @@ type SendRequest struct {
 	Name    string `json:"name"`
 	Caption string `json:"caption"`
 	Data    []byte `json:"data"`
+	// Turn is the DEN_TURN of the agent that sent it, which says the
+	// session the app shows it in.
+	Turn string `json:"turn,omitempty"`
 }
 
 func (d *daemon) routes() http.Handler {
@@ -797,6 +800,13 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadGateway, err)
 			return
 		}
+
+		if session := d.chat.SessionOf(req.Turn); session != "" {
+			if err := d.events.SaveFile(session, filepath.Base(req.Name), req.Caption, req.Data); err != nil {
+				log.Printf("send: keep for the app: %v", err)
+			}
+		}
+
 		reply(w, http.StatusOK, map[string]bool{"sent": true})
 	})
 

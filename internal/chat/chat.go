@@ -291,6 +291,22 @@ func (c *Chat) Current() string {
 	return ""
 }
 
+// SessionOf returns the session of the chat's turn, or "" when turn is not
+// one of them, such as a job's.
+func (c *Chat) SessionOf(turn string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	turn = c.resolve(turn)
+	for _, t := range c.turns {
+		if t.id == turn && t.session != "" {
+			return t.session
+		}
+	}
+
+	return ""
+}
+
 // Tell gives the agent text as a new turn, such as what came of a command
 // that waited for the user after the agent's turn ended. It returns false
 // when turn is not one of the chat's in its current session, such as a

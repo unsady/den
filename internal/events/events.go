@@ -11,10 +11,12 @@ package events
 
 import (
 	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +46,9 @@ const (
 	Settings = "settings"
 	// Titled gives a session the title den made for it.
 	Titled = "titled"
+	// File is a file the agent sent the user, such as a chart, with its
+	// caption as the text.
+	File = "file"
 )
 
 // Event is one thing that happened. Fields that do not apply to its kind
@@ -67,6 +72,9 @@ type Event struct {
 	Options []string `json:"options,omitempty"`
 	// Source names where a question's action goes, such as "Gmail".
 	Source string `json:"source,omitempty"`
+	// File is a file's name in its session's folder, which keeps its
+	// extension.
+	File string `json:"file,omitempty"`
 }
 
 // Hub passes events to whoever listens. The zero value has no listeners and
@@ -127,7 +135,7 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 
 // keep adds e to its session's journal, when it is one of the kinds kept.
 func (h *Hub) keep(e Event) {
-	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result {
+	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result && e.Type != File {
 		return
 	}
 
@@ -156,11 +164,37 @@ func (h *Hub) Forget(session string) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, name := range []string{session + ".jsonl", session + ".title"} {
-		if err := os.Remove(filepath.Join(h.Dir, name)); err != nil && !os.IsNotExist(err) {
+	for _, name := range []string{session + ".jsonl", session + ".title", session + ".files"} {
+		if err := os.RemoveAll(filepath.Join(h.Dir, name)); err != nil {
 			log.Printf("events: journal: %v", err)
 		}
 	}
+}
+
+// SaveFile keeps data with session, under a name of its own that keeps
+// name's extension, and tells the listeners.
+func (h *Hub) SaveFile(session, name, caption string, data []byte) error {
+	if h == nil || h.Dir == "" || session == "" {
+		return nil
+	}
+
+	dir := filepath.Join(h.Dir, session+".files")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+
+	file := rand.Text()[:12] + strings.ToLower(filepath.Ext(name))
+	if err := os.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
+		return err
+	}
+
+	h.Publish(Event{Type: File, Session: session, Text: caption, File: file})
+	return nil
+}
+
+// FilePath is where session keeps file.
+func (h *Hub) FilePath(session, file string) string {
+	return filepath.Join(h.Dir, session+".files", file)
 }
 
 // Name keeps title as session's title, in place of fx's, and tells the

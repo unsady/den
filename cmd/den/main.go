@@ -319,7 +319,7 @@ func sendCommand(cfg config.Config, args []string) error {
 	if len(data) > notify.MaxUpload {
 		return fmt.Errorf("%s is over Telegram's 50 MB limit for bots", rest[0])
 	}
-	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data}
+	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data, Turn: os.Getenv("DEN_TURN")}
 	if err := client.New(cfg).Do(http.MethodPost, "/send", req, nil); err != nil {
 		return err
 	}
