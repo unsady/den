@@ -623,6 +623,9 @@ type SendRequest struct {
 	// Turn is the DEN_TURN of the agent that sent it, which says the
 	// session the app shows it in.
 	Turn string `json:"turn,omitempty"`
+	// Widget describes the file for the app to draw itself, such as a
+	// chart's data; Telegram gets the file.
+	Widget json.RawMessage `json:"widget,omitempty"`
 }
 
 func (d *daemon) routes() http.Handler {
@@ -802,7 +805,7 @@ func (d *daemon) routes() http.Handler {
 		}
 
 		if session := d.chat.SessionOf(req.Turn); session != "" {
-			if err := d.events.SaveFile(session, filepath.Base(req.Name), req.Caption, req.Data); err != nil {
+			if err := d.events.SaveFile(session, filepath.Base(req.Name), req.Caption, req.Data, req.Widget); err != nil {
 				log.Printf("send: keep for the app: %v", err)
 			}
 		}

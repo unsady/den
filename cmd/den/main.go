@@ -26,6 +26,7 @@ import (
 	"github.com/unsady/den/internal/search"
 	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/sessions"
+	"github.com/unsady/den/internal/widget"
 )
 
 const usage = `den: a small home for a personal fx agent.
@@ -304,6 +305,7 @@ func notifyCommand(cfg config.Config, args []string) error {
 func sendCommand(cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	caption := fs.String("caption", "", "text under the file")
+	widgetFile := fs.String("widget", "", "a JSON file that describes the file for the app to draw itself, such as a chart's data")
 	rest, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -320,6 +322,15 @@ func sendCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("%s is over Telegram's 50 MB limit for bots", rest[0])
 	}
 	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data, Turn: os.Getenv("DEN_TURN")}
+	if *widgetFile != "" {
+		spec, err := os.ReadFile(*widgetFile)
+		if err != nil {
+			return err
+		}
+		if req.Widget, err = widget.Check(spec); err != nil {
+			return err
+		}
+	}
 	if err := client.New(cfg).Do(http.MethodPost, "/send", req, nil); err != nil {
 		return err
 	}

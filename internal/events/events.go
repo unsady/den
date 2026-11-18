@@ -75,6 +75,9 @@ type Event struct {
 	// File is a file's name in its session's folder, which keeps its
 	// extension.
 	File string `json:"file,omitempty"`
+	// Widget describes a file for the app to draw itself, such as a
+	// chart's data.
+	Widget json.RawMessage `json:"widget,omitempty"`
 }
 
 // Hub passes events to whoever listens. The zero value has no listeners and
@@ -172,8 +175,9 @@ func (h *Hub) Forget(session string) {
 }
 
 // SaveFile keeps data with session, under a name of its own that keeps
-// name's extension, and tells the listeners.
-func (h *Hub) SaveFile(session, name, caption string, data []byte) error {
+// name's extension, and tells the listeners, with the widget that
+// describes it, if any.
+func (h *Hub) SaveFile(session, name, caption string, data []byte, widget json.RawMessage) error {
 	if h == nil || h.Dir == "" || session == "" {
 		return nil
 	}
@@ -188,7 +192,7 @@ func (h *Hub) SaveFile(session, name, caption string, data []byte) error {
 		return err
 	}
 
-	h.Publish(Event{Type: File, Session: session, Text: caption, File: file})
+	h.Publish(Event{Type: File, Session: session, Text: caption, File: file, Widget: widget})
 	return nil
 }
 

@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### New
+
+- Charts in the app: the agent describes a line or bar chart as data and sends it with its picture, so Telegram shows the picture and the den app draws the chart itself, in its own theme. Other files the agent sends show under its reply in the app too.
+
 ### Fixed
 
 - The app stays paired on every device: `den app pair` makes a link for one more device, such as a phone and a laptop, rather than shutting out the one before. `den app unpair` still shuts every device out.

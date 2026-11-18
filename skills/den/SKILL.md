@@ -19,10 +19,10 @@ The message goes to the user's Telegram. Send one only when the user asked for i
 
 ```bash
 den send invoice.pdf
-den send --caption "Sales by month" chart.png
+den send --caption "Sales by month" --widget chart.json chart.png
 ```
 
-An image goes as a photo, anything else as a file, up to 50 MB. Send a file when the user asked for one or it says more than text would, such as a chart, a table, or a document. In the chat, tell the user in your reply what you sent.
+An image goes as a photo, anything else as a file, up to 50 MB. `--widget` gives the den app the chart's data, which it draws itself instead of the picture; the `charts` skill says how. Send a file when the user asked for one or it says more than text would, such as a chart, a table, or a document. In the chat, tell the user in your reply what you sent.
 
 ## Schedule a job
 

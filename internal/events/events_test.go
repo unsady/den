@@ -63,12 +63,12 @@ func TestTitles(t *testing.T) {
 func TestFile(t *testing.T) {
 	h := &Hub{Dir: t.TempDir()}
 
-	if err := h.SaveFile("s1", "/tmp/Chart.PNG", "Speed", []byte("png")); err != nil {
+	if err := h.SaveFile("s1", "/tmp/Chart.PNG", "Speed", []byte("png"), []byte(`{"type":"chart"}`)); err != nil {
 		t.Fatal(err)
 	}
 
 	list, err := Journal(h.Dir, "s1")
-	if err != nil || len(list) != 1 || list[0].Type != File || list[0].Text != "Speed" || !strings.HasSuffix(list[0].File, ".png") {
+	if err != nil || len(list) != 1 || list[0].Type != File || list[0].Text != "Speed" || !strings.HasSuffix(list[0].File, ".png") || string(list[0].Widget) != `{"type":"chart"}` {
 		t.Fatalf("journal %+v, %v", list, err)
 	}
 	if data, err := os.ReadFile(h.FilePath("s1", list[0].File)); err != nil || string(data) != "png" {

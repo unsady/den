@@ -28,7 +28,7 @@ uv run --with pandas python -c 'import pandas as pd; print(pd.read_csv("data.csv
 
 ## Charts
 
-Draw charts as the `charts` skill says: matplotlib with den's style, saved as a PNG and sent with `den send`.
+Draw charts as the `charts` skill says: described as data, drawn in den's style, and sent with `den send`.
 
 ## Local findings
 
