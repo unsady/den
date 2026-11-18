@@ -1,0 +1,184 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func open(t *testing.T) *Store {
+	t.Helper()
+	s, err := Open(filepath.Join(t.TempDir(), File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func TestReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), File)
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSession(context.Background(), Session{ID: "a", Kind: Chat}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.Session(context.Background(), "a"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTitleIsSetOnce(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	if err := s.AddSession(ctx, Session{ID: "a", Kind: Chat}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.Session(ctx, "a")
+	if got.Title != "" {
+		t.Fatalf("a new session has title %q", got.Title)
+	}
+	if set, err := s.SetTitle(ctx, "a", "Trip to Lisbon"); err != nil || !set {
+		t.Fatalf("first title: %v %v", set, err)
+	}
+	if set, _ := s.SetTitle(ctx, "a", "Other"); set {
+		t.Fatal("a second title replaced the first")
+	}
+	got, _ = s.Session(ctx, "a")
+	if got.Title != "Trip to Lisbon" {
+		t.Fatalf("title %q", got.Title)
+	}
+}
+
+func TestSessionsOrderAndFilter(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	base := time.Now().Add(-time.Hour)
+	for i, session := range []Session{
+		{ID: "chat", Kind: Chat, Title: "Taxes 2026"},
+		{ID: "bg", Kind: Background, Title: "Compare models"},
+		{ID: "job", Kind: Job, Job: "j1", Title: "Morning brief"},
+	} {
+		session.Created = base.Add(time.Duration(i) * time.Minute)
+		if err := s.AddSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Touch(ctx, "chat"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.Sessions(ctx, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := idsOf(list); ids != "chat job bg" {
+		t.Fatalf("order %q", ids)
+	}
+
+	list, _ = s.Sessions(ctx, Filter{Kinds: []Kind{Chat, Background}})
+	if ids := idsOf(list); ids != "chat bg" {
+		t.Fatalf("kinds %q", ids)
+	}
+
+	list, _ = s.Sessions(ctx, Filter{Query: "taxes"})
+	if ids := idsOf(list); ids != "chat" {
+		t.Fatalf("query %q", ids)
+	}
+}
+
+func TestCursorsAndMessages(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	if _, err := s.Cursor(ctx, Telegram); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("empty cursor: %v", err)
+	}
+	for _, id := range []string{"a", "b"} {
+		if err := s.AddSession(ctx, Session{ID: id, Kind: Chat}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetCursor(ctx, Telegram, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCursor(ctx, Telegram, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Cursor(ctx, Telegram); got != "b" {
+		t.Fatalf("cursor %q", got)
+	}
+
+	if err := s.SentTelegram(ctx, "a", 10, 11); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.TelegramSession(ctx, 11); got != "a" {
+		t.Fatalf("message 11 in %q", got)
+	}
+
+	// Deleting a session drops what points at it.
+	if err := s.DeleteSession(ctx, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Cursor(ctx, Telegram); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cursor after delete: %v", err)
+	}
+	if err := s.DeleteSession(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TelegramSession(ctx, 10); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("message after delete: %v", err)
+	}
+}
+
+func TestNoSessionWithoutKind(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	if err := s.AddSession(ctx, Session{ID: "a", Kind: "other"}); err == nil {
+		t.Fatal("a session of an unknown kind was added")
+	}
+}
+
+func idsOf(list []Session) string {
+	out := ""
+	for i, s := range list {
+		if i > 0 {
+			out += " "
+		}
+		out += s.ID
+	}
+	return out
+}
+
+func TestRenameKeepsCursorAndMessages(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	if err := s.AddSession(ctx, Session{ID: "old", Kind: Chat, Title: "Plans"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCursor(ctx, Telegram, "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SentTelegram(ctx, "old", 5); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RenameSession(ctx, "old", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Cursor(ctx, Telegram); got != "new" {
+		t.Fatalf("cursor %q", got)
+	}
+	if got, _ := s.TelegramSession(ctx, 5); got != "new" {
+		t.Fatalf("message in %q", got)
+	}
+	if got, _ := s.Session(ctx, "new"); got.Title != "Plans" {
+		t.Fatalf("title %q", got.Title)
+	}
+}
