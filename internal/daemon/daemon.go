@@ -449,6 +449,11 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	if run.Error != "" {
 		result = text
 	}
+	// The run's session carries the job's name in the app's list, not fx's
+	// title made from the prompt.
+	if run.SessionID != "" {
+		d.events.Name(run.SessionID, heading(j))
+	}
 	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: heading(j), Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
