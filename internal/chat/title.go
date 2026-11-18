@@ -23,6 +23,10 @@ const titleTimeout = 2 * time.Minute
 // exchange.
 const titlePrompt = "Write a title of 2 to 6 words for a conversation that starts as below, and a name of 1 or 2 words for its tab, both in the user's language, which is the assistant's when the user sent only a link, a file, or a photo. Reply with two lines, the title on the first and the name on the second, without quotes or periods.\n\n"
 
+// namePrompt asks for a short name alone, when the answer to titlePrompt
+// had none.
+const namePrompt = "Write a name of 1 or 2 words for the tab of a conversation with the title below, in the title's language. Reply with the name alone, without quotes or periods.\n\n"
+
 // name makes a title and a short name for a new session from its first
 // exchange, the user's message and the reply, and keeps the title in place
 // of fx's. The reply says what
@@ -56,13 +60,14 @@ func (c *Chat) name(session, message, reply, provider, model string) {
 	if strings.TrimSpace(reply) != "" {
 		prompt += "\n\nAssistant:\n" + clipRunes(reply, 1500)
 	}
-	var answer string
-	var err error
-	if provider == claude.Provider {
-		answer, err = claude.New(c.cfg).Ask(ctx, "haiku", prompt)
-	} else {
-		answer, err = complete(ctx, provider, model, prompt)
+	ask := func(prompt string) (string, error) {
+		if provider == claude.Provider {
+			return claude.New(c.cfg).Ask(ctx, "haiku", prompt)
+		}
+		return complete(ctx, provider, model, prompt)
 	}
+
+	answer, err := ask(prompt)
 	if err != nil {
 		log.Printf("chat: title of %s: %v", session, err)
 		return
@@ -72,6 +77,22 @@ func (c *Chat) name(session, message, reply, provider, model string) {
 	if title == "" {
 		return
 	}
+
+	// A model may answer with the title alone. A short title serves as the
+	// name; a longer one gets a name of its own.
+	if name == "" && len(strings.Fields(title)) <= 2 {
+		name = title
+	} else if name == "" {
+		answer, err := ask(namePrompt + title)
+		if err != nil {
+			log.Printf("chat: name of %s: %v", session, err)
+		} else {
+			// The last line, past any words of the model's own.
+			first, last := titleLines(answer)
+			name = cmp.Or(last, first)
+		}
+	}
+
 	c.Events.Name(session, clipRunes(title, 80), clipRunes(name, 24))
 }
 
