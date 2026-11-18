@@ -123,9 +123,7 @@ func (c *Chat) choiceOf(session string) (choice runner.Choice, agent bool, err e
 		return runner.Choice{}, false, err
 	}
 
-	c.mu.Lock()
-	chat := runner.Choice{Provider: c.state.Provider, Model: c.state.Model, Effort: c.state.Effort}
-	c.mu.Unlock()
+	chat := c.mainModel()
 	switch {
 	case s.Kind == store.Chat:
 		return chat, true, nil

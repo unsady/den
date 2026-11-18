@@ -34,7 +34,11 @@ func TestImportLegacy(t *testing.T) {
 	write(filepath.Join(journal, "bg1.jsonl"), `{"type":"message","title":"compare-models","text":"compare"}`+"\n")
 	write(filepath.Join(journal, "bg1.title"), "compare-models")
 	write(filepath.Join(cfg.State, "runs", "sessions"), "job1\n")
-	write(filepath.Join(cfg.State, "chat.json"), `{"session":"chat2","replies":[
+	write(filepath.Join(cfg.State, "chat.json"), `{"session":"chat2","offset":41,
+		"provider":"p","model":"big","effort":"high","second":{"provider":"q","model":"fast"},
+		"recent":["p/big","q/fast"],
+		"inbox":[{"text":"hi"},{"text":"[den: done]","report":true,"notice":"done","session":"job1"},{"text":"lost","session":"gone"}],
+		"replies":[
 		{"message":7,"session":"job1","label":"⏰ brief","choice":{"provider":"p","model":"m"}},
 		{"message":8,"session":"gone"}]}`)
 
@@ -71,7 +75,26 @@ func TestImportLegacy(t *testing.T) {
 		t.Errorf("message 7 in %q", got)
 	}
 
-	// A store that has sessions is not imported into again.
+	if c, _, _ := db.Model(ctx, store.Main); c != (store.Choice{Provider: "p", Model: "big", Effort: "high"}) {
+		t.Errorf("main model %+v", c)
+	}
+	if c, _, _ := db.Model(ctx, store.Second); c != (store.Choice{Provider: "q", Model: "fast"}) {
+		t.Errorf("second model %+v", c)
+	}
+	if recent, _ := db.RecentModels(ctx); len(recent) != 2 || recent[0].Model != "big" {
+		t.Errorf("recent %+v", recent)
+	}
+	if n, _ := db.TelegramOffset(ctx); n != 41 {
+		t.Errorf("offset %d", n)
+	}
+	// A message without a session goes to the chat's; one for a session fx
+	// never saved is dropped.
+	waiting, _ := db.Inbox(ctx)
+	if len(waiting) != 2 || waiting[0].Session != "chat2" || !waiting[1].Report || waiting[1].Session != "job1" {
+		t.Errorf("inbox %+v", waiting)
+	}
+
+	// The store is imported into once.
 	if err := db.DeleteSession(ctx, "chat1"); err != nil {
 		t.Fatal(err)
 	}

@@ -15,29 +15,42 @@ import (
 	"github.com/unsady/den/internal/store"
 )
 
-// importLegacy fills an empty store from the files an older den kept about
-// its sessions: fx's list of them, the titles den made in the journal, the
-// job runs' sessions, and the chat's session and the bot's messages in
-// chat.json. A store that has sessions is left as it is.
+// importedKey marks a store that took what an older den kept in files.
+const importedKey = "legacy.imported"
+
+// legacyChoice is a model as chat.json kept it.
+type legacyChoice struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Effort   string `json:"effort"`
+}
+
+// importLegacy fills the store, once, from the files an older den kept:
+// fx's list of sessions, the titles den made in the journal, the job runs'
+// sessions, and chat.json's session, models, offset, waiting messages, and
+// the bot's messages. The files stay as they were.
 func importLegacy(ctx context.Context, cfg config.Config, db *store.Store) error {
-	if have, err := db.Sessions(ctx, store.Filter{Limit: 1}); err != nil || len(have) > 0 {
+	if done, err := db.Setting(ctx, importedKey); err != nil || done != "" {
 		return err
 	}
 	list, err := sessions.List(cfg.Sessions, 1<<20)
-	if err != nil || len(list) == 0 {
+	if err != nil {
 		return err
 	}
 
 	var chat struct {
-		Session string `json:"session"`
-		Replies []struct {
-			Message int64  `json:"message"`
-			Session string `json:"session"`
-			Choice  *struct {
-				Provider string `json:"provider"`
-				Model    string `json:"model"`
-				Effort   string `json:"effort"`
-			} `json:"choice"`
+		Session  string          `json:"session"`
+		Offset   int64           `json:"offset"`
+		Provider string          `json:"provider"`
+		Model    string          `json:"model"`
+		Effort   string          `json:"effort"`
+		Second   *legacyChoice   `json:"second"`
+		Recent   []string        `json:"recent"`
+		Inbox    []legacyMessage `json:"inbox"`
+		Replies  []struct {
+			Message int64         `json:"message"`
+			Session string        `json:"session"`
+			Choice  *legacyChoice `json:"choice"`
 		} `json:"replies"`
 	}
 	if data, err := os.ReadFile(filepath.Join(cfg.State, "chat.json")); err == nil {
@@ -86,7 +99,62 @@ func importLegacy(ctx context.Context, cfg config.Config, db *store.Store) error
 			return err
 		}
 	}
-	log.Printf("import: %d sessions", len(imported))
+
+	if err := importPrefs(ctx, db, chat.Provider, chat.Model, chat.Effort, chat.Second, chat.Recent, chat.Offset); err != nil {
+		return err
+	}
+	// Waiting messages go to their sessions, the chat's own when an older
+	// den kept none; those for a session fx never saved are dropped.
+	var waiting []store.Message
+	for _, m := range chat.Inbox {
+		if m.Session == "" {
+			m.Session = chat.Session
+		}
+		if imported[m.Session] {
+			waiting = append(waiting, store.Message{Session: m.Session, Text: m.Text, Image: m.Image, App: m.App, Report: m.Report, Notice: m.Notice})
+		}
+	}
+	if err := db.Enqueue(ctx, waiting...); err != nil {
+		return err
+	}
+
+	log.Printf("import: %d sessions, %d waiting messages", len(imported), len(waiting))
+	return db.SetSetting(ctx, importedKey, "1")
+}
+
+// legacyMessage is a waiting message as chat.json kept it.
+type legacyMessage struct {
+	Text    string `json:"text"`
+	Image   string `json:"image"`
+	App     bool   `json:"app"`
+	Report  bool   `json:"report"`
+	Notice  string `json:"notice"`
+	Session string `json:"session"`
+}
+
+// importPrefs keeps the models the chat chose, oldest of the recent first
+// so the newest ends up on top, and where it was in Telegram's updates.
+func importPrefs(ctx context.Context, db *store.Store, provider, model, effort string, second *legacyChoice, recent []string, offset int64) error {
+	if provider != "" || model != "" || effort != "" {
+		if err := db.SetModel(ctx, store.Main, store.Choice{Provider: provider, Model: model, Effort: effort}); err != nil {
+			return err
+		}
+	}
+	if second != nil {
+		if err := db.SetModel(ctx, store.Second, store.Choice(*second)); err != nil {
+			return err
+		}
+	}
+	for i := len(recent) - 1; i >= 0; i-- {
+		if p, m, ok := strings.Cut(recent[i], "/"); ok {
+			if err := db.UseModel(ctx, p, m); err != nil {
+				return err
+			}
+		}
+	}
+	if offset > 0 {
+		return db.SetTelegramOffset(ctx, offset)
+	}
 	return nil
 }
 

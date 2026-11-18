@@ -23,9 +23,8 @@ const (
 
 // current reads the provider and model the next turn uses.
 func (c *Chat) current(ctx context.Context) (runner.Setup, string, string, error) {
-	c.mu.Lock()
-	provider, model := c.state.Provider, c.state.Model
-	c.mu.Unlock()
+	m := c.mainModel()
+	provider, model := m.Provider, m.Model
 
 	setup, err := runner.Status(ctx, c.cfg, provider)
 	if err != nil {
@@ -99,9 +98,7 @@ var (
 // recentRows offers the model first names and the ones chosen last, and
 // marks the one current names.
 func (c *Chat) recentRows(setup runner.Setup, first, current string, p picker) [][]notify.Button {
-	c.mu.Lock()
-	refs := append([]string{first}, c.state.Recent...)
-	c.mu.Unlock()
+	refs := append([]string{first}, c.recent()...)
 
 	var rows [][]notify.Button
 	var seen []string
@@ -285,24 +282,17 @@ func (c *Chat) chooseModel(ctx context.Context, provider, model string) (string,
 func (c *Chat) choose(provider, model string) {
 	levels := c.efforts(provider, model)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.state.Provider, c.state.Model = provider, model
+	choice := runner.Choice{Provider: provider, Model: model, Effort: c.mainModel().Effort}
 	// A level the new model lacks would make fx refuse the turn.
-	if !slices.Contains(levels, c.state.Effort) {
-		c.state.Effort = ""
+	if !slices.Contains(levels, choice.Effort) {
+		choice.Effort = ""
 	}
+	c.setMainModel(choice)
 	if model != "" {
-		ref := provider + "/" + model
-		recent := []string{ref}
-		for _, r := range c.state.Recent {
-			if r != ref && len(recent) < recentModels {
-				recent = append(recent, r)
-			}
+		if err := c.store.UseModel(context.Background(), provider, model); err != nil {
+			log.Printf("chat: recent models: %v", err)
 		}
-		c.state.Recent = recent
 	}
-	c.save()
 }
 
 func (c *Chat) show(ctx context.Context, telegram *notify.Telegram, edit int64, text string, rows [][]notify.Button) {
@@ -339,9 +329,7 @@ func (c *Chat) listEfforts(ctx context.Context, telegram *notify.Telegram) {
 		return
 	}
 
-	c.mu.Lock()
-	effort := c.state.Effort
-	c.mu.Unlock()
+	effort := c.mainModel().Effort
 
 	rows := effortRows("e:", levels, effort)
 	c.sendHTML(ctx, telegram, "⚙︎ "+boldModel(model, setup)+"\n\nHow hard it thinks:", append(rows, []notify.Button{closeButton}))
@@ -397,10 +385,9 @@ func (c *Chat) chooseEffort(ctx context.Context, level string) (string, error) {
 		return "", fmt.Errorf("%s takes the effort %s, or default.", model, strings.Join(levels, ", "))
 	}
 
-	c.mu.Lock()
-	c.state.Effort = level
-	c.save()
-	c.mu.Unlock()
+	choice := c.mainModel()
+	choice.Effort = level
+	c.setMainModel(choice)
 
 	return "⚙︎ " + boldModel(model, setup) + effortName(level), nil
 }
@@ -408,9 +395,8 @@ func (c *Chat) chooseEffort(ctx context.Context, level string) (string, error) {
 // modelName names the model the next turn uses in bold, in Telegram's HTML
 // format, or returns "" when fx cannot tell.
 func (c *Chat) modelName(ctx context.Context) string {
-	c.mu.Lock()
-	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
-	c.mu.Unlock()
+	m := c.mainModel()
+	provider, model, effort := m.Provider, m.Model, m.Effort
 
 	setup, err := runner.Status(ctx, c.cfg, provider)
 	if err != nil {

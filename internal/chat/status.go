@@ -33,9 +33,8 @@ func (c *Chat) saved(session string) bool {
 // its context is, the container's memory, and the jobs.
 func (c *Chat) status(ctx context.Context) string {
 	session := c.cursor(store.Telegram)
-	c.mu.Lock()
-	provider, model, effort, used := c.state.Provider, c.state.Model, c.state.Effort, c.state.Context
-	c.mu.Unlock()
+	m := c.mainModel()
+	provider, model, effort, used := m.Provider, m.Model, m.Effort, c.sizeOf(session)
 
 	var lines []string
 	setup, err := runner.Status(ctx, c.cfg, provider)

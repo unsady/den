@@ -81,12 +81,7 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 	if c.steer(ctx, entries) {
 		return nil
 	}
-	c.mu.Lock()
-	c.inbox = append(c.inbox, entries...)
-	c.save()
-	c.mu.Unlock()
-	c.poke()
-	return nil
+	return c.enqueue(entries...)
 }
 
 // published tells the app of the user's messages among entries, as the
@@ -159,7 +154,7 @@ func (c *Chat) Setup(ctx context.Context) (Setup, error) {
 
 	c.mu.Lock()
 	s := Setup{Session: c.cursor(appClient), Busy: c.stop != nil, Providers: setup.Providers}
-	effort, second, recent := c.state.Effort, c.state.Second, slices.Clone(c.state.Recent)
+	effort, second, recent := c.mainModel().Effort, c.second(), c.recent()
 	c.mu.Unlock()
 
 	s.Model = c.describe(provider, model, effort)

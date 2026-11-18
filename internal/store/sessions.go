@@ -36,10 +36,15 @@ type Session struct {
 	// Job is the job whose run this is, empty for other kinds.
 	Job string
 	// Title is empty until den names the session.
-	Title   string
-	Choice  Choice
-	Created time.Time
-	Updated time.Time
+	Title  string
+	Choice Choice
+	// Context is the session's size after its last turn, in tokens, 0 when
+	// unknown, and Compacted its size before den last compacted it, until
+	// the user hears of it.
+	Context   int
+	Compacted int
+	Created   time.Time
+	Updated   time.Time
 }
 
 // AddSession records a new session. Its Created and Updated default to now.
@@ -92,6 +97,19 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) (bool, error) {
 // Touch marks session id as used now, which puts it first in Sessions.
 func (s *Store) Touch(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET updated = ? WHERE id = ?`, unix(time.Now()), id)
+	return err
+}
+
+// SetContext records session id's size after a turn, in tokens.
+func (s *Store) SetContext(ctx context.Context, id string, tokens int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET context = ? WHERE id = ?`, tokens, id)
+	return err
+}
+
+// SetCompacted records session id's size before den compacted it, or 0
+// once the user has heard of it.
+func (s *Store) SetCompacted(ctx context.Context, id string, before int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET compacted = ? WHERE id = ?`, before, id)
 	return err
 }
 
@@ -155,7 +173,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-const sessionColumns = `id, kind, COALESCE(parent_id, ''), COALESCE(job_id, ''), COALESCE(title, ''), provider, model, effort, created, updated`
+const sessionColumns = `id, kind, COALESCE(parent_id, ''), COALESCE(job_id, ''), COALESCE(title, ''), provider, model, effort, context, compacted, created, updated`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -163,7 +181,8 @@ func scanSession(row scanner) (Session, error) {
 	var session Session
 	var created, updated int64
 	err := row.Scan(&session.ID, &session.Kind, &session.Parent, &session.Job, &session.Title,
-		&session.Choice.Provider, &session.Choice.Model, &session.Choice.Effort, &created, &updated)
+		&session.Choice.Provider, &session.Choice.Model, &session.Choice.Effort,
+		&session.Context, &session.Compacted, &created, &updated)
 	session.Created, session.Updated = fromUnix(created), fromUnix(updated)
 	return session, err
 }

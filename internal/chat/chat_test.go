@@ -446,13 +446,23 @@ func TestChat(t *testing.T) {
 	default:
 	}
 
-	data, err := os.ReadFile(filepath.Join(cfg.State, "chat.json"))
+	if got, err := testStore(t, cfg).TelegramOffset(context.Background()); err != nil || got != 20 {
+		t.Fatalf("offset %d, %v; want 20", got, err)
+	}
+}
+
+// inbox lists what waits in c's inbox, as text@session.
+func inbox(t *testing.T, c *Chat) []string {
+	t.Helper()
+	list, err := c.store.Inbox(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"offset":20`) {
-		t.Fatalf("state %s does not record offset 20", data)
+	var out []string
+	for _, m := range list {
+		out = append(out, m.Text+"@"+m.Session)
 	}
+	return out
 }
 
 func expectFile(t *testing.T, path, want string) {
@@ -859,31 +869,35 @@ func TestProgressNote(t *testing.T) {
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
+	addSession(t, c, store.Session{ID: "main", Kind: store.Chat})
+	addSession(t, c, store.Session{ID: "job1", Kind: store.Job})
 	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "t2", session: "job1"}}
 
 	if c.Tell("job", "[den: done]", "done") {
 		t.Fatal("a turn the chat did not run took the note")
 	}
-	if !c.Tell("t1", "[den: done]", "done") || len(c.inbox) != 1 || c.inbox[0].text != "[den: done]" || c.inbox[0].session != "main" {
-		t.Fatalf("inbox %+v", c.inbox)
+	if !c.Tell("t1", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@main"}) {
+		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
 	// A report goes to its turn's session however the chat's cursor moves.
-	c.inbox = append(c.inbox, entry{text: "hi", session: "main"})
+	if err := c.enqueue(entry{text: "hi", session: "main"}); err != nil {
+		t.Fatal(err)
+	}
 	c.switchTo("")
-	if !c.Tell("t1", "[den: again]", "again") || len(c.inbox) != 3 || c.inbox[2].session != "main" {
-		t.Fatalf("inbox %+v", c.inbox)
+	if !c.Tell("t1", "[den: again]", "again") || inbox(t, c)[2] != "[den: again]@main" {
+		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
 	// A turn in another session, such as a reply to a job's message.
-	if !c.Tell("t2", "[den: sent]", "sent") || c.inbox[3].session != "job1" {
-		t.Fatalf("inbox %+v", c.inbox)
+	if !c.Tell("t2", "[den: sent]", "sent") || inbox(t, c)[3] != "[den: sent]@job1" {
+		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
-	// /stop still drops the reports and returns their notices.
+	// /stop drops everything waiting and returns the reports' notices.
 	stopped, notices := c.halt()
-	if stopped || !slices.Equal(notices, []string{"done", "again", "sent"}) || len(c.inbox) != 0 {
-		t.Fatalf("stopped %v, notices %q, inbox %+v", stopped, notices, c.inbox)
+	if stopped || !slices.Equal(notices, []string{"done", "again", "sent"}) || len(inbox(t, c)) != 0 {
+		t.Fatalf("stopped %v, notices %q, inbox %q", stopped, notices, inbox(t, c))
 	}
 }
 
@@ -1061,8 +1075,8 @@ func TestBackgroundReports(t *testing.T) {
 	c.bg["b1"] = func() {}
 
 	// While the turn runs its session is not known, so the report waits.
-	if !c.Tell("b1", "[den: done]", "done") || len(c.inbox) != 0 || len(c.turns[0].pending) != 1 {
-		t.Fatalf("inbox %+v, turns %+v", c.inbox, c.turns)
+	if !c.Tell("b1", "[den: done]", "done") || len(inbox(t, c)) != 0 || len(c.turns[0].pending) != 1 {
+		t.Fatalf("inbox %q, turns %+v", inbox(t, c), c.turns)
 	}
 	if c.Current() != "b1" {
 		t.Fatalf("current %q with only a background turn running", c.Current())
@@ -1140,20 +1154,21 @@ func TestAnswerFailure(t *testing.T) {
 func TestInboxSurvivesARestart(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, nil, testStore(t, cfg))
-	c.mu.Lock()
-	c.inbox = append(c.inbox,
-		entry{text: "Call the bank", image: "/inbox/a.jpg"},
+	addSession(t, c, store.Session{ID: "s1", Kind: store.Chat})
+	if err := c.enqueue(
+		entry{text: "Call the bank", image: "/inbox/a.jpg", session: "s1"},
 		entry{text: "[den: Mail to a@example.com was not sent.]", report: true, session: "s1"},
-	)
-	c.save()
-	c.mu.Unlock()
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	again := New(cfg, nil, nil, testStore(t, cfg))
-	if len(again.inbox) != 2 || again.inbox[0].text != "Call the bank" || again.inbox[0].image != "/inbox/a.jpg" {
-		t.Fatalf("inbox = %+v", again.inbox)
+	list, err := again.store.Inbox(context.Background())
+	if err != nil || len(list) != 2 || list[0].Text != "Call the bank" || list[0].Image != "/inbox/a.jpg" {
+		t.Fatalf("inbox = %+v, %v", list, err)
 	}
-	if e := again.inbox[1]; !e.report || e.session != "s1" {
-		t.Errorf("the report came back as %+v", e)
+	if m := list[1]; !m.Report || m.Session != "s1" {
+		t.Errorf("the report came back as %+v", m)
 	}
 	select {
 	case <-again.wake:

@@ -15,11 +15,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -109,30 +107,6 @@ func help() string {
 	return text
 }
 
-type state struct {
-	// Offset is the next Telegram update to read.
-	Offset int64 `json:"offset"`
-	// Provider and Model are what /model chose, empty for fx's own choice.
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	// Recent are the models /model chose last, as provider/model, newest
-	// first.
-	Recent []string `json:"recent,omitempty"`
-	// Compacted is the session's size before den compacted it while the
-	// user was away, until the next reply tells them.
-	Compacted int `json:"compacted,omitempty"`
-	// Effort is what /effort chose, empty for the model's own default.
-	Effort string `json:"effort,omitempty"`
-	// Context is the session's size after its last turn, in tokens.
-	Context int `json:"context,omitempty"`
-	// Second is the second model, which jobs can run on, empty until /model
-	// chooses one.
-	Second *runner.Choice `json:"second,omitempty"`
-	// Inbox are the messages that wait for a turn, so a restart of den
-	// does not lose them. A turn's own messages leave it when it starts.
-	Inbox []entry `json:"inbox,omitempty"`
-}
-
 // entry is one message waiting for the next turn.
 type entry struct {
 	text string
@@ -153,32 +127,8 @@ type entry struct {
 	shown string
 }
 
-// saved is how an entry is kept in the chat's state.
-type saved struct {
-	Text    string `json:"text,omitempty"`
-	Image   string `json:"image,omitempty"`
-	App     bool   `json:"app,omitempty"`
-	Report  bool   `json:"report,omitempty"`
-	Notice  string `json:"notice,omitempty"`
-	Session string `json:"session,omitempty"`
-}
-
-func (e entry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(saved{e.text, e.image, e.app, e.report, e.notice, e.session})
-}
-
-func (e *entry) UnmarshalJSON(data []byte) error {
-	var s saved
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	*e = entry{s.Text, s.Image, s.App, s.Report, s.Notice, s.Session, ""}
-	return nil
-}
-
 type Chat struct {
 	cfg   config.Config
-	path  string
 	den   Daemon
 	usage *usage.Store
 	// store keeps the sessions, each client's cursor, and which session
@@ -187,10 +137,8 @@ type Chat struct {
 	// Events tells the app what the chat does.
 	Events *events.Hub
 
-	mu    sync.Mutex
-	state state
-	inbox []entry
-	stop  context.CancelFunc
+	mu   sync.Mutex
+	stop context.CancelFunc
 	// menu is set once the command menu was sent to Telegram.
 	menu bool
 	wake chan struct{}
@@ -270,7 +218,8 @@ func (c *Chat) Current() string {
 func (c *Chat) Tell(turn, text, notice string) bool {
 	c.mu.Lock()
 	turn = c.resolve(turn)
-	found, wake := false, false
+	var ready *entry
+	found := false
 	for i, t := range c.turns {
 		if t.id != turn {
 			continue
@@ -280,15 +229,16 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 		if t.bg && t.session == "" {
 			c.turns[i].pending = append(t.pending, e)
 		} else {
-			wake = true
-			c.inbox = append(c.inbox, e)
-			c.save()
+			ready = &e
 		}
 		break
 	}
 	c.mu.Unlock()
-	if wake {
-		c.poke()
+	if ready != nil {
+		if err := c.enqueue(*ready); err != nil {
+			log.Printf("chat: report: %v", err)
+			return false
+		}
 	}
 	return found
 }
@@ -339,7 +289,6 @@ func (c *Chat) poke() {
 func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Chat {
 	c := &Chat{
 		cfg:     cfg,
-		path:    filepath.Join(cfg.State, "chat.json"),
 		den:     den,
 		usage:   usage,
 		store:   st,
@@ -354,23 +303,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 	c.agent.OnDropped = c.undelivered
 	c.agent.OnTurn = c.steeredTurn
 
-	data, err := os.ReadFile(c.path)
-	if err == nil {
-		err = json.Unmarshal(data, &c.state)
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("chat: %v", err)
-	}
-	c.inbox = c.state.Inbox
-	for i := range c.inbox {
-		// An older den kept the chat's own messages without a session.
-		if c.inbox[i].session == "" {
-			if c.inbox[i].session, err = c.joined(store.Telegram); err != nil {
-				log.Printf("chat: %v", err)
-			}
-		}
-	}
-	if len(c.inbox) > 0 {
+	if c.waiting() {
 		c.poke()
 	}
 	return c
@@ -529,12 +462,20 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 // next turn. It reports whether anything ran, and returns what den's
 // dropped reports would have told the agent, for the user.
 func (c *Chat) halt() (bool, []string) {
+	var notices []string
+	dropped, err := c.store.ClearInbox(context.Background())
+	if err != nil {
+		log.Printf("chat: inbox: %v", err)
+	}
+	for _, m := range dropped {
+		if m.Report && m.Notice != "" {
+			notices = append(notices, m.Notice)
+		}
+	}
+
 	c.mu.Lock()
 	stop := c.stop
-	notices := c.dropReports()
-	c.inbox = nil
 	clear(c.steered)
-	c.save()
 	var stops []context.CancelFunc
 	for _, s := range c.bg {
 		stops = append(stops, s)
@@ -570,11 +511,6 @@ func (c *Chat) switchTo(session string) {
 	if err := c.enter(store.Telegram, session); err != nil {
 		log.Printf("chat: switch: %v", err)
 	}
-	c.mu.Lock()
-	c.state.Context = 0
-	c.state.Compacted = 0
-	c.save()
-	c.mu.Unlock()
 	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
 }
 
@@ -595,22 +531,6 @@ func (c *Chat) Forget(session string) error {
 	}
 	c.Events.Forget(session)
 	return nil
-}
-
-// dropReports takes den's reports out of the inbox and returns what to
-// tell the user about them instead. The caller holds c.mu.
-func (c *Chat) dropReports() []string {
-	var notices []string
-	kept := c.inbox[:0]
-	for _, e := range c.inbox {
-		if !e.report {
-			kept = append(kept, e)
-		} else if e.notice != "" {
-			notices = append(notices, e.notice)
-		}
-	}
-	c.inbox = kept
-	return notices
 }
 
 // tell sends the user den's reports their agent did not get.
@@ -647,12 +567,14 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 		return
 	}
 
+	if err := c.enqueue(entries...); err != nil {
+		log.Printf("chat: queue: %v", err)
+		c.send(ctx, telegram, "den could not keep the message: "+err.Error())
+		return
+	}
 	c.mu.Lock()
-	c.inbox = append(c.inbox, entries...)
-	c.save()
 	busy := c.stop != nil
 	c.mu.Unlock()
-	c.poke()
 
 	if busy {
 		c.react(ctx, telegram, id, "👀")
@@ -698,13 +620,12 @@ func (c *Chat) undelivered(text string) {
 	c.mu.Lock()
 	session, kept := c.steered[text]
 	delete(c.steered, text)
-	if kept {
-		c.inbox = append(c.inbox, entry{text: text, session: session})
-		c.save()
-	}
 	c.mu.Unlock()
-	if kept {
-		c.poke()
+	if !kept {
+		return
+	}
+	if err := c.enqueue(entry{text: text, session: session}); err != nil {
+		log.Printf("chat: undelivered message: %v", err)
 	}
 }
 
@@ -782,53 +703,44 @@ func (c *Chat) work(ctx context.Context) {
 // turn runs the waiting messages for one session as one turn. It returns
 // false when there were none.
 func (c *Chat) turn(ctx context.Context) bool {
-	c.mu.Lock()
-	if len(c.inbox) == 0 {
-		c.mu.Unlock()
+	// Messages for another session, such as replies to a job's message,
+	// wait for a turn of their own.
+	session, messages, err := c.store.TakeTurn(context.Background())
+	if err != nil {
+		log.Printf("chat: inbox: %v", err)
 		return false
 	}
-	// Messages for another session, such as replies to a job's message,
-	// wait for a turn of their own. Only this worker takes messages out of
-	// the inbox, so the first stays first while the lock is let go.
-	session := c.inbox[0].session
-	c.mu.Unlock()
+	if len(messages) == 0 {
+		return false
+	}
 	choice, agent, err := c.choiceOf(session)
-	untitled := c.untitled(session)
-	c.mu.Lock()
 	if err != nil {
-		// The session is gone, or den cannot read it: its messages go too.
 		log.Printf("chat: messages for session %s dropped: %v", session, err)
-		c.inbox = slices.DeleteFunc(c.inbox, func(e entry) bool { return e.session == session })
-		c.save()
-		c.mu.Unlock()
 		return true
 	}
+	untitled := c.untitled(session)
+
 	var texts, images []string
-	var rest []entry
 	// A turn started by den's reports alone, such as that a den map run
 	// ended, may end without a word to the user.
 	// A turn of the app's messages alone answers only in the app; den's
 	// reports go with the messages around them.
 	reports, app, asked := true, true, false
-	for _, e := range c.inbox {
-		if e.session != session {
-			rest = append(rest, e)
-			continue
-		}
-		reports = reports && e.report
-		if !e.report {
+	for _, m := range messages {
+		reports = reports && m.Report
+		if !m.Report {
 			asked = true
-			app = app && e.app
+			app = app && m.App
 		}
-		texts = append(texts, e.text)
-		if e.image != "" {
-			images = append(images, e.image)
+		texts = append(texts, m.Text)
+		if m.Image != "" {
+			images = append(images, m.Image)
 		}
 	}
 	app = app && asked
 	prompt := strings.Join(texts, "\n\n")
-	c.inbox = rest
-	c.save()
+
+	c.mu.Lock()
 	provider, model, effort := choice.Provider, choice.Model, choice.Effort
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
@@ -899,26 +811,17 @@ func (c *Chat) turn(ctx context.Context) bool {
 	files := c.attached
 	c.attached = nil
 	c.steering = ""
-	compacted := ""
+	c.mu.Unlock()
+
 	if err := c.store.Touch(context.Background(), session); err != nil {
 		log.Printf("chat: touch %s: %v", session, err)
 	}
-	// What /status and /compact tell of the context is Telegram's session's.
-	if session == c.cursor(store.Telegram) {
-		if size := c.contextSize(started); size > 0 {
-			c.state.Context = size
-		}
-		if c.state.Compacted > 0 && reply.Error == "" {
-			compacted = "🗜 While you were away, den compacted this session"
-			if c.state.Context > 0 {
-				compacted += fmt.Sprintf(": %s → %s tokens", tokens(c.state.Compacted), tokens(c.state.Context))
-			}
-			compacted += ".\n\n"
-			c.state.Compacted = 0
-		}
-		c.save()
+	// The agent's turns tell how big their session has grown, and the
+	// first reply after den compacted a session says so.
+	compacted := ""
+	if agent {
+		compacted = c.measure(session, started, reply.Error == "")
 	}
-	c.mu.Unlock()
 
 	log.Printf("chat: turn in %s", reply.Duration)
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
@@ -986,6 +889,31 @@ func (c *Chat) turn(ctx context.Context) bool {
 		c.Sent(ids, session)
 	}
 	return true
+}
+
+// measure records session's size after a turn that started then, and
+// returns the line that tells the user den compacted it while they were
+// away, once, after a turn that did not fail.
+func (c *Chat) measure(session string, started time.Time, ok bool) string {
+	ctx := context.Background()
+	size := c.contextSize(started)
+	if size > 0 {
+		if err := c.store.SetContext(ctx, session, size); err != nil {
+			log.Printf("chat: context of %s: %v", session, err)
+		}
+	}
+	s, err := c.store.Session(ctx, session)
+	if err != nil || s.Compacted == 0 || !ok {
+		return ""
+	}
+	if err := c.store.SetCompacted(ctx, session, 0); err != nil {
+		log.Printf("chat: compacted %s: %v", session, err)
+	}
+	line := "🗜 While you were away, den compacted this session"
+	if s.Context > 0 {
+		line += fmt.Sprintf(": %s → %s tokens", tokens(s.Compacted), tokens(s.Context))
+	}
+	return line + ".\n\n"
 }
 
 // fxErrors say the errors fx names that the user can act on.
@@ -1065,38 +993,6 @@ func (c *Chat) sendButtons(ctx context.Context, telegram *notify.Telegram, text 
 	defer cancel()
 	if _, err := telegram.SendButtons(call, text, rows); err != nil {
 		log.Printf("chat: send: %v", err)
-	}
-}
-
-func (c *Chat) offset() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.state.Offset
-}
-
-// setOffset records that the updates before next were read, before their
-// turns run, so a turn that crashes den is not read again on restart.
-func (c *Chat) setOffset(next int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if next == c.state.Offset {
-		return
-	}
-	c.state.Offset = next
-	c.save()
-}
-
-// save writes the state. The caller holds c.mu.
-func (c *Chat) save() {
-	c.state.Inbox = c.inbox
-	data, _ := json.Marshal(c.state)
-	tmp := c.path + ".tmp"
-	err := os.WriteFile(tmp, data, 0o600)
-	if err == nil {
-		err = os.Rename(tmp, c.path)
-	}
-	if err != nil {
-		log.Printf("chat: save: %v", err)
 	}
 }
 

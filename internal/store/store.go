@@ -82,6 +82,39 @@ var migrations = []string{
 		message_id INTEGER PRIMARY KEY,
 		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE ON UPDATE CASCADE
 	);`,
+
+	`ALTER TABLE sessions ADD COLUMN context INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE sessions ADD COLUMN compacted INTEGER NOT NULL DEFAULT 0;
+
+	CREATE TABLE inbox (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+		text       TEXT NOT NULL DEFAULT '',
+		image      TEXT NOT NULL DEFAULT '',
+		app        INTEGER NOT NULL DEFAULT 0,
+		report     INTEGER NOT NULL DEFAULT 0,
+		notice     TEXT NOT NULL DEFAULT '',
+		created    INTEGER NOT NULL
+	);
+
+	CREATE TABLE models (
+		slot     TEXT PRIMARY KEY CHECK (slot IN ('main', 'second')),
+		provider TEXT NOT NULL,
+		model    TEXT NOT NULL,
+		effort   TEXT NOT NULL DEFAULT ''
+	);
+
+	CREATE TABLE recent_models (
+		provider TEXT NOT NULL,
+		model    TEXT NOT NULL,
+		used     INTEGER NOT NULL,
+		PRIMARY KEY (provider, model)
+	);
+
+	CREATE TABLE settings (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

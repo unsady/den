@@ -10,6 +10,7 @@ import (
 
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/usage"
 )
@@ -34,7 +35,7 @@ func newChat(t *testing.T) *Chat {
 	t.Helper()
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.state.Provider, c.state.Model = "p1", "auto"
+	c.setMainModel(runner.Choice{Provider: "p1", Model: "auto"})
 	return c
 }
 

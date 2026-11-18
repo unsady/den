@@ -31,12 +31,11 @@ const askWait = time.Minute
 // ask asks the chat's quick model instructions about input and returns its
 // answer.
 func (c *Chat) ask(ctx context.Context, instructions, input string) (string, error) {
-	c.mu.Lock()
-	provider, model := c.state.Provider, c.state.Model
-	if s := c.state.Second; s != nil {
-		provider, model = s.Provider, s.Model
+	m := c.mainModel()
+	if s := c.second(); s != nil {
+		m = *s
 	}
-	c.mu.Unlock()
+	provider, model := m.Provider, m.Model
 
 	ctx, cancel := context.WithTimeout(ctx, askWait)
 	defer cancel()

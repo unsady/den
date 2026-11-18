@@ -52,8 +52,9 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 	if app {
 		parent = c.cursor(appClient)
 	}
+	m := c.mainModel()
+	provider, model, effort := m.Provider, m.Model, m.Effort
 	c.mu.Lock()
-	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
 	c.bg[id] = cancel
 	c.turns = append(c.turns, turnRef{id: id, bg: true, app: app})
 	if len(c.turns) > keptTurns {
@@ -122,6 +123,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 				held, c.turns[i].held = c.turns[i].held, nil
 			}
 		}
+		c.mu.Unlock()
 		var notices []string
 		for _, e := range pending {
 			if reply.SessionID == "" {
@@ -131,12 +133,9 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 				continue
 			}
 			e.session = reply.SessionID
-			c.inbox = append(c.inbox, e)
-		}
-		c.save()
-		c.mu.Unlock()
-		if len(pending) > len(notices) {
-			c.poke()
+			if err := c.enqueue(e); err != nil {
+				log.Printf("chat: background report: %v", err)
+			}
 		}
 
 		if run.Err() == context.Canceled {

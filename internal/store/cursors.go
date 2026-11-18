@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 )
 
 // Telegram is the Telegram chat's client name for Cursor and SetCursor.
@@ -33,6 +34,23 @@ func (s *Store) SetCursor(ctx context.Context, client, session string) error {
 func (s *Store) ClearCursor(ctx context.Context, client string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM cursors WHERE client = ?`, client)
 	return err
+}
+
+// offsetKey keeps the next Telegram update to read.
+const offsetKey = "telegram.offset"
+
+// TelegramOffset returns the next Telegram update to read, 0 at first.
+func (s *Store) TelegramOffset(ctx context.Context) (int64, error) {
+	value, err := s.Setting(ctx, offsetKey)
+	if err != nil || value == "" {
+		return 0, err
+	}
+	return strconv.ParseInt(value, 10, 64)
+}
+
+// SetTelegramOffset records that the updates before next were read.
+func (s *Store) SetTelegramOffset(ctx context.Context, next int64) error {
+	return s.SetSetting(ctx, offsetKey, strconv.FormatInt(next, 10))
 }
 
 // keptMessages is how many of the bot's latest messages a reply can go back

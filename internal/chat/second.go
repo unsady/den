@@ -21,12 +21,10 @@ import (
 // Choice returns the model and effort a job on slot runs on. The second
 // slot falls back to the main model while it is unset.
 func (c *Chat) Choice(ctx context.Context, slot string) runner.Choice {
-	c.mu.Lock()
-	choice := runner.Choice{Provider: c.state.Provider, Model: c.state.Model, Effort: c.state.Effort}
-	if second := c.state.Second; slot == jobs.Second && second != nil {
+	choice := c.mainModel()
+	if second := c.second(); slot == jobs.Second && second != nil {
 		choice = *second
 	}
-	c.mu.Unlock()
 
 	// fx's own choice is named, so the job's reply can say which model
 	// wrote it.
@@ -39,12 +37,6 @@ func (c *Chat) Choice(ctx context.Context, slot string) runner.Choice {
 		choice.Provider, choice.Model = setup.Provider, setup.Model
 	}
 	return choice
-}
-
-func (c *Chat) second() *runner.Choice {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.state.Second
 }
 
 // secondLine names the second model, or says there is none.
@@ -74,10 +66,7 @@ func (c *Chat) chooseSecond(ctx context.Context, provider, model string) (string
 	}
 
 	if model == "" {
-		c.mu.Lock()
-		c.state.Second = nil
-		c.save()
-		c.mu.Unlock()
+		c.setSecond(nil)
 		return "⚙︎ Second: none. Jobs set to it run on the main model.", nil, nil
 	}
 
@@ -94,10 +83,7 @@ func (c *Chat) chooseSecond(ctx context.Context, provider, model string) (string
 	if old := c.second(); old != nil && slices.Contains(c.efforts(provider, model), old.Effort) {
 		choice.Effort = old.Effort
 	}
-	c.mu.Lock()
-	c.state.Second = &choice
-	c.save()
-	c.mu.Unlock()
+	c.setSecond(&choice)
 
 	return "⚙︎ Second: " + secondName(choice, setup), c.secondEfforts(provider, model, choice.Effort), nil
 }
@@ -132,12 +118,9 @@ func (c *Chat) chooseSecondEffort(ctx context.Context, level string) (string, er
 		return "", fmt.Errorf("%s takes the effort %s, or default.", second.Model, strings.Join(levels, ", "))
 	}
 
-	c.mu.Lock()
 	choice := *second
 	choice.Effort = level
-	c.state.Second = &choice
-	c.save()
-	c.mu.Unlock()
+	c.setSecond(&choice)
 
 	return "⚙︎ Second: " + secondName(choice, setup), nil
 }
