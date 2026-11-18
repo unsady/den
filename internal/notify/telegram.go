@@ -216,36 +216,135 @@ const maxPhoto = 10 << 20
 // maxCaption stays under Telegram's 1024-character caption limit.
 const maxCaption = 1000
 
-// SendFile sends data as a file called name, or as a photo when it is a
-// common image Telegram can show. A photo Telegram refuses, such as a very
-// long screenshot, goes as a file instead.
-func (t *Telegram) SendFile(ctx context.Context, name string, data []byte, caption string) error {
-	if len(data) > MaxUpload {
-		return errors.New("the file is over Telegram's 50 MB limit for bots")
-	}
-	if parts := split(strings.TrimSpace(caption), maxCaption); len(parts) > 0 {
-		caption = parts[0]
-	}
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".jpg", ".jpeg", ".png", ".webp":
-		if len(data) <= maxPhoto && t.upload(ctx, "sendPhoto", "photo", name, data, caption) == nil {
-			return nil
-		}
-	}
-	return t.upload(ctx, "sendDocument", "document", name, data, caption)
+// Upload is a file to send and the caption under it.
+type Upload struct {
+	Name    string
+	Data    []byte
+	Caption string
 }
 
-func (t *Telegram) upload(ctx context.Context, method, field, name string, data []byte, caption string) error {
+// SendFile sends data as a file called name, or as a photo when it is a
+// common image Telegram can show.
+func (t *Telegram) SendFile(ctx context.Context, name string, data []byte, caption string) error {
+	_, err := t.SendFiles(ctx, []Upload{{Name: name, Data: data, Caption: caption}})
+	return err
+}
+
+// SendFiles sends files in as few messages as Telegram takes: the common
+// images it can show as an album of photos, the rest as an album of files,
+// up to ten in an album. A photo album Telegram refuses, such as one with a
+// very long screenshot, goes as files instead. It returns the ids of the
+// messages sent.
+func (t *Telegram) SendFiles(ctx context.Context, files []Upload) ([]int64, error) {
+	var photos, documents []Upload
+	for _, f := range files {
+		if len(f.Data) > MaxUpload {
+			return nil, fmt.Errorf("%s is over Telegram's 50 MB limit for bots", f.Name)
+		}
+		if parts := split(strings.TrimSpace(f.Caption), maxCaption); len(parts) > 0 {
+			f.Caption = parts[0]
+		}
+		switch strings.ToLower(filepath.Ext(f.Name)) {
+		case ".jpg", ".jpeg", ".png", ".webp":
+			if len(f.Data) <= maxPhoto {
+				photos = append(photos, f)
+				continue
+			}
+		}
+		documents = append(documents, f)
+	}
+
+	var ids []int64
+	for _, album := range albums(photos) {
+		sent, err := t.album(ctx, "photo", album)
+		if err != nil {
+			sent, err = t.album(ctx, "document", album)
+		}
+		ids = append(ids, sent...)
+		if err != nil {
+			return ids, err
+		}
+	}
+	for _, album := range albums(documents) {
+		sent, err := t.album(ctx, "document", album)
+		ids = append(ids, sent...)
+		if err != nil {
+			return ids, err
+		}
+	}
+	return ids, nil
+}
+
+// maxAlbum is the most files Telegram takes in an album.
+const maxAlbum = 10
+
+// albums cuts files into albums of up to maxAlbum files and MaxUpload
+// bytes, so each fits in one request.
+func albums(files []Upload) [][]Upload {
+	var out [][]Upload
+	size := 0
+	for _, f := range files {
+		if n := len(out); n == 0 || len(out[n-1]) == maxAlbum || size+len(f.Data) > MaxUpload {
+			out = append(out, nil)
+			size = 0
+		}
+		out[len(out)-1] = append(out[len(out)-1], f)
+		size += len(f.Data)
+	}
+	return out
+}
+
+// album sends files as one message of kind photo or document, or as an
+// album when there are several, and returns the ids of its messages.
+func (t *Telegram) album(ctx context.Context, kind string, files []Upload) ([]int64, error) {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 	_ = form.WriteField("chat_id", t.chatID)
-	if caption != "" {
-		_ = form.WriteField("caption", caption)
+
+	method := "sendMediaGroup"
+	if len(files) == 1 {
+		method = map[string]string{"photo": "sendPhoto", "document": "sendDocument"}[kind]
+		if files[0].Caption != "" {
+			_ = form.WriteField("caption", files[0].Caption)
+		}
+		part, _ := form.CreateFormFile(kind, files[0].Name)
+		_, _ = part.Write(files[0].Data)
+	} else {
+		media := make([]map[string]string, len(files))
+		for i, f := range files {
+			media[i] = map[string]string{"type": kind, "media": fmt.Sprintf("attach://f%d", i)}
+			if f.Caption != "" {
+				media[i]["caption"] = f.Caption
+			}
+		}
+		list, _ := json.Marshal(media)
+		_ = form.WriteField("media", string(list))
+		for i, f := range files {
+			part, _ := form.CreateFormFile(fmt.Sprintf("f%d", i), f.Name)
+			_, _ = part.Write(f.Data)
+		}
 	}
-	part, _ := form.CreateFormFile(field, name)
-	_, _ = part.Write(data)
 	_ = form.Close()
-	return t.post(ctx, method, form.FormDataContentType(), &body, nil)
+
+	type sent struct {
+		ID int64 `json:"message_id"`
+	}
+	if len(files) == 1 {
+		var one sent
+		if err := t.post(ctx, method, form.FormDataContentType(), &body, &one); err != nil {
+			return nil, err
+		}
+		return []int64{one.ID}, nil
+	}
+	var many []sent
+	if err := t.post(ctx, method, form.FormDataContentType(), &body, &many); err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(many))
+	for i, m := range many {
+		ids[i] = m.ID
+	}
+	return ids, nil
 }
 
 // Typing shows "typing…" in the user's chat for about five seconds.

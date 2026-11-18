@@ -267,7 +267,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		list := []message{}
 		for _, e := range journal {
-			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, File: e.File, Widget: e.Widget})
+			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files})
 		}
 		reply(w, list)
 	})
@@ -432,12 +432,9 @@ type message struct {
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
 	Failed bool      `json:"failed,omitempty"`
-	// File is a file den sent with it, which GET /sessions/{id}/files/{file}
-	// returns.
-	File string `json:"file,omitempty"`
-	// Widget describes the file for the app to draw itself, such as a
-	// chart's data.
-	Widget json.RawMessage `json:"widget,omitempty"`
+	// Files are the files den sent with it, each of which
+	// GET /sessions/{id}/files/{file} returns.
+	Files []events.Attachment `json:"files,omitempty"`
 }
 
 // kind tells a job run's session and a /bg task's from the chat's: a /bg

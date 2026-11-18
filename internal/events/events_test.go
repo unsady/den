@@ -63,20 +63,22 @@ func TestTitles(t *testing.T) {
 func TestFile(t *testing.T) {
 	h := &Hub{Dir: t.TempDir()}
 
-	if err := h.SaveFile("s1", "/tmp/Chart.PNG", "Speed", []byte("png"), []byte(`{"type":"chart"}`)); err != nil {
-		t.Fatal(err)
+	file, err := h.SaveFile("s1", "/tmp/Chart.PNG", []byte("png"))
+	if err != nil || !strings.HasSuffix(file, ".png") {
+		t.Fatalf("saved %q, %v", file, err)
 	}
-
-	list, err := Journal(h.Dir, "s1")
-	if err != nil || len(list) != 1 || list[0].Type != File || list[0].Text != "Speed" || !strings.HasSuffix(list[0].File, ".png") || string(list[0].Widget) != `{"type":"chart"}` {
-		t.Fatalf("journal %+v, %v", list, err)
-	}
-	if data, err := os.ReadFile(h.FilePath("s1", list[0].File)); err != nil || string(data) != "png" {
+	if data, err := os.ReadFile(h.FilePath("s1", file)); err != nil || string(data) != "png" {
 		t.Fatalf("file %q, %v", data, err)
 	}
 
+	h.Publish(Event{Type: Reply, Session: "s1", Text: "Speed", Files: []Attachment{{File: file, Name: "Chart.PNG", Size: 3}}})
+	list, err := Journal(h.Dir, "s1")
+	if err != nil || len(list) != 1 || len(list[0].Files) != 1 || list[0].Files[0].File != file {
+		t.Fatalf("journal %+v, %v", list, err)
+	}
+
 	h.Forget("s1")
-	if _, err := os.Stat(h.FilePath("s1", list[0].File)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(h.FilePath("s1", file)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("forgotten: %v", err)
 	}
 }

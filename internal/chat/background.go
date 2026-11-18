@@ -142,7 +142,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 	c.mu.Lock()
 	provider, model, effort := c.state.Provider, c.state.Model, c.state.Effort
 	c.bg[id] = cancel
-	c.turns = append(c.turns, turnRef{id: id, generation: c.generation, bg: true})
+	c.turns = append(c.turns, turnRef{id: id, generation: c.generation, bg: true, app: app})
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}

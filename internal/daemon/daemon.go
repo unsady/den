@@ -620,8 +620,8 @@ type SendRequest struct {
 	Name    string `json:"name"`
 	Caption string `json:"caption"`
 	Data    []byte `json:"data"`
-	// Turn is the DEN_TURN of the agent that sent it, which says the
-	// session the app shows it in.
+	// Turn is the DEN_TURN of the agent that sent it: the file goes with
+	// that turn's reply, or where the turn answered.
 	Turn string `json:"turn,omitempty"`
 	// Widget describes the file for the app to draw itself, such as a
 	// chart's data; Telegram gets the file.
@@ -792,22 +792,15 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		telegram, err := notify.Load(d.cfg)
-		if err != nil {
-			fail(w, http.StatusServiceUnavailable, err)
-			return
-		}
 		ctx, cancel := context.WithTimeout(d.ctx, 5*time.Minute)
 		defer cancel()
-		if err := telegram.SendFile(ctx, filepath.Base(req.Name), req.Data, req.Caption); err != nil {
+		upload := chat.Upload{Upload: notify.Upload{Name: filepath.Base(req.Name), Data: req.Data, Caption: req.Caption}, Widget: req.Widget}
+		if err := d.chat.Send(ctx, req.Turn, upload); errors.Is(err, notify.ErrNotConfigured) {
+			fail(w, http.StatusServiceUnavailable, err)
+			return
+		} else if err != nil {
 			fail(w, http.StatusBadGateway, err)
 			return
-		}
-
-		if session := d.chat.SessionOf(req.Turn); session != "" {
-			if err := d.events.SaveFile(session, filepath.Base(req.Name), req.Caption, req.Data, req.Widget); err != nil {
-				log.Printf("send: keep for the app: %v", err)
-			}
 		}
 
 		reply(w, http.StatusOK, map[string]bool{"sent": true})

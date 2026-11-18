@@ -122,6 +122,28 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Files come as a form, and the fake tells which, in name order.
+	switch method := r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]; method {
+	case "sendPhoto", "sendDocument", "sendMediaGroup":
+		_ = r.ParseMultipartForm(1 << 20)
+		var names []string
+		var result []map[string]any
+		for _, files := range r.MultipartForm.File {
+			for _, file := range files {
+				names = append(names, file.Filename)
+				result = append(result, map[string]any{"message_id": 8})
+			}
+		}
+		slices.Sort(names)
+		f.sent <- "📎 " + method + " " + strings.Join(names, " ")
+		if method == "sendMediaGroup" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result[0]})
+		}
+		return
+	}
+
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
@@ -1310,4 +1332,93 @@ func TestAppBackground(t *testing.T) {
 		t.Fatalf("Telegram got %q", got)
 	case <-time.After(300 * time.Millisecond):
 	}
+}
+
+// TestSend keeps the files a turn sends for its reply, and sends a file
+// that comes after its turn where the turn answered.
+func TestSend(t *testing.T) {
+	cfg, telegram, c := startChatWith(t, nil)
+	c.Events.Dir = t.TempDir()
+	list, stop := c.Events.Listen()
+	defer stop()
+	next := func(kind string) events.Event {
+		t.Helper()
+		for {
+			select {
+			case e := <-list:
+				if e.Type == kind {
+					return e
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no %s event", kind)
+			}
+		}
+	}
+	running := func() string {
+		t.Helper()
+		waitFor(t, func() bool {
+			data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+			return string(data) == "slow" && c.Current() != ""
+		})
+		return c.Current()
+	}
+	upload := func(name string) Upload {
+		return Upload{Upload: notify.Upload{Name: name, Data: []byte(name)}}
+	}
+	quiet := func() {
+		t.Helper()
+		select {
+		case got := <-telegram.sent:
+			t.Fatalf("Telegram got %q", got)
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+
+	// A turn of Telegram's sends its files after its reply, the pictures
+	// as one album, and the app has them in the reply.
+	telegram.message(42, "slow")
+	turn := running()
+	for _, name := range []string{"a.png", "notes.pdf", "b.jpg"} {
+		if err := c.Send(context.Background(), turn, upload(name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	telegram.expect(t, "resume=none msg=slow lines=1")
+	telegram.expect(t, "📎 sendMediaGroup a.png b.jpg")
+	telegram.expect(t, "📎 sendDocument notes.pdf")
+	reply := next(events.Reply)
+	if len(reply.Files) != 3 || reply.Files[0].Name != "a.png" || reply.Files[1].Size != len("notes.pdf") {
+		t.Fatalf("reply files %+v", reply.Files)
+	}
+	if data, err := os.ReadFile(c.Events.FilePath(reply.Session, reply.Files[0].File)); err != nil || string(data) != "a.png" {
+		t.Fatalf("kept %q, %v", data, err)
+	}
+	next(events.Idle)
+
+	// A turn of the app's sends them only there.
+	c.Post(context.Background(), "slow", "", nil)
+	turn = running()
+	if err := c.Send(context.Background(), turn, upload("c.png")); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.Reply); len(e.Files) != 1 || e.Files[0].Name != "c.png" {
+		t.Fatalf("app reply %+v", e)
+	}
+	next(events.Idle)
+	quiet()
+
+	// A file that comes once the turn is over goes on its own.
+	if err := c.Send(context.Background(), turn, upload("late.png")); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.File); len(e.Files) != 1 || e.Files[0].Name != "late.png" {
+		t.Fatalf("late file %+v", e)
+	}
+	quiet()
+
+	// One from a job, of no turn of the chat's, goes to Telegram.
+	if err := c.Send(context.Background(), "job", upload("job.pdf")); err != nil {
+		t.Fatal(err)
+	}
+	telegram.expect(t, "📎 sendDocument job.pdf")
 }

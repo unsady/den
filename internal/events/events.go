@@ -46,8 +46,8 @@ const (
 	Settings = "settings"
 	// Titled gives a session the title den made for it.
 	Titled = "titled"
-	// File is a file the agent sent the user, such as a chart, with its
-	// caption as the text.
+	// File carries files the agent sent outside a turn's reply, such as
+	// from a command that outlived the turn.
 	File = "file"
 )
 
@@ -72,11 +72,21 @@ type Event struct {
 	Options []string `json:"options,omitempty"`
 	// Source names where a question's action goes, such as "Gmail".
 	Source string `json:"source,omitempty"`
-	// File is a file's name in its session's folder, which keeps its
-	// extension.
-	File string `json:"file,omitempty"`
-	// Widget describes a file for the app to draw itself, such as a
-	// chart's data.
+	// Files are the files a reply or a File event carries.
+	Files []Attachment `json:"files,omitempty"`
+}
+
+// Attachment is a file the agent sent the user, such as a chart, kept in
+// its session's folder.
+type Attachment struct {
+	// File is its name in the folder, which keeps its extension, and Name
+	// the name the agent gave it.
+	File    string `json:"file"`
+	Name    string `json:"name"`
+	Size    int    `json:"size"`
+	Caption string `json:"caption,omitempty"`
+	// Widget describes it for the app to draw itself, such as a chart's
+	// data.
 	Widget json.RawMessage `json:"widget,omitempty"`
 }
 
@@ -175,25 +185,19 @@ func (h *Hub) Forget(session string) {
 }
 
 // SaveFile keeps data with session, under a name of its own that keeps
-// name's extension, and tells the listeners, with the widget that
-// describes it, if any.
-func (h *Hub) SaveFile(session, name, caption string, data []byte, widget json.RawMessage) error {
-	if h == nil || h.Dir == "" || session == "" {
-		return nil
-	}
-
+// name's extension, and returns that name.
+func (h *Hub) SaveFile(session, name string, data []byte) (string, error) {
 	dir := filepath.Join(h.Dir, session+".files")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+		return "", err
 	}
 
 	file := rand.Text()[:12] + strings.ToLower(filepath.Ext(name))
 	if err := os.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
-		return err
+		return "", err
 	}
 
-	h.Publish(Event{Type: File, Session: session, Text: caption, File: file, Widget: widget})
-	return nil
+	return file, nil
 }
 
 // FilePath is where session keeps file.

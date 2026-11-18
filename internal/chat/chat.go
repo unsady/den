@@ -234,6 +234,9 @@ type Chat struct {
 	// notes carry what a running command says about itself, such as how
 	// many items den map has done, to the progress message.
 	notes chan string
+	// attached are the files the running turn sent, which go with its
+	// reply.
+	attached []Upload
 	// turns are the latest turns' IDs with their generation, so den can
 	// tell the agent of the session a turn ran in what came of a command
 	// it started.
@@ -269,6 +272,8 @@ type turnRef struct {
 	// reports for it wait in pending until then.
 	bg      bool
 	pending []entry
+	// app marks a turn that answers only in the app.
+	app bool
 }
 
 // keptTurns is how many of the latest turns Tell recognizes.
@@ -288,22 +293,6 @@ func (c *Chat) Current() string {
 			return id
 		}
 	}
-	return ""
-}
-
-// SessionOf returns the session of the chat's turn, or "" when turn is not
-// one of them, such as a job's.
-func (c *Chat) SessionOf(turn string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	turn = c.resolve(turn)
-	for _, t := range c.turns {
-		if t.id == turn && t.session != "" {
-			return t.session
-		}
-	}
-
 	return ""
 }
 
@@ -913,7 +902,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.stop = stop
 	current := rand.Text()
 	c.turnID = current
-	c.turns = append(c.turns, turnRef{id: current, generation: generation, session: session, own: own, label: label})
+	c.attached = nil
+	c.turns = append(c.turns, turnRef{id: current, generation: generation, session: session, own: own, label: label, app: app})
 	// A turn in one of the chat's sessions runs on the agent, which starts a
 	// session den named before its first turn; one in a job's session runs
 	// once with fx ask, on the job's model.
@@ -970,6 +960,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.mu.Lock()
 	c.stop = nil
 	c.turnID = ""
+	files := c.attached
+	c.attached = nil
 	c.steerable = false
 	compacted := ""
 	switched := generation != c.generation
@@ -1011,22 +1003,31 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	// A turn may end without a word, such as one den's report started, or
 	// one that answers a plain "ok". When a subagent's report took the
-	// last word, the answer before it is in the session.
+	// last word, the answer before it is in the session. Files the turn
+	// sent go without a word.
+	silent := false
 	if reply.Error == "" && runner.IsSilent(reply.Output) {
 		earlier := ""
 		if !reports && (c.den == nil || !c.den.Busy(current) && !c.den.Busy(c.agent.Key())) {
 			earlier = sessions.Answer(c.cfg.Sessions, session, started)
 		}
-		if earlier == "" || runner.IsSilent(earlier) {
+		switch {
+		case (earlier == "" || runner.IsSilent(earlier)) && len(files) == 0:
 			log.Printf("chat: the turn had nothing to tell")
 			return true
+		case earlier == "" || runner.IsSilent(earlier):
+			silent = true
+		default:
+			reply.Output = earlier
 		}
-		reply.Output = earlier
 	}
 
-	text := answer(reply, !reply.New)
+	text := ""
+	if !silent {
+		text = answer(reply, !reply.New)
+	}
 	// The app shows each session apart, so its reply needs no label.
-	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != ""})
+	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Files: c.keep(session, files)})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
 	if !own || switched {
@@ -1046,6 +1047,15 @@ func (c *Chat) turn(ctx context.Context) bool {
 		cancel()
 		if err != nil {
 			log.Printf("chat: send: %v", err)
+		}
+		if len(files) > 0 {
+			call, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			sent, err := telegram.SendFiles(call, uploads(files))
+			cancel()
+			if err != nil {
+				log.Printf("chat: send files: %v", err)
+			}
+			ids = append(ids, sent...)
 		}
 		var used *runner.Choice
 		if !own {
