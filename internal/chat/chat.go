@@ -153,10 +153,10 @@ type Chat struct {
 	// join, and files and notes its commands send go with.
 	agent    *runner.Agent
 	steering string
-	// steered are the messages passed to the running turn, by the session
-	// they went to, which come back as a turn of their own if fx did not
-	// deliver them, unless /stop dropped them.
-	steered map[string]string
+	// steered are the messages passed to the running turn, which come back
+	// as a turn of their own if fx did not deliver them, unless /stop
+	// dropped them.
+	steered map[string]steered
 	// busy counts the turns that run in each session, the chat's, a job's
 	// or a /bg task's, and compacting, whose messages wait until they end.
 	busy map[string]int
@@ -279,7 +279,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		attached: map[string][]Upload{},
 		agent:    runner.NewAgent(cfg),
 		busy:     map[string]int{},
-		steered:  map[string]string{},
+		steered:  map[string]steered{},
 		titled:   map[string]bool{},
 		quiet:    map[string]time.Time{},
 		Events:   &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
@@ -403,4 +403,11 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// steered is a message passed to the running turn: the session it went to,
+// and when.
+type steered struct {
+	session string
+	at      time.Time
 }
