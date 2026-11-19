@@ -11,6 +11,7 @@ import (
 
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/usage"
@@ -26,9 +27,9 @@ func answerTitles(t *testing.T, answer string) *int {
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": answer}}}})
 	}))
 	t.Cleanup(server.Close)
-	original := askURL
-	askURL = func(provider, path string) string { return server.URL + "/" + provider + "/" + path }
-	t.Cleanup(func() { askURL = original })
+	original := mapper.Proxy
+	mapper.Proxy = server.URL
+	t.Cleanup(func() { mapper.Proxy = original })
 	return &asked
 }
 

@@ -12,7 +12,7 @@ import (
 func newClaude(t *testing.T) (*Claude, string) {
 	root := t.TempDir()
 	home := filepath.Join(root, "agent", ".fx")
-	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
+	cfg := config.Config{State: filepath.Join(root, "state"), Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
 	return New(cfg), home
 }
 

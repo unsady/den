@@ -9,7 +9,6 @@ import (
 
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/mapper"
-	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/runner"
 )
 
@@ -24,13 +23,6 @@ var quickModels = map[string]string{
 	"claude": "haiku",
 	"codex":  "gpt-5.6-luna",
 	"grok":   "grok-4.5",
-}
-
-// askURL is where den asks provider's models, through its proxy: path is
-// chat/completions, or responses for a subscription that takes only those.
-// Tests point it elsewhere.
-var askURL = func(provider, path string) string {
-	return "http://" + models.Proxy + "/" + provider + "/" + path
 }
 
 // askWait bounds one question, so a slow model does not hold a title or a
@@ -66,16 +58,8 @@ func (c *Chat) ask(ctx context.Context, instructions, input string) (string, err
 	if quick, ok := quickModels[provider]; ok {
 		model = quick
 	}
-
-	// The ChatGPT and Grok subscriptions take only the Responses API.
-	responses := provider == "codex" || provider == "grok"
-	path := "chat/completions"
-	if responses {
-		path = "responses"
-	}
 	return mapper.Ask(ctx, mapper.Options{
-		URL:          askURL(provider, path),
-		Responses:    responses,
+		Provider:     provider,
 		Model:        model,
 		Instructions: instructions,
 	}, input)

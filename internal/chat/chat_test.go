@@ -22,6 +22,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/jobs"
+	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/store"
@@ -994,9 +995,9 @@ func TestBackground(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": title}}}})
 	}))
 	t.Cleanup(names.Close)
-	original := askURL
-	askURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
-	t.Cleanup(func() { askURL = original })
+	original := mapper.Proxy
+	mapper.Proxy = names.URL
+	t.Cleanup(func() { mapper.Proxy = original })
 
 	// A /bg task runs besides the chat: the chat answers first while it
 	// still runs, and its answer comes headed with the title a model gave it.
@@ -1293,9 +1294,9 @@ func TestAppBackground(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "compare-models"}}}})
 	}))
 	t.Cleanup(names.Close)
-	original := askURL
-	askURL = func(provider, path string) string { return names.URL + "/" + provider + "/" + path }
-	t.Cleanup(func() { askURL = original })
+	original := mapper.Proxy
+	mapper.Proxy = names.URL
+	t.Cleanup(func() { mapper.Proxy = original })
 	list, stop := c.Events.Listen()
 	defer stop()
 

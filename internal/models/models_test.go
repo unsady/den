@@ -39,7 +39,7 @@ func TestProtectMovesTheKeyAndProxies(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "settings.json"), []byte(settings), 0o600)
 	os.WriteFile(filepath.Join(home, "provider-keys", "go"), []byte("sk-real\n"), 0o600)
 
-	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
+	cfg := config.Config{State: filepath.Join(root, "state"), Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
 	m := New(cfg)
 	m.transport = upstream.Client().Transport
 	m.Protect()
@@ -133,7 +133,7 @@ func TestLogin(t *testing.T) {
 	os.MkdirAll(filepath.Join(home, "provider-keys"), 0o700)
 	os.WriteFile(filepath.Join(home, "settings.json"), []byte(`{"yolo_acknowledged":true,"providers":{"opencode-go":{"protocol":"openai-chat-completions","base_url":"http://127.0.0.1:4100/opencode-go","auth":{"type":"none"}}},"models":{"opencode-go":"x"},"provider":"opencode-go"}`), 0o600)
 	os.WriteFile(filepath.Join(home, "provider-keys", "opencode"), []byte("old"), 0o600)
-	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
+	cfg := config.Config{State: filepath.Join(root, "state"), Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(home, "sessions", "v2")}
 	m := New(cfg)
 
 	if err := m.Login("opencode", "", " sk-zen\n", "kimi-k2.6"); err != nil {
@@ -196,7 +196,7 @@ func TestCodexGetsTheRealToken(t *testing.T) {
 	defer chatgpt.Close()
 
 	root := t.TempDir()
-	cfg := config.Config{Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
+	cfg := config.Config{State: filepath.Join(root, "state"), Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
 	os.MkdirAll(cfg.Secrets, 0o700)
 	os.WriteFile(filepath.Join(cfg.Secrets, "codex"), []byte(`{"access_token":"real","refresh_token":"r","expiry":"2100-01-01T00:00:00Z","account_id":"acct-1"}`), 0o600)
 	m := New(cfg)
@@ -251,7 +251,7 @@ func TestDefaultKeepsAChosenModel(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "agent", ".fx")
 	os.MkdirAll(home, 0o700)
 	os.WriteFile(filepath.Join(home, "settings.json"), []byte(`{"provider":"opencode-go","models":{"opencode-go":"x"}}`), 0o600)
-	m := New(config.Config{Sessions: filepath.Join(home, "sessions", "v2")})
+	m := New(config.Config{State: t.TempDir(), Sessions: filepath.Join(home, "sessions", "v2")})
 
 	asked := 0
 	offered := func() ([]string, error) { asked++; return []string{"gpt-a", "gpt-b"}, nil }
@@ -268,7 +268,7 @@ func TestDefaultKeepsAChosenModel(t *testing.T) {
 func TestDefaultMakesTheFirstProviderFxs(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "agent", ".fx")
 	os.MkdirAll(home, 0o700)
-	m := New(config.Config{Sessions: filepath.Join(home, "sessions", "v2")})
+	m := New(config.Config{State: t.TempDir(), Sessions: filepath.Join(home, "sessions", "v2")})
 
 	if err := m.Default("codex", func() ([]string, error) { return []string{"gpt-a"}, nil }); err != nil {
 		t.Fatal(err)
@@ -416,6 +416,11 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 	for i, r := range got {
 		if r.URL.Path != want[i] || r.Header.Get("Authorization") != "Bearer real" {
 			t.Fatalf("sent %s with %q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		// The subscription's API gets the headers that go with its token.
+		subscription := r.Header.Get("X-XAI-Token-Auth") == "xai-grok-cli" && r.Header.Get("x-authenticateresponse") == "authenticate-response"
+		if subscription != strings.HasPrefix(r.URL.Path, "/grok/") {
+			t.Fatalf("sent %s with headers %v", r.URL.Path, r.Header)
 		}
 	}
 

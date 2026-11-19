@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/unsady/den/internal/approve"
+	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/proc"
 	"github.com/unsady/den/internal/store"
 )
@@ -53,12 +54,9 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 
 	model := req.Provider + "/" + req.Model
 	what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
-	effort := req.Effort
+	effort := mapper.Effort(req.Provider, req.Effort)
 	if effort == "" {
 		effort = "default"
-		if req.Provider == "codex" {
-			effort = "low"
-		}
 	}
 	// What the run does comes first, then what it runs on; the file is the
 	// agent's business.

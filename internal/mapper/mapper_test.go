@@ -16,6 +16,13 @@ import (
 	"time"
 )
 
+// use sends the requests to srv in place of den's proxy.
+func use(t *testing.T, srv *httptest.Server) {
+	original := Proxy
+	Proxy = srv.URL
+	t.Cleanup(func() { Proxy = original })
+}
+
 // provider answers like an OpenAI-style API: the item's text decides the
 // reply.
 func provider(t *testing.T, calls *atomic.Int32) *httptest.Server {
@@ -81,6 +88,7 @@ func TestRun(t *testing.T) {
 	var calls atomic.Int32
 	srv := provider(t, &calls)
 	defer srv.Close()
+	use(t, srv)
 
 	items := strings.Join([]string{
 		`{"id": 7, "text": "apple"}`,
@@ -91,7 +99,7 @@ func TestRun(t *testing.T) {
 		`{"text": "refused"}`,
 	}, "\n")
 	out := filepath.Join(t.TempDir(), "items.out.jsonl")
-	opts := Options{URL: srv.URL, Model: "cheap", Instructions: "Classify.", Workers: 3}
+	opts := Options{Provider: "p", Model: "cheap", Instructions: "Classify.", Workers: 3}
 
 	sum, err := Run(context.Background(), opts, strings.NewReader(items), out)
 	if err != nil {
@@ -127,7 +135,7 @@ func TestRun(t *testing.T) {
 
 	// Resuming asks again only about the items that failed.
 	calls.Store(0)
-	sum, err = Run(context.Background(), Options{URL: srv.URL, Model: "cheap", Instructions: "Classify.", Resume: true}, strings.NewReader(items), out)
+	sum, err = Run(context.Background(), Options{Provider: "p", Model: "cheap", Instructions: "Classify.", Resume: true}, strings.NewReader(items), out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,13 +166,14 @@ func TestClaudeInstructionsAreCached(t *testing.T) {
 		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
 	}))
 	defer srv.Close()
+	use(t, srv)
 
 	out := filepath.Join(t.TempDir(), "out.jsonl")
 	text := "Classify." + reply
 	marked, _ := json.Marshal([]map[string]any{{"type": "text", "text": text, "cache_control": map[string]string{"type": "ephemeral"}}})
 	plain, _ := json.Marshal(text)
 	for model, want := range map[string][]byte{"claude-haiku-5-5": marked, "deepseek": plain} {
-		if _, err := Run(context.Background(), Options{URL: srv.URL, Model: model, Instructions: "Classify."}, strings.NewReader(`"x"`), out); err != nil {
+		if _, err := Run(context.Background(), Options{Provider: "p", Model: model, Instructions: "Classify."}, strings.NewReader(`"x"`), out); err != nil {
 			t.Fatal(err)
 		}
 		var got, wanted any
@@ -182,6 +191,7 @@ func TestProgress(t *testing.T) {
 		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
 	}))
 	defer srv.Close()
+	use(t, srv)
 
 	var mu sync.Mutex
 	var seen []Status
@@ -190,7 +200,7 @@ func TestProgress(t *testing.T) {
 		defer mu.Unlock()
 		seen = append(seen, s)
 	}
-	opts := Options{URL: srv.URL, Model: "m", Instructions: "x", Workers: 1, Progress: report, Every: 20 * time.Millisecond}
+	opts := Options{Provider: "p", Model: "m", Instructions: "x", Workers: 1, Progress: report, Every: 20 * time.Millisecond}
 	if _, err := Run(context.Background(), opts, strings.NewReader("1\n2\n3\n4\n"), filepath.Join(t.TempDir(), "out.jsonl")); err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +244,7 @@ func TestResponses(t *testing.T) {
 			} `json:"input"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		if req.Model != "luna" || !req.Stream || req.Store || !strings.HasPrefix(req.CacheKey, "den-map-") || !strings.HasPrefix(req.Instructions, "Classify.") || r.Header.Get("Accept") != "text/event-stream" {
+		if r.URL.Path != "/codex/responses" || req.Model != "luna" || !req.Stream || req.Store || !strings.HasPrefix(req.CacheKey, "den-map-") || !strings.HasPrefix(req.Instructions, "Classify.") || r.Header.Get("Accept") != "text/event-stream" {
 			t.Errorf("request %+v, headers %v", req, r.Header)
 		}
 		if strings.Contains(req.Input[0].Content[0].Text, "broken") {
@@ -246,9 +256,10 @@ func TestResponses(t *testing.T) {
 		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"input_tokens_details\":{\"cached_tokens\":40},\"output_tokens\":7}}}\n\n")
 	}))
 	defer srv.Close()
+	use(t, srv)
 
 	out := filepath.Join(t.TempDir(), "out.jsonl")
-	opts := Options{URL: srv.URL, Responses: true, Model: "luna", Instructions: "Classify."}
+	opts := Options{Provider: "codex", Model: "luna", Instructions: "Classify."}
 	sum, err := Run(context.Background(), opts, strings.NewReader("\"apple\"\n\"broken\"\n"), out)
 	if err != nil {
 		t.Fatal(err)
@@ -283,27 +294,30 @@ func TestEffort(t *testing.T) {
 		mu.Lock()
 		seen = append(seen, got)
 		mu.Unlock()
-		if req.Reasoning != nil {
+		if strings.HasSuffix(r.URL.Path, "/responses") {
 			fmt.Fprint(w, "data: {\"type\":\"response.output_text.done\",\"text\":\"{}\"}\n\n")
 			return
 		}
 		w.Write([]byte(`{"choices":[{"message":{"content":"{}"}}]}`))
 	}))
 	defer srv.Close()
+	use(t, srv)
 
 	out := filepath.Join(t.TempDir(), "out.jsonl")
 	for _, opts := range []Options{
-		{Effort: ""},
-		{Effort: "none"},
-		{Responses: true},
-		{Responses: true, Effort: "medium"},
+		{Provider: "p", Effort: ""},
+		{Provider: "p", Effort: "none"},
+		{Provider: "codex"},
+		{Provider: "codex", Effort: "medium"},
+		{Provider: "grok"},
+		{Provider: "grok", Effort: "high"},
 	} {
-		opts.URL, opts.Model, opts.Instructions = srv.URL, "m", "x"
+		opts.Model, opts.Instructions = "m", "x"
 		if _, err := Run(context.Background(), opts, strings.NewReader(`"a"`), out); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if want := []string{"unset", "chat:none", "responses:low", "responses:medium"}; !slices.Equal(seen, want) {
+	if want := []string{"unset", "chat:none", "responses:low", "responses:medium", "unset", "responses:high"}; !slices.Equal(seen, want) {
 		t.Errorf("efforts %v, want %v", seen, want)
 	}
 }
@@ -320,9 +334,41 @@ func TestAsk(t *testing.T) {
 		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"compare-models\"}\n\n")
 	}))
 	defer srv.Close()
+	use(t, srv)
 
-	got, err := Ask(context.Background(), Options{URL: srv.URL, Responses: true, Model: "luna", Instructions: "Name it."}, "compare two models")
+	got, err := Ask(context.Background(), Options{Provider: "codex", Model: "luna", Instructions: "Name it."}, "compare two models")
 	if err != nil || got != "compare-models" {
 		t.Fatalf("Ask = %q, %v", got, err)
+	}
+}
+
+func TestGrok(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if r.URL.Path != "/grok/responses" || req["model"] != "grok-4.5" || req["stream"] != true || req["store"] != false || req["instructions"] != "Classify."+reply {
+			t.Errorf("request %s %v", r.URL.Path, req)
+		}
+		// Grok gets the fields fx sends it, and no Codex cache key.
+		if _, ok := req["prompt_cache_key"]; ok {
+			t.Errorf("request %v", req)
+		}
+		h := r.Header
+		if h.Get("Accept") != "text/event-stream" || h.Get("x-grok-client-identifier") != "fx" || h.Get("x-grok-model-override") != "grok-4.5" || !strings.HasPrefix(h.Get("x-grok-conv-id"), "den-map-") {
+			t.Errorf("headers %v", h)
+		}
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"fruit\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"output_tokens\":7}}}\n\n")
+	}))
+	defer srv.Close()
+	use(t, srv)
+
+	out := filepath.Join(t.TempDir(), "out.jsonl")
+	sum, err := Run(context.Background(), Options{Provider: "grok", Model: "grok-4.5", Instructions: "Classify."}, strings.NewReader(`"apple"`), out)
+	if err != nil || sum.Answered != 1 {
+		t.Fatalf("summary %+v, %v", sum, err)
+	}
+	if got := results(t, out); string(got[1].Answer) != `{"kind":"fruit"}` || got[1].Input != 50 {
+		t.Errorf("answer %+v", got[1])
 	}
 }

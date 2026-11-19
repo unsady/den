@@ -35,6 +35,7 @@ import (
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/fxsettings"
 	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/proc"
 )
@@ -262,64 +263,52 @@ func (m *Models) Protect() {
 		return
 	}
 
-	// The profile is the agent's: den reads and writes it as the agent,
-	// so a link there cannot lead den to its own secrets.
-	settingsPath := filepath.Join(m.home, "settings.json")
-	data, err := proc.ReadFile(m.cfg, settingsPath)
+	err = fxsettings.Edit(m.cfg, func(settings map[string]json.RawMessage) (bool, error) {
+		var providers map[string]map[string]json.RawMessage
+		if err := json.Unmarshal(settings["providers"], &providers); err != nil {
+			return false, nil
+		}
+
+		changed := false
+		for _, entry := range keys {
+			name := entry.Name()
+			keyPath := filepath.Join(m.home, "provider-keys", name)
+			def, ok := providers[name]
+			if !ok {
+				continue
+			}
+			var base string
+			json.Unmarshal(def["base_url"], &base)
+			u, err := url.Parse(base)
+			if err != nil || u.Scheme != "https" || u.Host == "" {
+				// A key for a local server, or one already behind the proxy.
+				continue
+			}
+			// The profile is the agent's: den reads it as the agent, so a
+			// link there cannot lead den to its own secrets.
+			key, err := proc.ReadFile(m.cfg, keyPath)
+			if err != nil || strings.TrimSpace(string(key)) == "" {
+				continue
+			}
+
+			secret, _ := json.Marshal(provider{BaseURL: base, Key: strings.TrimSpace(string(key))})
+			if err := writeSecret(filepath.Join(m.cfg.Secrets, "provider_"+name), secret); err != nil {
+				log.Printf("models: %s: %v", name, err)
+				continue
+			}
+			def["base_url"], _ = json.Marshal("http://" + Proxy + "/" + name)
+			def["auth"] = json.RawMessage(`{"type":"none"}`)
+			providers[name] = def
+			os.Remove(keyPath)
+			changed = true
+			log.Printf("models: moved the %s key out of the agent's profile", name)
+		}
+		if changed {
+			settings["providers"], _ = json.Marshal(providers)
+		}
+		return changed, nil
+	})
 	if err != nil {
-		return
-	}
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(data, &settings); err != nil {
-		return
-	}
-	var providers map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(settings["providers"], &providers); err != nil {
-		return
-	}
-
-	changed := false
-	for _, entry := range keys {
-		name := entry.Name()
-		keyPath := filepath.Join(m.home, "provider-keys", name)
-		def, ok := providers[name]
-		if !ok {
-			continue
-		}
-		var base string
-		json.Unmarshal(def["base_url"], &base)
-		u, err := url.Parse(base)
-		if err != nil || u.Scheme != "https" || u.Host == "" {
-			// A key for a local server, or one already behind the proxy.
-			continue
-		}
-		key, err := proc.ReadFile(m.cfg, keyPath)
-		if err != nil || strings.TrimSpace(string(key)) == "" {
-			continue
-		}
-
-		secret, _ := json.Marshal(provider{BaseURL: base, Key: strings.TrimSpace(string(key))})
-		if err := writeSecret(filepath.Join(m.cfg.Secrets, "provider_"+name), secret); err != nil {
-			log.Printf("models: %s: %v", name, err)
-			continue
-		}
-		def["base_url"], _ = json.Marshal("http://" + Proxy + "/" + name)
-		def["auth"] = json.RawMessage(`{"type":"none"}`)
-		providers[name] = def
-		os.Remove(keyPath)
-		changed = true
-		log.Printf("models: moved the %s key out of the agent's profile", name)
-	}
-	if !changed {
-		return
-	}
-
-	settings["providers"], _ = json.Marshal(providers)
-	out, err := json.Marshal(settings)
-	if err != nil {
-		return
-	}
-	if err := proc.WriteFile(m.cfg, settingsPath, out, 0o600); err != nil {
 		log.Printf("models: %v", err)
 	}
 }
@@ -367,42 +356,36 @@ func (m *Models) Login(id, baseURL, key, model string) error {
 		return err
 	}
 
-	settingsPath := filepath.Join(m.home, "settings.json")
-	settings := map[string]json.RawMessage{}
-	if data, err := proc.ReadFile(m.cfg, settingsPath); err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("%s: %v", settingsPath, err)
+	err := fxsettings.Edit(m.cfg, func(settings map[string]json.RawMessage) (bool, error) {
+		providers := map[string]json.RawMessage{}
+		json.Unmarshal(settings["providers"], &providers)
+		providers[id], _ = json.Marshal(map[string]any{
+			"protocol":   "openai-chat-completions",
+			"base_url":   "http://" + Proxy + "/" + id,
+			"auth":       map[string]string{"type": "none"},
+			"models_dev": id,
+		})
+		settings["providers"], _ = json.Marshal(providers)
+		models := map[string]string{}
+		json.Unmarshal(settings["models"], &models)
+		switch {
+		case model != "":
+			models[id] = model
+			settings["provider"], _ = json.Marshal(id)
+		case models[id] == "" && len(offered) > 0:
+			// fx takes no provider without a model of its own. The chat
+			// passes the model it chose, so any of the provider's will do.
+			models[id] = offered[0]
 		}
-	}
-	providers := map[string]json.RawMessage{}
-	json.Unmarshal(settings["providers"], &providers)
-	providers[id], _ = json.Marshal(map[string]any{
-		"protocol":   "openai-chat-completions",
-		"base_url":   "http://" + Proxy + "/" + id,
-		"auth":       map[string]string{"type": "none"},
-		"models_dev": id,
+		settings["models"], _ = json.Marshal(models)
+		return true, nil
 	})
-	settings["providers"], _ = json.Marshal(providers)
-	models := map[string]string{}
-	json.Unmarshal(settings["models"], &models)
-	switch {
-	case model != "":
-		models[id] = model
-		settings["provider"], _ = json.Marshal(id)
-	case models[id] == "" && len(offered) > 0:
-		// fx takes no provider without a model of its own. The chat
-		// passes the model it chose, so any of the provider's will do.
-		models[id] = offered[0]
-	}
-	settings["models"], _ = json.Marshal(models)
-	// A key fx login saved earlier is no longer needed.
-	os.Remove(filepath.Join(m.home, "provider-keys", id))
-
-	out, err := json.Marshal(settings)
 	if err != nil {
 		return err
 	}
-	return proc.WriteFile(m.cfg, settingsPath, out, 0o600)
+	// A key fx login saved earlier is no longer needed.
+	os.Remove(filepath.Join(m.home, "provider-keys", id))
+	return nil
 }
 
 // longWait is the longest Retry-After den lets fx wait out.
@@ -550,6 +533,13 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 			out.Out.Host = target.Host
 			out.Out.Header.Del("Cookie")
 			out.Out.Header.Set("Authorization", "Bearer "+access)
+			// The subscription's API takes the token with the headers that
+			// say it is one, which fx sends too; den's own requests, such
+			// as den map's, do not know them.
+			if base == m.grokAPI {
+				out.Out.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
+				out.Out.Header.Set("x-authenticateresponse", "authenticate-response")
+			}
 		},
 		FlushInterval: -1,
 		Transport:     m.transport,
@@ -612,18 +602,18 @@ func (m *Models) standGrok(w http.ResponseWriter, rest string) {
 // fx's provider when fx has none yet. The chat's /model choice still
 // overrides both.
 func (m *Models) Default(provider string, offered func() ([]string, error)) error {
-	path := filepath.Join(m.home, "settings.json")
-	settings := map[string]json.RawMessage{}
-	data, err := proc.ReadFile(m.cfg, path)
-	if err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("%s: %v", path, err)
-		}
-	}
-	models := map[string]string{}
-	json.Unmarshal(settings["models"], &models)
-	if models[provider] != "" {
-		return nil
+	// fx lists the models without den's lock, which a change of the
+	// settings meanwhile does not spoil: the model goes in only when the
+	// provider still has none.
+	has := false
+	err := fxsettings.Edit(m.cfg, func(settings map[string]json.RawMessage) (bool, error) {
+		models := map[string]string{}
+		json.Unmarshal(settings["models"], &models)
+		has = models[provider] != ""
+		return false, nil
+	})
+	if err != nil || has {
+		return err
 	}
 
 	list, err := offered()
@@ -633,15 +623,18 @@ func (m *Models) Default(provider string, offered func() ([]string, error)) erro
 	if len(list) == 0 {
 		return fmt.Errorf("%s offers no models", provider)
 	}
-	models[provider] = list[0]
-	settings["models"], _ = json.Marshal(models)
-	// The first provider den gets is the one it uses.
-	if _, ok := settings["provider"]; !ok {
-		settings["provider"], _ = json.Marshal(provider)
-	}
-	out, err := json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	return proc.WriteFile(m.cfg, path, out, 0o600)
+	return fxsettings.Edit(m.cfg, func(settings map[string]json.RawMessage) (bool, error) {
+		models := map[string]string{}
+		json.Unmarshal(settings["models"], &models)
+		if models[provider] != "" {
+			return false, nil
+		}
+		models[provider] = list[0]
+		settings["models"], _ = json.Marshal(models)
+		// The first provider den gets is the one it uses.
+		if _, ok := settings["provider"]; !ok {
+			settings["provider"], _ = json.Marshal(provider)
+		}
+		return true, nil
+	})
 }

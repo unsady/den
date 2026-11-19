@@ -117,8 +117,7 @@ func mapCommand(cfg config.Config, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	opts := mapper.Options{
-		URL:          provider.url,
-		Responses:    provider.name == "codex",
+		Provider:     provider.name,
 		Model:        provider.model,
 		Effort:       *effort,
 		Instructions: instructions,
@@ -172,25 +171,29 @@ const maxWorkers = 8
 const claudeWorkers = 2
 
 type mapTarget struct {
-	name, model, url string
+	name, model string
+}
+
+// subscriptions are the subscriptions den signs in to itself, with a model
+// to name in an example.
+var subscriptions = []struct{ name, title, example string }{
+	{"codex", "Codex", "gpt-6-luna"},
+	{"grok", "Grok", "grok-4.5"},
+	{claude.Provider, "Claude", "haiku"},
 }
 
 // mapProvider picks the provider and model from fx's settings: those den
-// proxies with the chat completions API. A ChatGPT or Claude subscription
-// serves only when named with its model, so a run does not spend the
-// subscription on its strongest model by default.
+// proxies with the chat completions API. A subscription serves only when
+// named with its model, so a run does not spend the subscription on its
+// strongest model by default.
 func mapProvider(settingsPath, model string) (mapTarget, error) {
-	if m, ok := strings.CutPrefix(model, "codex/"); ok {
-		if m == "" {
-			return mapTarget{}, errors.New("name the Codex model, such as --model codex/gpt-6-luna; `fx models` lists them")
+	for _, sub := range subscriptions {
+		if m, ok := strings.CutPrefix(model, sub.name+"/"); ok {
+			if m == "" {
+				return mapTarget{}, fmt.Errorf("name the %s model, such as --model %s/%s; `fx models` lists them", sub.title, sub.name, sub.example)
+			}
+			return mapTarget{sub.name, m}, nil
 		}
-		return mapTarget{"codex", m, "http://" + models.Proxy + "/codex/responses"}, nil
-	}
-	if m, ok := strings.CutPrefix(model, claude.Provider+"/"); ok {
-		if m == "" {
-			return mapTarget{}, errors.New("name the Claude model, such as --model claude/haiku")
-		}
-		return mapTarget{claude.Provider, m, "http://" + models.Proxy + "/" + claude.Provider + "/chat/completions"}, nil
 	}
 
 	var settings struct {
@@ -217,7 +220,7 @@ func mapProvider(settingsPath, model string) (mapTarget, error) {
 	}
 	slices.Sort(usable)
 	if len(usable) == 0 {
-		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go, or a subscription's model named with --model, such as codex/gpt-6-luna or claude/haiku")
+		return mapTarget{}, errors.New("den map needs a provider signed in with den login, such as opencode-go, or a subscription's model named with --model, such as codex/gpt-6-luna, grok/grok-4.5, or claude/haiku")
 	}
 
 	name := settings.Provider
@@ -239,7 +242,7 @@ func mapProvider(settingsPath, model string) (mapTarget, error) {
 	if model == "" {
 		return mapTarget{}, fmt.Errorf("fx has no model for %s; pass --model %s/<model>", name, name)
 	}
-	return mapTarget{name, model, strings.TrimSuffix(settings.Providers[name].BaseURL, "/") + "/chat/completions"}, nil
+	return mapTarget{name, model}, nil
 }
 
 func printMapSummary(w io.Writer, out string, t mapTarget, sum mapper.Summary) {
