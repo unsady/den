@@ -17,7 +17,7 @@ release notes.
 - /compact, and den's own compacting while you are away, ask fx to compact the session as it is, without a turn of the model and without restarting the agent, and say how big it was and is. /compact compacts a session of any size. While you are away, den compacts the chat's session once it is past 60k tokens, whatever the model's window. This needs the fx fork's den.6 build.
 - Sessions no longer wait for each other: a reply to a job's message, or a message after /new while the old session still works, runs at once on an agent of its own, and only a message for a session that is working gets 👀.
 - den reads how big a session is from fx's own log of it, so /status and compacting while you are away see that session's size even while a job or another session runs beside it.
-- What came of a git push that waited for you goes to the agent that pushed, even while several sessions run at once; before, den could only guess, and told you instead.
+- What came of a git push or an email that waited for you goes to the agent that sent it, even while several sessions run at once; before, den could only guess, and told you instead.
 
 ### Fixed
 

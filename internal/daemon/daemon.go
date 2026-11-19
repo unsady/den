@@ -184,7 +184,12 @@ func Serve(cfg config.Config) error {
 	go func() {
 		m := mail.New(cfg, later)
 		m.Report = d.report
-		m.Turn = func() string { return d.chat.Current() }
+		m.Turn = func(login string) string {
+			if d.knownTurn(login) {
+				return login
+			}
+			return d.chat.Current()
+		}
 		if err := m.Serve(ctx); err != nil {
 			log.Printf("mail: %v", err)
 		}
@@ -597,6 +602,17 @@ func heading(j jobs.Job) string {
 		return "🧹 " + j.Title
 	}
 	return "⏰ " + j.Title
+}
+
+// knownTurn says whether turn is a job run's or the chat's that den knows.
+func (d *daemon) knownTurn(turn string) bool {
+	if turn == "" {
+		return false
+	}
+	d.mu.Lock()
+	_, ok := d.jobTurns[turn]
+	d.mu.Unlock()
+	return ok || d.chat.Session(turn) != ""
 }
 
 // notify sends text to the user's Telegram at once, and to the app in the

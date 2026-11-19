@@ -52,8 +52,10 @@ Gmail archives with `UID MOVE 123 "[Gmail]/All Mail"`. Move to Trash instead of 
 Write the message with CRLF line ends, as in the google skill, then:
 
 ```bash
-curl -s smtp://127.0.0.1:1025 --mail-from me --mail-rcpt name@example.com --upload-file mail.eml
+curl -s smtp://127.0.0.1:1025 -u "$DEN_TURN:den" --mail-from me --mail-rcpt name@example.com --upload-file mail.eml
 ```
+
+- Log in as `$DEN_TURN`, as above: it tells den which conversation to tell once the user decides.
 
 - Each recipient, including Cc and Bcc, takes its own `--mail-rcpt`; Bcc goes only there, not in the headers.
 - Leave out `From:` or set it to the user's address; den sends from their account.

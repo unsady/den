@@ -2,6 +2,7 @@ package mail
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -148,7 +149,7 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 		return true, nil
 	})
 	var reports []string
-	s.Turn = func() string { return "t1" }
+	s.Turn = func(login string) string { return cmp.Or(login, "t1") }
 	s.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
 	var sent []string
 	s.send = func(a Account, to []string, msg []byte) error {
@@ -173,15 +174,17 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 		t.Fatalf("two recipients: %q", rules[0])
 	}
 
+	// The agent logs in as its turn, which the report goes to.
 	allow = false
-	err := smtp.SendMail(addr, nil, "agent@den", []string{"Anya@Example.com"}, msg)
+	auth := smtp.PlainAuth("", "t2", "x", "127.0.0.1")
+	err := smtp.SendMail(addr, auth, "agent@den", []string{"Anya@Example.com"}, msg)
 	if err != nil || len(sent) != 1 {
 		t.Fatalf("denied: %v, sent %d", err, len(sent))
 	}
 	if len(rules) != 2 || rules[1] != "mail to anya@example.com|mail to anya@example.com" {
 		t.Fatalf("one recipient: %q", rules)
 	}
-	want := "t1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|t1 [den: Mail to Anya@Example.com was not sent: denied.]"
+	want := "t1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|t2 [den: Mail to Anya@Example.com was not sent: denied.]"
 	if got := strings.Join(reports, "|"); got != want {
 		t.Fatalf("reports %q", got)
 	}

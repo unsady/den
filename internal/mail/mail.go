@@ -121,9 +121,11 @@ type Server struct {
 	// Report tells the agent what came of a message that waited for the
 	// user, as the fetcher's Report does.
 	Report func(turn, agent, user string)
-	// Turn names the chat's turn running now, if any, which most likely
-	// sent the message: mail clients carry no DEN_TURN.
-	Turn func() string
+	// Turn names the turn that sent a message over SMTP with login, which
+	// the agent sets to its DEN_TURN, as the mail skill says. A login that
+	// names no turn den knows leaves den to guess. The turn only says
+	// where den's answer goes, and allows nothing.
+	Turn func(login string) string
 	// dial reaches the account's IMAP server.
 	dial func(addr string) (net.Conn, error)
 	// send hands a message to the account's SMTP server.

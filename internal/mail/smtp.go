@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +24,7 @@ const maxMessage = 25 << 20
 
 // serveSMTP takes messages from the agent and sends each after the user
 // allows it. Any login is accepted: the client is already inside den's
-// container.
+// container. The login names the agent's turn.
 func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 	defer c.Close()
 
@@ -42,6 +43,7 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 
 	reply("220 den ESMTP ready")
 	var to []string
+	login := ""
 	for {
 		line, err := read()
 		if err != nil {
@@ -60,11 +62,16 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 			case "PLAIN":
 				if initial == "" {
 					reply("334 ")
-					read()
+					initial, _ = read()
+				}
+				// authzid NUL authcid NUL password
+				if fields := strings.Split(decoded(initial), "\x00"); len(fields) == 3 {
+					login = fields[1]
 				}
 			case "LOGIN":
 				reply("334 VXNlcm5hbWU6")
-				read()
+				user, _ := read()
+				login = decoded(user)
 				reply("334 UGFzc3dvcmQ6")
 				read()
 			}
@@ -93,7 +100,7 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 				return
 			}
 			c.SetReadDeadline(time.Time{})
-			reply("%s", s.deliver(ctx, to, msg))
+			reply("%s", s.deliver(ctx, to, msg, login))
 			to = nil
 		case "RSET":
 			to = nil
@@ -109,9 +116,18 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 	}
 }
 
-// deliver sends a message after the user allows it and returns the SMTP
-// reply for the client.
-func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
+// decoded is a base64 SASL answer, or "" when it is not one.
+func decoded(text string) string {
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(text))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// deliver sends a message the client sent with login after the user allows
+// it, and returns the SMTP reply for the client.
+func (s *Server) deliver(ctx context.Context, to []string, msg []byte, login string) string {
 	a, err := Load(s.cfg)
 	if err != nil {
 		return "451 " + oneLine(err)
@@ -128,7 +144,7 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte) string {
 	// den sends the message once the user allows it, and tells the agent.
 	turn := ""
 	if s.Turn != nil {
-		turn = s.Turn()
+		turn = s.Turn(login)
 	}
 	what := "Mail to " + strings.Join(to, ", ")
 	q := approve.Question{Text: text, What: what, Source: "Mail"}
