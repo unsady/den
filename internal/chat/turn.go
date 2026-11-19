@@ -149,6 +149,17 @@ func (c *Chat) turn(ctx context.Context) bool {
 	return true
 }
 
+// step records text as the latest step of session's running turn, and tells
+// the app; an empty text only records that the turn runs.
+func (c *Chat) step(session, text string) {
+	c.mu.Lock()
+	c.steps[session] = text
+	c.mu.Unlock()
+	if text != "" {
+		c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+	}
+}
+
 // chatTurn is a turn of the chat's, from the messages it runs.
 type chatTurn struct {
 	id      string
@@ -170,6 +181,12 @@ type chatTurn struct {
 func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	session := t.session
 	started := time.Now()
+	c.step(session, "")
+	defer func() {
+		c.mu.Lock()
+		delete(c.steps, session)
+		c.mu.Unlock()
+	}()
 	// A chat session gets its title from the user's first message, while
 	// its first turn runs.
 	if t.untitled && t.asked {
@@ -198,7 +215,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		MaySilence: true,
 		Progress: func(line string) {
 			if text, ok := step(line); ok {
-				c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+				c.step(session, text)
 			}
 			if t.own {
 				return

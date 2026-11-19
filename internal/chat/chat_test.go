@@ -1549,3 +1549,25 @@ func seed(t *testing.T, c *Chat, sessions ...store.Session) {
 		fmt.Fprintf(f, `{"op":"put","id":%q,"role":"root","title":%q,"updated":%d}`+"\n", s.ID, s.Title, s.Updated.UnixMilli())
 	}
 }
+
+// TestRunning checks that a client reading the setup sees each running turn
+// with its latest step, and no longer once it ends.
+func TestRunning(t *testing.T) {
+	ctx := context.Background()
+	_, telegram, c := startChatWith(t, nil)
+	telegram.message(42, "hello")
+	telegram.expect(t, "resume=none msg=hello lines=1")
+	session := c.cursor(store.Telegram)
+
+	telegram.message(42, "steps")
+	waitFor(t, func() bool {
+		setup, _ := c.Setup(ctx)
+		return setup.Running[session] == "Running ls"
+	})
+
+	waitFor(t, func() bool {
+		setup, _ := c.Setup(ctx)
+		_, running := setup.Running[session]
+		return !running
+	})
+}

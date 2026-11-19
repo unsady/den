@@ -157,6 +157,9 @@ type Chat struct {
 	// as a turn of their own if fx did not deliver them, unless /stop
 	// dropped them.
 	steered map[string]steered
+	// steps holds the latest step of each session's running turn, empty
+	// until its first, so a client that reconnects reads what runs.
+	steps map[string]string
 	// busy counts the turns that run in each session, the chat's, a job's
 	// or a /bg task's, and compacting, whose messages wait until they end.
 	busy map[string]int
@@ -282,6 +285,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		steered:  map[string]steered{},
 		titled:   map[string]bool{},
 		quiet:    map[string]time.Time{},
+		steps:    map[string]string{},
 		Events:   &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
