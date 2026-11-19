@@ -485,8 +485,6 @@ type fakeDaemon struct {
 	jobSessions map[string]bool
 }
 
-func (f *fakeDaemon) Busy(turn string) bool { return false }
-
 func (f *fakeDaemon) JobSessions() map[string]bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

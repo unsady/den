@@ -57,18 +57,6 @@ func (d *daemon) runProgress(run string, done, total, failed int) bool {
 	return ok
 }
 
-// Busy says whether a run that a turn in session started still goes on.
-func (d *daemon) Busy(session string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, r := range d.maps {
-		if session != "" && r.session == session {
-			return true
-		}
-	}
-	return false
-}
-
 // runEnded takes a run off the message.
 func (d *daemon) runEnded(run string) {
 	d.mu.Lock()

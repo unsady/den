@@ -17,7 +17,6 @@ import (
 	"github.com/unsady/den/internal/gitproxy"
 	"github.com/unsady/den/internal/proc"
 	"github.com/unsady/den/internal/seed"
-	"github.com/unsady/den/internal/sessions"
 )
 
 // Agent is the chat's fx, which runs as fx acp from one turn to the next, so
@@ -97,14 +96,6 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	reply.InputTokens = int64(res.InputTokens)
 	reply.OutputTokens = int64(res.OutputTokens)
 	reply.Stderr = a.stderrText()
-
-	if (reply.Output == Silent && !req.MaySilence) || reply.Output == "Done." {
-		// A subagent's report came after the answer and took the last word;
-		// the answer is in the session.
-		if answer := sessions.Answer(a.cfg.Sessions, session, reply.Started); answer != "" {
-			reply.Output = answer
-		}
-	}
 
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:

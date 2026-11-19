@@ -85,9 +85,6 @@ type Daemon interface {
 	Rules() []approve.Rule
 	Forget(id string) (approve.Rule, bool)
 	Actions(since time.Time) []approve.Action
-	// Busy says whether work that a turn in session started, such as a den
-	// map run, still goes on in den's background.
-	Busy(session string) bool
 }
 
 func help() string {

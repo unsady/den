@@ -103,14 +103,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 	joined := session == c.cursor(store.Telegram) || session == c.cursor(appClient)
 
 	t := chatTurn{session: session, choice: choice, id: rand.Text(), untitled: c.untitled(session)}
-	// A turn started by den's reports alone, such as that a den map run
-	// ended, may end without a word to the user.
 	// A turn of the app's messages alone answers only in the app; den's
 	// reports go with the messages around them.
 	var texts []string
-	t.reports, t.app = true, true
+	t.app = true
 	for _, m := range messages {
-		t.reports = t.reports && m.Report
 		if !m.Report {
 			t.asked = true
 			t.app = t.app && m.App
@@ -167,10 +164,10 @@ type chatTurn struct {
 	choice  runner.Choice
 	prompt  string
 	images  []string
-	// asked says the user wrote, reports that only den's reports came,
-	// and app that only the app's messages and den's reports came.
-	asked, reports, app bool
-	untitled            bool
+	// asked says the user wrote, and app that only the app's messages and
+	// den's reports came.
+	asked, app bool
+	untitled   bool
 	// own marks a turn on an agent of its own rather than the chat's.
 	own   bool
 	agent *runner.Agent
@@ -206,13 +203,12 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		close(shown)
 	}()
 	req := runner.Request{
-		Prompt:     t.prompt,
-		Provider:   t.choice.Provider,
-		Model:      t.choice.Model,
-		Effort:     t.choice.Effort,
-		Resume:     session,
-		Images:     t.images,
-		MaySilence: true,
+		Prompt:   t.prompt,
+		Provider: t.choice.Provider,
+		Model:    t.choice.Model,
+		Effort:   t.choice.Effort,
+		Resume:   session,
+		Images:   t.images,
 		Progress: func(line string) {
 			if text, ok := step(line); ok {
 				c.step(session, text)
@@ -268,26 +264,15 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		// /stop already answered, or den is shutting down.
 		return
 	}
-	// A turn may end without a word, such as one den's report started, or
-	// one that answers a plain "ok". When a subagent's report took the
-	// last word, the answer before it is in the session. Files the turn
-	// sent go without a word. A turn the agent marked quiet says nothing,
-	// whatever its text, so no earlier answer stands in for it.
+	// A turn may end without a word, such as one that answers a plain "ok"
+	// or that the agent marked quiet; files it sent go without a word.
 	silent := false
 	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, session)) {
-		earlier := ""
-		if !quiet && !t.reports && (c.den == nil || !c.den.Busy(session)) {
-			earlier = sessions.Answer(c.cfg.Sessions, session, started)
-		}
-		switch {
-		case (earlier == "" || runner.LegacySilent(earlier, session)) && len(files) == 0:
+		if len(files) == 0 {
 			log.Printf("chat: the turn had nothing to tell")
 			return
-		case earlier == "" || runner.LegacySilent(earlier, session):
-			silent = true
-		default:
-			reply.Output = earlier
 		}
+		silent = true
 	}
 
 	text := ""
