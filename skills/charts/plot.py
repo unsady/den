@@ -29,6 +29,24 @@ def short(value, unit=""):
     return text + unit
 
 
+def gaps(values):
+    """The values with NaN for null, which matplotlib leaves as a gap."""
+    return [float("nan") if v is None else v for v in values]
+
+
+def alone(values):
+    """The indexes of the values with no number on either side."""
+    def missing(i):
+        return i < 0 or i >= len(values) or values[i] is None
+
+    return [i for i, v in enumerate(values) if v is not None and missing(i - 1) and missing(i + 1)]
+
+
+def last(values):
+    """The index and the value of the last number in values."""
+    return next((i, v) for i, v in reversed(list(enumerate(values))) if v is not None)
+
+
 def colors(series):
     cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     return [cycle[i % len(cycle)] for i in range(len(series))]
@@ -38,12 +56,16 @@ def line(ax, chart):
     labels, series = chart["labels"], chart["series"]
     x = range(len(labels))
     for s, color in zip(series, colors(series)):
-        ax.plot(x, s["values"], color=color)
+        ax.plot(x, gaps(s["values"]), color=color)
+        # A value between two gaps has no line to be on, so it is a dot.
+        lone = alone(s["values"])
+        ax.plot(lone, [s["values"][i] for i in lone], "o", color=color, markersize=4)
         # Name each line at its right end, with its last value.
-        name = f'{s.get("name", "")}  {short(s["values"][-1], chart.get("unit", ""))}'.strip()
+        at, value = last(s["values"])
+        name = f'{s.get("name", "")}  {short(value, chart.get("unit", ""))}'.strip()
         ax.annotate(
             name,
-            (len(labels) - 1, s["values"][-1]),
+            (at, value),
             xytext=(8, 0),
             textcoords="offset points",
             va="center",
@@ -67,8 +89,11 @@ def bars(ax, chart, horizontal):
         offset = (i - (len(series) - 1) / 2) * width
         at = [p + offset for p in range(len(labels))]
         color = palette[i] if len(series) > 1 else palette[0]
-        drawn = (ax.barh if horizontal else ax.bar)(at, s["values"], width * 0.9, color=color, label=s.get("name"))
-        ax.bar_label(drawn, [short(v, unit) for v in s["values"]], padding=4, fontsize=12, color="#e6e6e6")
+        # A label with no data has no bar and no value.
+        sizes = [0 if v is None else v for v in s["values"]]
+        drawn = (ax.barh if horizontal else ax.bar)(at, sizes, width * 0.9, color=color, label=s.get("name"))
+        texts = ["" if v is None else short(v, unit) for v in s["values"]]
+        ax.bar_label(drawn, texts, padding=4, fontsize=12, color="#e6e6e6")
     # Each bar has its value, so the value axis and its grid would only
     # repeat them.
     ax.grid(False)

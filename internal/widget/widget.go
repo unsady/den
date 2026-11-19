@@ -13,7 +13,8 @@
 //	}
 //
 // kind is line, bar, or hbar (horizontal bars); unit is optional and goes
-// after each value. Every series has a value for each label.
+// after each value. Every series has a value for each label, or null where
+// it has no data, which the chart leaves as a gap; at least one is a number.
 package widget
 
 import (
@@ -45,8 +46,9 @@ type Chart struct {
 }
 
 type Series struct {
-	Name   string    `json:"name"`
-	Values []float64 `json:"values"`
+	Name string `json:"name"`
+	// Values has nil where the series has no data.
+	Values []*float64 `json:"values"`
 }
 
 // Check reads data as a widget and returns it compact, or says what is
@@ -81,10 +83,18 @@ func Check(data []byte) (json.RawMessage, error) {
 		if len(s.Values) != len(c.Labels) {
 			return nil, fmt.Errorf("series %q has %d values for %d labels", s.Name, len(s.Values), len(c.Labels))
 		}
+		some := false
 		for _, v := range s.Values {
-			if math.IsNaN(v) || math.IsInf(v, 0) {
-				return nil, errors.New("a chart's values are finite numbers")
+			if v == nil {
+				continue
 			}
+			if math.IsNaN(*v) || math.IsInf(*v, 0) {
+				return nil, errors.New("a chart's values are finite numbers, or null for no data")
+			}
+			some = true
+		}
+		if !some {
+			return nil, fmt.Errorf("series %q has no values, only null", s.Name)
 		}
 	}
 
