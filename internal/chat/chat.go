@@ -613,7 +613,7 @@ func (c *Chat) steeredTurn(text string, reply runner.Reply) {
 	call, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	out := answer(reply, true)
-	if label := c.label(reply.SessionID); label != "" {
+	if label := c.Label(reply.SessionID); label != "" {
 		out = label + "\n\n" + out
 	}
 	ids, err := telegram.SendIDs(call, out)
@@ -907,7 +907,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Files: c.keep(session, files)})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
-	if label := c.label(session); label != "" {
+	if label := c.Label(session); label != "" {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text

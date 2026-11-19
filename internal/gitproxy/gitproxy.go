@@ -242,6 +242,7 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, sessio
 		refuse(w, commands, caps, fmt.Errorf("den cannot tell which session pushed: %s names none it knows", SessionHeader))
 		return false
 	}
+	q.Session = session
 	data, err := io.ReadAll(io.LimitReader(body, maxHeld+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

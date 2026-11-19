@@ -155,7 +155,7 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte, login str
 	// one person the user allowed. The client does not wait for the answer:
 	// den sends the message once the user allows it, and tells the agent.
 	what := "Mail to " + strings.Join(to, ", ")
-	q := approve.Question{Text: text, What: what, Source: "Mail"}
+	q := approve.Question{Text: text, What: what, Source: "Mail", Session: login}
 	if len(to) == 1 {
 		q.MailTo(to[0])
 	}

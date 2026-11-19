@@ -207,7 +207,7 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 		} else if body := display(req.Body); body != "" {
 			text += "\n\n" + body
 		}
-		q := approve.Question{Text: text, What: what, Source: s.label}
+		q := approve.Question{Text: text, What: what, Source: s.label, Session: req.Session}
 		if s.source != nil {
 			q.Source = s.source(u)
 		}

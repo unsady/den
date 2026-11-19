@@ -86,9 +86,9 @@ var icons = map[store.Kind]string{store.KindChat: "↩", store.KindBackground: "
 // placeholders name a session of each kind that has no title yet.
 var placeholders = map[store.Kind]string{store.KindChat: "Earlier session", store.KindBackground: "Background task", store.KindJob: "Job"}
 
-// label names session above a reply in Telegram that comes from a session
-// other than Telegram's own, and is empty for Telegram's own.
-func (c *Chat) label(session string) string {
+// Label names session above a reply or a question in Telegram that comes
+// from a session other than Telegram's own, and is empty for Telegram's own.
+func (c *Chat) Label(session string) string {
 	if session == c.cursor(store.Telegram) {
 		return ""
 	}

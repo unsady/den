@@ -172,6 +172,7 @@ func Serve(cfg config.Config) error {
 	d.chat = chat.New(cfg, d, d.usage, db)
 	d.events = d.chat.Events
 	d.ask.Events = d.events
+	d.ask.Label = d.chat.Label
 	d.google = google.New(cfg)
 	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
 	d.fetch = fetch.New(cfg, later, d.google)

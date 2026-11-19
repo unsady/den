@@ -67,6 +67,9 @@ type Question struct {
 	// as a file named FileName before the question.
 	File     []byte
 	FileName string
+	// Session is the session whose agent took the action, which the
+	// question names when it is not the one the chat is in.
+	Session string
 }
 
 // MailTo lets the user allow every mail to one address for good or for an
@@ -97,6 +100,9 @@ type Asker struct {
 	cfg config.Config
 	// Events shows the questions in the app too, which can answer them.
 	Events *events.Hub
+	// Label names a session above its question in Telegram, as the chat
+	// names it above its replies, or is empty for the chat's own session.
+	Label func(session string) string
 
 	mu      sync.Mutex
 	pending map[string]*question
@@ -200,12 +206,23 @@ type sent struct {
 	q        *question
 	telegram *notify.Telegram
 	message  int64
+	// label names the session that asked, above the question and what
+	// it shrinks to.
+	label string
 }
 
 func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
+	label := ""
+	if a.Label != nil {
+		label = a.Label(q.Session)
+	}
+	text := q.Text
+	if label != "" {
+		text = label + "\n\n" + text
+	}
 	// A question cut to fit a message could hide the part the user must
 	// see, such as a second branch a push changes.
-	if !notify.Fits(q.Text) {
+	if !notify.Fits(text) {
 		return nil, errors.New("the question is too long to show the user in one message; send less at once")
 	}
 	telegram, err := notify.Load(a.cfg)
@@ -228,7 +245,7 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		options = append(options, "hour")
 	}
 	p := &question{Question: q, answer: make(chan string, 1),
-		event: events.Event{Type: events.Ask, ID: id, What: q.What, Source: q.Source, Text: q.Text, Options: options}}
+		event: events.Event{Type: events.Ask, ID: id, Session: q.Session, What: q.What, Source: q.Source, Text: q.Text, Options: options}}
 	a.mu.Lock()
 	a.pending[id] = p
 	a.mu.Unlock()
@@ -239,7 +256,7 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		err = telegram.SendFile(call, q.FileName, q.File, q.What)
 	}
 	if err == nil {
-		message, err = telegram.SendButtons(call, q.Text, [][]notify.Button{buttons})
+		message, err = telegram.SendButtons(call, text, [][]notify.Button{buttons})
 	}
 	cancel()
 	if err != nil {
@@ -247,7 +264,7 @@ func (a *Asker) send(ctx context.Context, q Question) (*sent, error) {
 		return nil, fmt.Errorf("asking the user: %w", err)
 	}
 	a.Events.Publish(p.event)
-	return &sent{a: a, id: id, q: p, telegram: telegram, message: message}, nil
+	return &sent{a: a, id: id, q: p, telegram: telegram, message: message, label: label}, nil
 }
 
 func (a *Asker) forget(id string) {
@@ -294,6 +311,9 @@ func (s *sent) wait(ctx context.Context, limit time.Duration) error {
 // done shrinks the question to text, which also takes its buttons away.
 func (s *sent) done(text string) {
 	s.a.Events.Publish(events.Event{Type: events.Answered, ID: s.id, Text: text})
+	if s.label != "" {
+		text = s.label + "\n\n" + text
+	}
 	call, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := s.telegram.Edit(call, s.message, text); err != nil {

@@ -897,10 +897,10 @@ func TestReplyTarget(t *testing.T) {
 			t.Fatalf("target(%d) = %q, %v, want %q", message, got, err, want)
 		}
 	}
-	if got := c.label("job1"); got != "⏰ news" {
+	if got := c.Label("job1"); got != "⏰ news" {
 		t.Fatalf("label = %q", got)
 	}
-	if got := c.label("main"); got != "" {
+	if got := c.Label("main"); got != "" {
 		t.Fatalf("the cursor's own session got the label %q", got)
 	}
 

@@ -172,6 +172,38 @@ func TestAsk(t *testing.T) {
 		t.Fatalf("after the hour: %q", got)
 	}
 
+	// A question from a session other than the chat's says which, and
+	// keeps saying it once answered.
+	a.Label = func(session string) string {
+		if session == "job1" {
+			return "⏰ News"
+		}
+		return ""
+	}
+	go a.Ask(context.Background(), Question{Text: "Mail it?", What: "Mail to b@example.com", Session: "job1"})
+	got = <-sent
+	if !strings.HasPrefix(got, "⏰ News\n\nMail it? ") {
+		t.Fatalf("labeled question %q", got)
+	}
+	_, id, _ = strings.Cut(strings.Fields(got)[4], ":")
+	a.Answer(id, Denied)
+	// Earlier questions shrank too; this one's edit comes after theirs.
+	for want := "⏰ News\n\nMail to b@example.com\n✗ Denied"; ; {
+		select {
+		case got := <-edited:
+			if got == want {
+				break
+			}
+			if strings.Contains(got, "b@example.com") {
+				t.Fatalf("labeled answer %q", got)
+			}
+			continue
+		case <-time.After(5 * time.Second):
+			t.Fatal("the labeled question was not edited")
+		}
+		break
+	}
+
 	// A question too long for one message is not asked, rather than cut.
 	long := Question{Text: "Push to me/repo?\n\n• " + strings.Repeat("a", 5000) + "\n• main", What: "Push"}
 	if err := a.Ask(context.Background(), long); err == nil || !strings.Contains(err.Error(), "too long") {
