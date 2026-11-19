@@ -1579,8 +1579,7 @@ func seed(t *testing.T, c *Chat, sessions ...store.Session) {
 }
 
 // TestRunning checks that a client reading the setup sees each running turn
-// with its latest step, which is what the agent said before it when it
-// said something, and no longer once it ends.
+// with its latest step, and no longer once it ends.
 func TestRunning(t *testing.T) {
 	ctx := context.Background()
 	_, telegram, c := startChatWith(t, nil)
@@ -1591,7 +1590,7 @@ func TestRunning(t *testing.T) {
 	telegram.message(42, "steps")
 	waitFor(t, func() bool {
 		setup, _ := c.Setup(ctx)
-		return setup.Running[session] == "Listing the folder."
+		return setup.Running[session] == "Running ls"
 	})
 
 	waitFor(t, func() bool {

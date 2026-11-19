@@ -229,11 +229,9 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			default:
 			}
 		},
-		// What the agent said before a step tells what it does better than
-		// the step's command, so it stands for the step in the app and goes
-		// under it in the chat.
+		// What the agent said before a step goes under the step in the
+		// chat's progress message; the app's one line keeps the step.
 		Said: func(text string) {
-			c.step(session, clipRunes(text, 200))
 			if t.own {
 				return
 			}
