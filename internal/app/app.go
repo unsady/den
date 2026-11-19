@@ -43,6 +43,7 @@ const tokenFile = "app_token"
 // Chat is what the app does with the chat.
 type Chat interface {
 	Post(ctx context.Context, text, session string, files []chat.File) error
+	Start(ctx context.Context, text string, files []chat.File) (string, error)
 	Stop(ctx context.Context) bool
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
@@ -297,6 +298,9 @@ func (s *Server) Handler() http.Handler {
 			// Session is where it goes when it is not the chat's own, such
 			// as a job run's.
 			Session string `json:"session"`
+			// New starts a session of its own for it, whose ID the answer
+			// gives.
+			New bool `json:"new"`
 			// Files are what the user attached, in base64.
 			Files []chat.File `json:"files"`
 		}
@@ -308,7 +312,21 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
 			return
 		}
+		if req.New && req.Session != "" {
+			fail(w, http.StatusBadRequest, errors.New("a new message goes to no session"))
+			return
+		}
+
 		// The turn outlives the request; its reply comes as an event.
+		if req.New {
+			session, err := s.chat.Start(context.WithoutCancel(r.Context()), req.Text, req.Files)
+			if err != nil {
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+			reply(w, map[string]any{"sent": true, "session": session})
+			return
+		}
 		if err := s.chat.Post(context.WithoutCancel(r.Context()), req.Text, req.Session, req.Files); err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return

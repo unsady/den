@@ -1205,6 +1205,24 @@ func TestAppTurn(t *testing.T) {
 	}
 	next(events.Idle)
 
+	// A new task from the app starts a session of its own, beside the
+	// app's, and leaves the app where it was.
+	cursor := c.cursor(appClient)
+	started, err := c.Start(context.Background(), "plan a trip", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.Message); e.Session != started || started == cursor || e.Text != "plan a trip" {
+		t.Fatalf("message %+v, cursor %s", e, cursor)
+	}
+	if e := next(events.Reply); e.Session != started || !strings.HasPrefix(e.Text, "resume=none msg=plan a trip") {
+		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+	if c.cursor(appClient) != cursor {
+		t.Fatalf("cursor moved to %s", c.cursor(appClient))
+	}
+
 	// Files from the app are saved, and a picture among them is attached.
 	png := "\x89PNG\r\n\x1a\n picture"
 	files := []File{{Name: "shot.png", Data: []byte(png)}, {Name: "notes.txt", Data: []byte("notes")}}
