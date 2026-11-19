@@ -332,20 +332,6 @@ func importLegacyJobs(ctx context.Context, cfg config.Config, db *store.Store) e
 		}
 	}
 
-	// An older den did not record whether the user replied in a job's
-	// session; fx counts its turns.
-	list, err := sessions.List(cfg.Sessions, 1<<20)
-	if err != nil {
-		return err
-	}
-	for _, s := range list {
-		if s.Turns > 1 {
-			if err := db.Replied(ctx, s.ID); err != nil {
-				return err
-			}
-		}
-	}
-
 	log.Printf("import: %d jobs, %d runs", len(old), runs)
 	return db.SetSetting(ctx, jobsImportedKey, "1")
 }

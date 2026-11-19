@@ -226,7 +226,6 @@ func Serve(cfg config.Config) error {
 	}()
 
 	go d.loop()
-	d.wg.Go(d.sweeping)
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.events)
@@ -297,61 +296,6 @@ func (d *daemon) loop() {
 			return
 		case <-t.C:
 		}
-	}
-}
-
-// unrepliedFor is how long den keeps the session of a job's run the user
-// did not reply to, and sweepEvery how often it looks for such sessions.
-const (
-	unrepliedFor = 30 * 24 * time.Hour
-	sweepEvery   = 24 * time.Hour
-)
-
-// sweeping runs sweep every sweepEvery, apart from the jobs, which a long
-// sweep would hold up.
-func (d *daemon) sweeping() {
-	t := time.NewTicker(sweepEvery)
-	defer t.Stop()
-
-	for {
-		d.sweep()
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-t.C:
-		}
-	}
-}
-
-// sweep deletes the sessions of job runs that wrote to the user longer
-// than unrepliedFor ago and that the user never replied to.
-func (d *daemon) sweep() {
-	ids, err := d.db.Unreplied(d.ctx, store.KindJob, time.Now().Add(-unrepliedFor))
-	if err != nil || len(ids) == 0 {
-		if err != nil {
-			log.Printf("sweep: %v", err)
-		}
-		return
-	}
-	inFX, err := d.fxSessions()
-	if err != nil {
-		log.Printf("sweep: %v", err)
-		return
-	}
-
-	deleted := 0
-	for _, id := range ids {
-		if d.ctx.Err() != nil {
-			return
-		}
-		if _, err := d.dropSession(d.ctx, id, inFX[id], true); err != nil {
-			log.Printf("sweep: session %s: %v", id, err)
-			continue
-		}
-		deleted++
-	}
-	if deleted > 0 {
-		log.Printf("sweep: deleted %d job sessions the user did not reply to", deleted)
 	}
 }
 

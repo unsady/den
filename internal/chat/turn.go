@@ -122,13 +122,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	t.app = t.app && t.asked
 	t.prompt = strings.Join(texts, "\n\n")
-	// A session the user wrote in is kept as a past discussion.
-	if t.asked {
-		if err := c.store.Replied(context.Background(), session); err != nil {
-			log.Printf("chat: session %s: %v", session, err)
-		}
-	}
-
 	run, stop := context.WithCancel(ctx)
 	c.mu.Lock()
 	t.own = !joined || c.stop != nil
