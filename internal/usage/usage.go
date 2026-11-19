@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/unsady/den/internal/atomicfile"
 )
 
 // keep is how many days of usage the store holds.
@@ -110,12 +112,7 @@ func (s *Store) total(now time.Time, days int) map[string]Tokens {
 
 func (s *Store) save() {
 	data, _ := json.Marshal(s.days)
-	tmp := s.path + ".tmp"
-	err := os.WriteFile(tmp, data, 0o600)
-	if err == nil {
-		err = os.Rename(tmp, s.path)
-	}
-	if err != nil {
+	if err := atomicfile.Write(s.path, data, 0o600); err != nil {
 		log.Printf("usage: save: %v", err)
 	}
 }

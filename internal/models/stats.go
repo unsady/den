@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/unsady/den/internal/atomicfile"
 )
 
 // The proxy measures each model request, so the user can ask how a
@@ -99,8 +101,7 @@ func (m *Models) addCall(c Call) {
 			line, _ := json.Marshal(k)
 			buf.Write(append(line, '\n'))
 		}
-		if err := os.WriteFile(path+".tmp", buf.Bytes(), 0o600); err == nil {
-			os.Rename(path+".tmp", path)
+		if err := atomicfile.Write(path, buf.Bytes(), 0o600); err == nil {
 			m.written = len(m.calls)
 		}
 		return

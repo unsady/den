@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/codex"
 	"github.com/unsady/den/internal/config"
@@ -317,11 +318,7 @@ func writeSecret(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, data, 0o600)
 }
 
 // catalogURL lists the providers den can sign in to.

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/codex"
@@ -98,10 +99,7 @@ func writeSecret(cfg config.Config, name, value string) error {
 		return err
 	}
 	path := filepath.Join(cfg.Secrets, name)
-	if err := os.WriteFile(path+".tmp", []byte(value), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return atomicfile.Write(path, []byte(value), 0o600)
 }
 
 func loginCommand(cfg config.Config, args []string) error {

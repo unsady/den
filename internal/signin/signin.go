@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/unsady/den/internal/atomicfile"
 )
 
 // ErrNotSignin means a line is not a sign-in's address, so a chat message
@@ -133,9 +135,5 @@ func Save(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return atomicfile.Write(path, data, 0o600)
 }

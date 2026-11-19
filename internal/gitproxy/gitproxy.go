@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/approve"
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/config"
 )
 
@@ -481,11 +482,9 @@ func (p *Proxy) save() {
 	}
 	data, _ := json.Marshal(list)
 	path := filepath.Join(p.cfg.State, branchesFile)
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		log.Printf("git: %v", err)
-		return
 	}
-	os.Rename(path+".tmp", path)
 }
 
 func describe(c command) string {

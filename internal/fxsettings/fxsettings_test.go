@@ -73,3 +73,11 @@ func TestEditKeepsWhatItCannotRead(t *testing.T) {
 		t.Fatalf("settings %s", data)
 	}
 }
+
+func TestPath(t *testing.T) {
+	for _, sessions := range []string{"/home/agent/.fx/sessions/v2", "/home/agent/.fx/sessions/v2/"} {
+		if got := Path(config.Config{Sessions: sessions}); got != "/home/agent/.fx/settings.json" {
+			t.Errorf("%s: %s", sessions, got)
+		}
+	}
+}
