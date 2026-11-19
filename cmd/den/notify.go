@@ -84,6 +84,16 @@ func sendCommand(cfg config.Config, args []string) error {
 	if err := client.New(cfg).Do(http.MethodPost, "/send", req, nil); err != nil {
 		return err
 	}
-	fmt.Println("sent")
+	fmt.Println(sent(data, req.Widget != nil))
 	return nil
+}
+
+// sent says the file went, and reminds the agent, which reads it, that a
+// picture of a chart goes with its data: a recipe of its own may have
+// left the data out.
+func sent(data []byte, widget bool) string {
+	if widget || !strings.HasPrefix(http.DetectContentType(data), "image/") {
+		return "sent"
+	}
+	return "sent. If it was a line or bar chart, send its data with --widget too next time, as the charts skill says, so the den app draws it."
 }

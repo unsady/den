@@ -12,6 +12,7 @@ release notes.
 
 ### Changed
 
+- When the agent sends a picture without a chart's data, `den send` reminds it to add `--widget`, so the app draws more charts itself instead of showing a picture.
 - den stops gracefully: on `den update`, `den restart` or `den stop` it starts no new turns or jobs and waits up to 5 minutes for the ones that run. Messages sent meanwhile wait for the new den. A turn still running after that is stopped, and its session says so; a job says it failed because den restarted.
 - While a turn runs, what the agent says before a step, such as "Reddit gives a stub, trying the old site", shows under that step in Telegram's progress message; den used to drop it.
 - The agent stays quiet with `den quiet` instead of the word SILENT, so den no longer guesses from the reply's text whether to send it. A reply that is exactly SILENT still sends nothing until 2026-12-03, and den logs each one; the nightly tidy rewrites job prompts and skills in the space that still ask for the word.
