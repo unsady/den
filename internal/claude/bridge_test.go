@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/fxsettings"
 )
 
 // TestMain runs the test binary as claude when a test asks for it.
@@ -734,7 +735,7 @@ func TestWindowIsLearned(t *testing.T) {
 	if w := Window(h.c.cfg, "sonnet"); w != 1000000 {
 		t.Fatalf("window = %d, want claude's 1000000", w)
 	}
-	data, _ := os.ReadFile(filepath.Join(h.c.home, "settings.json"))
+	data, _ := os.ReadFile(fxsettings.Path(h.c.cfg))
 	if !strings.Contains(string(data), `"sonnet":{"context_window":1000000`) {
 		t.Errorf("fx was not told:\n%s", data)
 	}

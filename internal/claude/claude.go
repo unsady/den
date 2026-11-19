@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"github.com/unsady/den/internal/config"
-	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/fxsettings"
 )
 
 const (
@@ -103,8 +103,6 @@ var ErrNotConnected = errors.New("Claude is not connected: the user connects it 
 
 type Claude struct {
 	cfg config.Config
-	// home is the agent's fx profile, ~/.fx.
-	home string
 	// bin replaces the downloaded claude in tests.
 	bin string
 	// base is den's proxy as claude reaches it; tests change it.
@@ -116,7 +114,7 @@ type Claude struct {
 }
 
 func New(cfg config.Config) *Claude {
-	c := &Claude{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), base: origin}
+	c := &Claude{cfg: cfg, base: origin}
 	c.bridge.max = cfg.ClaudeProcesses
 	return c
 }
@@ -230,20 +228,10 @@ func (c *Claude) Register() error {
 
 // edit changes fx's settings, which belong to the agent.
 func (c *Claude) edit(change func(map[string]json.RawMessage)) error {
-	path := filepath.Join(c.home, "settings.json")
-	settings := map[string]json.RawMessage{}
-	if data, err := proc.ReadFile(c.cfg, path); err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("%s: %v", path, err)
-		}
-	}
-	change(settings)
-
-	out, err := json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	return proc.WriteFile(c.cfg, path, out, 0o600)
+	return fxsettings.Edit(c.cfg, func(settings map[string]json.RawMessage) (bool, error) {
+		change(settings)
+		return true, nil
+	})
 }
 
 func (c *Claude) path() string { return filepath.Join(c.cfg.Secrets, File) }

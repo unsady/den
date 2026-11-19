@@ -24,6 +24,7 @@ release notes.
 
 ### Fixed
 
+- A provider you signed in to, such as `opencode-go`, no longer vanishes from fx's settings when den starts, which left /new without its model and /model with "unknown configured provider". den changed fx's settings from several places at once, and wrote them anew when a read failed; it now changes them one at a time and leaves them as they are when it cannot read them. Sign in to the provider again once if it is gone.
 - A job that runs `den map` waits for it and gets its result, instead of ending at once while the run went on in den's background and its result came to you as a notice.
 - A reply in Telegram is marked as coming from another session only when it does: the app no longer moves Telegram's chat to the session it opens, so after /new your next reply no longer comes headed with an old session's title.
 - A job run that wrote to you keeps its session, so a reply to its message goes on there however many runs come after it.
