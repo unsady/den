@@ -354,7 +354,7 @@ func TestGrok(t *testing.T) {
 			t.Errorf("request %v", req)
 		}
 		h := r.Header
-		if h.Get("Accept") != "text/event-stream" || h.Get("x-grok-model-override") != "grok-4.5" || !strings.HasPrefix(h.Get("x-grok-conv-id"), "den-map-") {
+		if h.Get("Accept") != "text/event-stream" || h.Get("x-grok-client-identifier") != "fx" || h.Get("x-grok-model-override") != "grok-4.5" || !strings.HasPrefix(h.Get("x-grok-conv-id"), "den-map-") {
 			t.Errorf("headers %v", h)
 		}
 		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"kind\\\":\\\"fruit\\\"}\"}\n\n")

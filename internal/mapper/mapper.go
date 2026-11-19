@@ -402,8 +402,10 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 		// den's proxy adds the subscription's own headers with its token;
 		// these say which model and conversation the request is for, as
 		// fx's do, so the requests that follow one another share a cache.
+		// den signs in with the Grok CLI client fx uses, so its requests
+		// name fx as the client, alike to the subscription.
 		req.Header.Set("Accept", "text/event-stream")
-		req.Header.Set("x-grok-client-identifier", "den")
+		req.Header.Set("x-grok-client-identifier", "fx")
 		req.Header.Set("x-grok-model-override", a.opts.Model)
 		req.Header.Set("x-grok-conv-id", a.key)
 	default:
