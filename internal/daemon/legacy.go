@@ -213,8 +213,12 @@ func startsNamed(path string) bool {
 	return json.Unmarshal(scanner.Bytes(), &first) == nil && first.Type == "message" && first.Title != ""
 }
 
-// jobsImportedKey marks a store that took an older den's jobs and runs.
-const jobsImportedKey = "legacy.jobs.imported"
+// jobsImportedKey marks a store that took an older den's jobs, and
+// runsImportedKey one that took their runs.
+const (
+	jobsImportedKey = "legacy.jobs.imported"
+	runsImportedKey = "legacy.runs.imported"
+)
 
 // legacyNames are the new names of den's own jobs.
 var legacyNames = map[string]string{"reflect": reflectJob, "tidy": tidyJob}
@@ -259,8 +263,10 @@ func importLegacyJobs(ctx context.Context, cfg config.Config, db *store.Store) e
 		taken[name] = true
 		names[j.ID] = name
 		title := legacyTitle(name)
-		if j.Name == "reflect" || j.Name == "tidy" {
-			title = strings.ToUpper(j.Name[:1]) + j.Name[1:]
+		for _, d := range defaultJobs {
+			if d.Name == name {
+				title = d.Title
+			}
 		}
 		err := db.AddJob(ctx, store.Job{
 			Name: name, Title: title, Schedule: j.Schedule, Prompt: j.Prompt, Slot: j.Slot, Silent: j.Silent,
@@ -271,32 +277,41 @@ func importLegacyJobs(ctx context.Context, cfg config.Config, db *store.Store) e
 		}
 	}
 
+	// The runs go in once, apart from the steps after them, so a failure
+	// later on does not import them again.
 	runs := 0
-	records, _ := filepath.Glob(filepath.Join(cfg.State, "runs", "*", "*.json"))
-	for _, path := range records {
-		var run struct {
-			store.Run
-			JobID string `json:"job_id"`
-		}
-		data, err := os.ReadFile(path)
-		if err != nil || json.Unmarshal(data, &run) != nil {
-			continue
-		}
-		name, ok := names[run.JobID]
-		if !ok {
-			// The job was removed; its runs keep its id for a name.
-			name = run.JobID
-		}
-		run.Run.Job = name
-		if err := db.AddRun(ctx, run.Run); err != nil {
-			return err
-		}
-		if run.SessionID != "" {
-			if err := db.SetSessionJob(ctx, run.SessionID, name); err != nil {
+	if done, err := db.Setting(ctx, runsImportedKey); err != nil {
+		return err
+	} else if done == "" {
+		records, _ := filepath.Glob(filepath.Join(cfg.State, "runs", "*", "*.json"))
+		for _, path := range records {
+			var run struct {
+				store.Run
+				JobID string `json:"job_id"`
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || json.Unmarshal(data, &run) != nil {
+				continue
+			}
+			name, ok := names[run.JobID]
+			if !ok {
+				// The job was removed; its runs keep its id for a name.
+				name = run.JobID
+			}
+			run.Run.Job = name
+			if err := db.AddRun(ctx, run.Run); err != nil {
 				return err
 			}
+			if run.SessionID != "" {
+				if err := db.SetSessionJob(ctx, run.SessionID, name); err != nil {
+					return err
+				}
+			}
+			runs++
 		}
-		runs++
+		if err := db.SetSetting(ctx, runsImportedKey, "1"); err != nil {
+			return err
+		}
 	}
 
 	// den's own jobs it added, by their new names.

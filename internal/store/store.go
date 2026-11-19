@@ -136,7 +136,6 @@ var migrations = []string{
 		session_id    TEXT NOT NULL DEFAULT '',
 		started       INTEGER NOT NULL,
 		duration      INTEGER NOT NULL DEFAULT 0,
-		exit_code     INTEGER NOT NULL DEFAULT 0,
 		output        TEXT NOT NULL DEFAULT '',
 		error         TEXT NOT NULL DEFAULT '',
 		stderr        TEXT NOT NULL DEFAULT '',

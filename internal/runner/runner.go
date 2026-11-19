@@ -76,7 +76,7 @@ func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn
 		Job:       j.Name,
 		Started:   reply.Started,
 		Duration:  reply.Duration,
-		SessionID: reply.SessionID,
+		SessionID: session,
 		Output:    reply.Output,
 		Error:     reply.Error,
 		Stderr:    reply.Stderr,

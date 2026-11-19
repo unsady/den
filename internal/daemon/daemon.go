@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -145,11 +144,12 @@ func Serve(cfg config.Config) error {
 	if err := importLegacy(ctx, cfg, db); err != nil {
 		log.Printf("import: %v", err)
 	}
+	jobStore := jobs.New(db)
+	// den's own jobs wait for the older den's, which say which of them the
+	// user removed.
 	if err := importLegacyJobs(ctx, cfg, db); err != nil {
 		log.Printf("import jobs: %v", err)
-	}
-	jobStore := jobs.New(db)
-	if err := addDefaultJobs(ctx, db, jobStore); err != nil {
+	} else if err := addDefaultJobs(ctx, db, jobStore); err != nil {
 		return err
 	}
 
@@ -228,6 +228,7 @@ func Serve(cfg config.Config) error {
 	}()
 
 	go d.loop()
+	d.wg.Go(d.sweeping)
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.events)
@@ -291,13 +292,8 @@ func (d *daemon) loop() {
 	t := time.NewTicker(tick)
 	defer t.Stop()
 
-	var swept time.Time
 	for {
 		d.runDue()
-		if time.Since(swept) > sweepEvery {
-			swept = time.Now()
-			d.sweep()
-		}
 		select {
 		case <-d.ctx.Done():
 			return
@@ -313,20 +309,44 @@ const (
 	sweepEvery   = 24 * time.Hour
 )
 
+// sweeping runs sweep every sweepEvery, apart from the jobs, which a long
+// sweep would hold up.
+func (d *daemon) sweeping() {
+	t := time.NewTicker(sweepEvery)
+	defer t.Stop()
+
+	for {
+		d.sweep()
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
 // sweep deletes the sessions of job runs that wrote to the user longer
 // than unrepliedFor ago and that the user never replied to.
 func (d *daemon) sweep() {
 	ids, err := d.db.Unreplied(d.ctx, store.KindJob, time.Now().Add(-unrepliedFor))
+	if err != nil || len(ids) == 0 {
+		if err != nil {
+			log.Printf("sweep: %v", err)
+		}
+		return
+	}
+	inFX, err := d.fxSessions()
 	if err != nil {
 		log.Printf("sweep: %v", err)
 		return
 	}
+
 	deleted := 0
 	for _, id := range ids {
 		if d.ctx.Err() != nil {
 			return
 		}
-		if _, err := d.deleteSession(d.ctx, id); err != nil {
+		if _, err := d.dropSession(d.ctx, id, inFX[id], true); err != nil {
 			log.Printf("sweep: session %s: %v", id, err)
 			continue
 		}
@@ -410,31 +430,32 @@ func (d *daemon) start(j jobs.Job) bool {
 		// The run's session is in the store before it runs, so what its
 		// commands report goes there, and it is not deleted meanwhile.
 		session := store.NewID()
+		var run jobs.Run
 		err := d.db.AddSession(d.ctx, store.Session{
 			ID: session, Kind: store.KindJob, Job: j.Name, Title: j.Title,
 			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
 		})
 		if err != nil {
-			log.Printf("job %s: session: %v", j.Name, err)
-			return
+			run = jobs.Run{Job: j.Name, Started: time.Now(), Error: fmt.Sprintf("den could not keep its session: %v", err)}
+		} else {
+			release := d.chat.Occupy(session)
+			d.mu.Lock()
+			d.jobTurns[turn] = session
+			d.mu.Unlock()
+
+			run = runner.Run(d.ctx, d.cfg, j, choice, turn, session)
+
+			d.mu.Lock()
+			delete(d.jobTurns, turn)
+			d.mu.Unlock()
+			release()
 		}
-		release := d.chat.Occupy(session)
-		d.mu.Lock()
-		d.jobTurns[turn] = session
-		d.mu.Unlock()
-
-		run := runner.Run(d.ctx, d.cfg, j, choice, turn, session)
-
-		d.mu.Lock()
-		delete(d.jobTurns, turn)
-		d.mu.Unlock()
-		release()
 
 		run.Delivered = d.deliver(j, run)
-		// A run that wrote nothing to the user leaves nothing to go on
-		// with, so its session goes.
-		if !run.Delivered {
-			if _, err := d.deleteSession(d.ctx, session); err != nil {
+		// A run that has nothing for the user leaves nothing to go on
+		// with, so its session goes. One den failed to send keeps it.
+		if silent(j, run) && run.SessionID != "" {
+			if _, err := d.deleteSession(d.ctx, run.SessionID); err != nil {
 				log.Printf("job %s: delete session: %v", j.Name, err)
 			}
 			run.SessionID = ""
@@ -469,16 +490,33 @@ func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) 
 func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {
 	// fx saves a session with its first turn, so it may not have one den
 	// named, and den may not know one fx has.
-	list, err := sessions.List(d.cfg.Sessions, 1<<20)
+	inFX, err := d.fxSessions()
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-	inFX := slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id })
 	_, err = d.db.Session(ctx, id)
-	inStore := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return http.StatusInternalServerError, err
 	}
+	return d.dropSession(ctx, id, inFX[id], err == nil)
+}
+
+// fxSessions are the sessions fx saved.
+func (d *daemon) fxSessions() (map[string]bool, error) {
+	list, err := sessions.List(d.cfg.Sessions, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]bool, len(list))
+	for _, s := range list {
+		ids[s.ID] = true
+	}
+	return ids, nil
+}
+
+// dropSession is deleteSession for a session that fx and den's store have
+// as inFX and inStore say.
+func (d *daemon) dropSession(ctx context.Context, id string, inFX, inStore bool) (int, error) {
 	if !inFX && !inStore {
 		return http.StatusNotFound, fmt.Errorf("no session %s", id)
 	}
@@ -515,7 +553,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 	var text string
 	switch {
 	case run.Error != "":
-		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Name, run.Error)
+		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Title, run.Error)
 		// fx says why on its last line, such as that no provider is set up.
 		lines := strings.Split(strings.TrimSpace(run.Stderr), "\n")
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
