@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/filelock"
 )
 
 // Version is the claude release den runs. Raising it makes den download
@@ -73,6 +74,17 @@ func (c *Claude) Install(ctx context.Context) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
+	}
+
+	// The daemon and den connect claude may both install it: the second
+	// waits, and finds it there.
+	unlock, err := filelock.Lock(path + ".lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, err := os.Stat(path); err == nil {
+		return nil
 	}
 
 	log.Printf("claude: downloading %s", Version)
