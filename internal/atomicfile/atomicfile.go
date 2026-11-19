@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 )
 
-// Write writes data to a new file next to path and renames it over path.
+// Write writes data to a new file next to path, flushes it to the disk,
+// and renames it over path.
 // Each write has its own temporary file, ending in .tmp, so two writes at
 // once never mix.
 func Write(path string, data []byte, perm os.FileMode) error {
@@ -20,6 +21,9 @@ func Write(path string, data []byte, perm os.FileMode) error {
 	_, err = f.Write(data)
 	if err == nil {
 		err = f.Chmod(perm)
+	}
+	if err == nil {
+		err = f.Sync()
 	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
