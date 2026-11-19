@@ -23,7 +23,7 @@ import (
 
 // Path is fx's settings file in the agent's profile, ~/.fx/settings.json.
 func Path(cfg config.Config) string {
-	return filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "settings.json")
+	return filepath.Join(cfg.Sessions, "..", "..", "settings.json")
 }
 
 // Edit calls change with fx's settings, and writes them back when it
