@@ -156,29 +156,3 @@ func idsOf(list []Session) string {
 	}
 	return out
 }
-
-func TestRenameKeepsCursorAndMessages(t *testing.T) {
-	s, ctx := open(t), context.Background()
-	if err := s.AddSession(ctx, Session{ID: "old", Kind: Chat, Title: "Plans"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetCursor(ctx, Telegram, "old"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SentTelegram(ctx, "old", 5); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.RenameSession(ctx, "old", "new"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := s.Cursor(ctx, Telegram); got != "new" {
-		t.Fatalf("cursor %q", got)
-	}
-	if got, _ := s.TelegramSession(ctx, 5); got != "new" {
-		t.Fatalf("message in %q", got)
-	}
-	if got, _ := s.Session(ctx, "new"); got.Title != "Plans" {
-		t.Fatalf("title %q", got.Title)
-	}
-}

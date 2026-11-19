@@ -82,25 +82,18 @@ func (c *Chat) compactNow(ctx context.Context) string {
 	return fmt.Sprintf("🗜 Compacted the session: now %s tokens.", tokens(after))
 }
 
-// compacted records that fx compacted session into id, from used tokens
-// to after: fx gives the compacted session an id of its own, which the
-// store's session takes, with the cursors in it and the bot's messages.
-func (c *Chat) compacted(session, id string, used, after int, quiet bool) {
+// compacted records that fx compacted session, from used tokens to after.
+// fx compacts a session in place, under its id.
+func (c *Chat) compacted(session string, used, after int, quiet bool) {
 	ctx := context.Background()
-	if id != session {
-		if err := c.store.RenameSession(ctx, session, id); err != nil {
-			log.Printf("chat: compacted session %s: %v", session, err)
-			return
-		}
-	}
-	if err := c.store.SetContext(ctx, id, after); err != nil {
-		log.Printf("chat: compacted session %s: %v", id, err)
+	if err := c.store.SetContext(ctx, session, after); err != nil {
+		log.Printf("chat: compacted session %s: %v", session, err)
 	}
 	if quiet {
 		used = 0
 	}
-	if err := c.store.SetCompacted(ctx, id, used); err != nil {
-		log.Printf("chat: compacted session %s: %v", id, err)
+	if err := c.store.SetCompacted(ctx, session, used); err != nil {
+		log.Printf("chat: compacted session %s: %v", session, err)
 	}
 }
 
@@ -172,8 +165,8 @@ func (c *Chat) squeezeSession(ctx context.Context, quiet bool) (int, error) {
 	c.stop = nil
 	c.mu.Unlock()
 
-	if reply.Error == "" && reply.SessionID != "" {
-		c.compacted(session, reply.SessionID, used, after, quiet)
+	if reply.Error == "" {
+		c.compacted(session, used, after, quiet)
 	}
 
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {

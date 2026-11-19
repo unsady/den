@@ -159,13 +159,6 @@ func (s *Store) Sessions(ctx context.Context, f Filter) ([]Session, error) {
 	return list, rows.Err()
 }
 
-// RenameSession gives session old the id fx gave it anew, such as after
-// compacting it. The cursors and the bot's messages follow it.
-func (s *Store) RenameSession(ctx context.Context, old, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET id = ?, updated = ? WHERE id = ?`, id, unix(time.Now()), old)
-	return err
-}
-
 // DeleteSession forgets session id, with the cursors in it and the bot's
 // messages it wrote. It is not an error when there is none.
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
