@@ -15,6 +15,7 @@ import (
 
 	"github.com/unsady/den/internal/acp"
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/gitproxy"
 	"github.com/unsady/den/internal/proc"
 	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/sessions"
@@ -233,6 +234,11 @@ func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session 
 	}
 	cmd.Dir = a.cfg.Space
 	cmd.Env = append(cmd.Env, "DEN_TURN="+a.key)
+	// git names the turn to den's proxy for GitHub only, so a push that
+	// waits for the user tells this agent what came of it.
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.http://"+gitproxy.Addr+"/.extraHeader",
+		"GIT_CONFIG_VALUE_0="+gitproxy.TurnHeader+": "+a.key)
 	stderr := &tail{limit: 8 << 10}
 	cmd.Stderr = stderr
 

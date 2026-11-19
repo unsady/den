@@ -57,6 +57,12 @@ const maxHeld = 64 << 20
 // paths are the requests of git's smart HTTP protocol for one repository.
 var paths = regexp.MustCompile(`^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/(info/refs|git-upload-pack|git-receive-pack)$`)
 
+// TurnHeader names the agent's turn in its git's requests to den: the
+// agent's fx sets it for git from DEN_TURN, so a push that waits for the
+// user tells that turn what came of it. Like DEN_TURN, it only says where
+// den's answer goes, and allows nothing.
+const TurnHeader = "X-Den-Turn"
+
 type Proxy struct {
 	cfg   config.Config
 	later Later
@@ -66,7 +72,7 @@ type Proxy struct {
 	// as the fetcher's Report does.
 	Report func(turn, agent, user string)
 	// Turn names the chat's turn running now, if any, which most likely
-	// pushed: git carries no DEN_TURN.
+	// pushed, for a push whose git did not name its turn in TurnHeader.
 	Turn func() string
 	// upstream is GitHub's address, and api its API's; tests change them.
 	// Without api, a question shows a push by its commit IDs alone.
@@ -116,6 +122,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner, repo, op := m[1], m[2], m[3]
+	// The turn is den's business, not GitHub's.
+	turn := r.Header.Get(TurnHeader)
+	r.Header.Del(TurnHeader)
 
 	// A push's branches become the agent's only once GitHub took them, so
 	// a push GitHub refuses cannot claim a branch, such as main.
@@ -128,7 +137,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = io.NopCloser(body)
 		if q := p.question(owner+"/"+repo, commands); q != nil {
-			if !p.hold(w, r, owner, repo, body, commands, caps, *q) {
+			if !p.hold(w, r, owner, repo, turn, body, commands, caps, *q) {
 				return
 			}
 		} else if p.Note != nil {
@@ -228,7 +237,7 @@ func pushName(repo string, commands []command) string {
 // hold asks the user about a push. It returns true when a rule allows it
 // and the push goes on. Otherwise it keeps the push, refuses it for now so
 // git does not wait, and sends it to GitHub once the user allows it.
-func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo string, body io.Reader, commands []command, caps string, q approve.Question) bool {
+func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, turn string, body io.Reader, commands []command, caps string, q approve.Question) bool {
 	data, err := io.ReadAll(io.LimitReader(body, maxHeld+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -240,8 +249,7 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo string,
 	}
 	r.Body = io.NopCloser(bytes.NewReader(data))
 
-	turn := ""
-	if p.Turn != nil {
+	if turn == "" && p.Turn != nil {
 		turn = p.Turn()
 	}
 	header := r.Header.Clone()

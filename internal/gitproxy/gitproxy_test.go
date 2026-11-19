@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -50,11 +51,12 @@ func TestPush(t *testing.T) {
 	must(seed, "push", bare, "main")
 
 	var mu sync.Mutex
-	var auth []string
+	var auth, turns []string
 	backend := &cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + filepath.Join(root, "github"), "GIT_HTTP_EXPORT_ALL=1"}}
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		auth = append(auth, r.Header.Get("Authorization"))
+		turns = append(turns, r.Header.Get(TurnHeader))
 		mu.Unlock()
 		backend.ServeHTTP(w, r)
 	}))
@@ -96,8 +98,9 @@ func TestPush(t *testing.T) {
 	}
 
 	// main is not the agent's: den keeps the push and refuses it for now,
-	// and the user denies it.
-	out, err := run(work, "push", "origin", "HEAD:main")
+	// and the user denies it. The agent's git names its turn, which den
+	// keeps to itself.
+	out, err := run(work, "-c", "http.extraHeader="+TurnHeader+": t2", "push", "origin", "HEAD:main")
 	if err == nil || !strings.Contains(out, "den: waiting for the user in Telegram") {
 		t.Fatalf("held push: %v\n%s", err, out)
 	}
@@ -128,7 +131,7 @@ func TestPush(t *testing.T) {
 		t.Fatalf("main is at %q", head)
 	}
 	want := []string{
-		"t1 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
+		"t2 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
 		"t1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches.]",
 	}
 	if len(reports) != 3 || reports[0] != want[0] || reports[1] != want[1] || !strings.Contains(reports[2], "GitHub refused it: refs/heads/main") {
@@ -137,6 +140,9 @@ func TestPush(t *testing.T) {
 
 	// The agent's own branch goes away without a question, and den
 	// remembers its branches across restarts.
+	if slices.ContainsFunc(turns, func(s string) bool { return s != "" }) {
+		t.Fatalf("GitHub got the turn: %q", turns)
+	}
 	if !New(cfg, nil).mine["me/repo:feature"] {
 		t.Fatal("forgot the agent's branch")
 	}
