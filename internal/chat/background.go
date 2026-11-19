@@ -135,8 +135,8 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 			log.Printf("chat: background session: %v", err)
 			return
 		}
-		c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: session, Title: s.Title, Text: task})
-		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Text: answer(reply, false), Failed: reply.Error != ""})
+		c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: task})
+		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: answer(reply, false), Failed: reply.Error != ""})
 		if app {
 			return
 		}

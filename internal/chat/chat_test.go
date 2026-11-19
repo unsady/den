@@ -359,9 +359,10 @@ func TestChat(t *testing.T) {
 	telegram.message(42, "/stop")
 	telegram.expect(t, "Nothing is running.")
 
-	// A turn shows the steps fx reports, then deletes them before replying.
+	// A turn shows the steps fx reports, with what the agent said before
+	// the latest, then deletes them before replying.
 	telegram.message(42, "steps")
-	telegram.expect(t, "Working…\n• Read a.txt\n→ Running ls ×2…")
+	telegram.expect(t, "Working…\n• Read a.txt\n→ Running ls ×2…\n   Listing the folder.")
 	select {
 	case id := <-telegram.deleted:
 		if id != 7 {
@@ -484,8 +485,6 @@ type fakeDaemon struct {
 	// jobSessions are the sessions of job runs.
 	jobSessions map[string]bool
 }
-
-func (f *fakeDaemon) Busy(turn string) bool { return false }
 
 func (f *fakeDaemon) JobSessions() map[string]bool {
 	f.mu.Lock()
@@ -813,7 +812,7 @@ func TestProgressNote(t *testing.T) {
 
 	// A note from before the turn is not shown.
 	c.Note("s1", "stale")
-	lines, done := make(chan string, 4), make(chan struct{})
+	lines, done := make(chan progress, 4), make(chan struct{})
 	shown := make(chan struct{})
 	go func() {
 		c.showProgress(context.Background(), lines, done, true)
@@ -824,7 +823,7 @@ func TestProgressNote(t *testing.T) {
 		<-shown
 	}()
 
-	lines <- "Running den map -p @prompt.md jobs.jsonl"
+	lines <- progress{line: "Running den map -p @prompt.md jobs.jsonl"}
 	time.Sleep(50 * time.Millisecond)
 	// Another session's agent, such as a job's, or none, is not this turn.
 	c.Note("", "🗂 from no session")
@@ -833,14 +832,32 @@ func TestProgressNote(t *testing.T) {
 	telegram.expect(t, "Working…\n→ Running den map…\n   🗂 3 of 10 items")
 
 	// The next step ends the note.
-	lines <- "Reading jobs.out.jsonl"
+	lines <- progress{line: "Reading jobs.out.jsonl"}
+	if got := edited(t, telegram); strings.Contains(got, "🗂") || !strings.Contains(got, "jobs.out.jsonl") {
+		t.Fatalf("edited %q", got)
+	}
+
+	// What the agent said before a step goes under it, until the next.
+	lines <- progress{line: "Fetching https://old.reddit.com/r/x"}
+	lines <- progress{said: "Reddit gives a stub,\ntrying the old site."}
+	if got := edited(t, telegram); !strings.HasSuffix(got, "→ Reading old.reddit.com…\n   Reddit gives a stub, trying the old site.") {
+		t.Fatalf("edited %q", got)
+	}
+	lines <- progress{line: "Reading notes.md"}
+	if got := edited(t, telegram); strings.Contains(got, "Reddit") {
+		t.Fatalf("edited %q", got)
+	}
+}
+
+// edited waits for the next edit of a message.
+func edited(t *testing.T, telegram *fakeTelegram) string {
+	t.Helper()
 	select {
 	case got := <-telegram.edited:
-		if strings.Contains(got, "🗂") || !strings.Contains(got, "jobs.out.jsonl") {
-			t.Fatalf("edited %q", got)
-		}
+		return got
 	case <-time.After(5 * time.Second):
 		t.Fatal("the progress message was not edited")
+		return ""
 	}
 }
 
@@ -1551,7 +1568,8 @@ func seed(t *testing.T, c *Chat, sessions ...store.Session) {
 }
 
 // TestRunning checks that a client reading the setup sees each running turn
-// with its latest step, and no longer once it ends.
+// with its latest step, which is what the agent said before it when it
+// said something, and no longer once it ends.
 func TestRunning(t *testing.T) {
 	ctx := context.Background()
 	_, telegram, c := startChatWith(t, nil)
@@ -1562,7 +1580,7 @@ func TestRunning(t *testing.T) {
 	telegram.message(42, "steps")
 	waitFor(t, func() bool {
 		setup, _ := c.Setup(ctx)
-		return setup.Running[session] == "Running ls"
+		return setup.Running[session] == "Listing the folder."
 	})
 
 	waitFor(t, func() bool {

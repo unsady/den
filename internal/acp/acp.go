@@ -137,18 +137,18 @@ type message struct {
 
 // Conn is one running fx acp server.
 type Conn struct {
-	// OnDropped is called when fx reports that a steer was not delivered,
-	// with the session and the text. A steer also counts as dropped when the
-	// server exits before it answers. Set it before the first Steer. It runs
-	// on its own goroutine.
-	OnDropped func(session, text string)
+	// OnDropped is called when fx did not deliver a steer, with the session
+	// and the key given to Steer. Any error fx answers a steer with counts,
+	// and so does the server exiting before it answers. Set it before the
+	// first Steer. It runs on its own goroutine.
+	OnDropped func(session, key string)
 
 	// OnTurn is called when fx ran a steer as a turn of its own, which it
 	// does when the running turn had already closed its input. res is that
 	// turn's result, built as Prompt builds it. Set it before the first
 	// Steer. It runs on its own goroutine. Until that turn answers, Prompt
 	// in the session returns ErrBusy.
-	OnTurn func(session, text string, res Result)
+	OnTurn func(session, key string, res Result)
 
 	w   io.Writer
 	wmu sync.Mutex
@@ -170,7 +170,7 @@ type Conn struct {
 // of its own, the turn's text collects here.
 type steer struct {
 	session string
-	text    string
+	key     string
 	// running is set when updates arrived for the steer, which then is a
 	// turn of its own.
 	running bool
@@ -372,9 +372,10 @@ func (c *Conn) Cancel(session string) error {
 // its next safe point. It returns when the request is written. fx answers
 // when the turn ends: a steer that the turn did not take is reported to
 // OnDropped. A steer that arrives just as the turn ends runs as a turn of
-// its own, which is reported to OnTurn. With nothing running in the session
-// Steer returns ErrIdle and sends nothing.
-func (c *Conn) Steer(ctx context.Context, session, text string) error {
+// its own, which is reported to OnTurn. Both get key, which tells the
+// caller's steers apart. With nothing running in the session Steer returns
+// ErrIdle and sends nothing.
+func (c *Conn) Steer(ctx context.Context, session, key, text string) error {
 	params := map[string]any{
 		"sessionId": session,
 		"prompt":    []any{map[string]any{"type": "text", "text": text}},
@@ -392,7 +393,7 @@ func (c *Conn) Steer(ctx context.Context, session, text string) error {
 	}
 	c.nextID++
 	id := c.nextID
-	c.steers[id] = &steer{session: session, text: text}
+	c.steers[id] = &steer{session: session, key: key}
 	c.pending[id] = c.steerAnswered(id)
 	c.mu.Unlock()
 
@@ -419,8 +420,10 @@ func (c *Conn) steerAnswered(id int64) func(*message) {
 			return
 		}
 
-		dropped := m.gone != nil || (m.Error != nil && strings.Contains(m.Error.Message, "not delivered"))
-		if m.gone == nil && m.Error == nil {
+		// fx answers a steer the turn ended before with an error, and its
+		// message is no contract, so any error means it was not delivered.
+		dropped := m.gone != nil || m.Error != nil
+		if !dropped {
 			var meta struct {
 				Meta struct {
 					Fx struct {
@@ -437,14 +440,14 @@ func (c *Conn) steerAnswered(id int64) func(*message) {
 				res, err := parseResult(m.Result)
 				if err == nil && c.OnTurn != nil {
 					res.Text = st.reply.String()
-					go c.OnTurn(st.session, st.text, res)
+					go c.OnTurn(st.session, st.key, res)
 				}
 				return
 			}
 			dropped = true
 		}
 		if dropped && c.OnDropped != nil {
-			go c.OnDropped(st.session, st.text)
+			go c.OnDropped(st.session, st.key)
 		}
 	}
 }

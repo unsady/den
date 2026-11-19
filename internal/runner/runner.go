@@ -105,12 +105,12 @@ type Request struct {
 	Resume string
 	// Images are attached to the request.
 	Images []string
-	// MaySilence keeps a reply of Silent as it is, for a turn that need not
-	// answer, instead of taking the session's last answer in its place.
-	MaySilence bool
 	// Progress, when set, receives each line fx writes to stderr while it
 	// works, such as "Reading notes/todo.md" before a tool runs.
 	Progress func(line string)
+	// Said, when set, receives what the agent wrote before a step, right
+	// after that step's line went to Progress.
+	Said func(text string)
 }
 
 // Reply is what one turn produced. Error is empty on success.

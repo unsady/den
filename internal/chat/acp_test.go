@@ -101,6 +101,7 @@ func fakeACP(args []string) {
 		case strings.HasPrefix(first, "steps"):
 			tool("Reading", "path", "a.txt")
 			tool("Running", "command", "ls")
+			update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": "Listing the folder."}})
 			tool("Running", "command", "ls -la")
 			if !wait(time.Second) {
 				stop = "cancelled"
