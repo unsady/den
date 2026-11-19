@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	_ "time/tzdata"
 
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"

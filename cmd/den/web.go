@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	_ "time/tzdata"
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/client"

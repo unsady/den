@@ -9,7 +9,6 @@ import (
 	"slices"
 	"text/tabwriter"
 	"time"
-	_ "time/tzdata"
 
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
