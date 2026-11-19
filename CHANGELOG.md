@@ -18,6 +18,7 @@ release notes.
 
 ### Fixed
 
+- A job that runs `den map` waits for it and gets its result, instead of ending at once while the run went on in den's background and its result came to you as a notice.
 - A reply in Telegram is marked as coming from another session only when it does: the app no longer moves Telegram's chat to the session it opens, so after /new your next reply no longer comes headed with an old session's title.
 - A job run that wrote to you keeps its session, so a reply to its message goes on there however many runs come after it.
 - The app stays paired on every device: `den app pair` makes a link for one more device, such as a phone and a laptop, rather than shutting out the one before. `den app unpair` still shuts every device out.

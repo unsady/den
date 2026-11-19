@@ -65,7 +65,7 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, err)
 	case waiting:
 		reply(w, http.StatusAccepted, MapReply{Waiting: true})
-	case req.Turn != "":
+	case d.chat.Session(req.Turn) != "":
 		// A run of the chat's agent goes on in den's background even when a
 		// rule allows it, so the user can talk to the agent meanwhile. A
 		// job's agent has no chat to hear back in, so it runs its own.
