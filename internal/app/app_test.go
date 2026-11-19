@@ -36,6 +36,13 @@ func (f *fakeChat) Post(_ context.Context, text, session string, files []chat.Fi
 	return nil
 }
 
+func (f *fakeChat) Start(_ context.Context, text string, files []chat.File) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posted = append(f.posted, "new:"+text)
+	return "s1", nil
+}
+
 func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
@@ -155,6 +162,12 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("POST", "/messages", token, `{"text":"","files":[{"name":"a.png","data":"aGk="}]}`); status != http.StatusOK || strings.Join(c.posted, "|") != "Plan my week||a.png:hi" {
 		t.Fatalf("file: %d %v", status, c.posted)
+	}
+	if status, body := call("POST", "/messages", token, `{"text":"Plan my trip","new":true}`); status != http.StatusOK || !strings.Contains(body, `"session":"s1"`) || c.posted[len(c.posted)-1] != "new:Plan my trip" {
+		t.Fatalf("new: %d %s %v", status, body, c.posted)
+	}
+	if status, _ := call("POST", "/messages", token, `{"text":"hi","new":true,"session":"s1"}`); status != http.StatusBadRequest {
+		t.Fatalf("new with a session: %d", status)
 	}
 
 	if status, body := call("PUT", "/effort", token, `{"effort":"high"}`); status != http.StatusOK || !strings.Contains(body, `"effort":"high"`) {

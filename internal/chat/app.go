@@ -14,6 +14,7 @@ import (
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/store"
 )
 
 // What the app asks of the chat. The app and Telegram share the chat: its
@@ -41,7 +42,23 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 		c.runBackground(ctx, nil, task)
 		return nil
 	}
+	return c.post(ctx, text, session, files)
+}
 
+// Start gives text and files from the app to a new session of their own,
+// which waits for a turn as any other, and returns the session's ID. A /bg
+// task there is only text.
+func (c *Chat) Start(ctx context.Context, text string, files []File) (string, error) {
+	session := newSession()
+	if err := c.store.AddSession(context.Background(), store.Session{ID: session, Kind: store.KindChat}); err != nil {
+		return "", err
+	}
+
+	return session, c.post(ctx, text, session, files)
+}
+
+// post gives text and files to session, the chat's when it is empty.
+func (c *Chat) post(ctx context.Context, text, session string, files []File) error {
 	entries := []entry{{text: text}}
 	if len(files) > 0 {
 		entries = nil
