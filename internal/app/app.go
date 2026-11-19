@@ -255,7 +255,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		list := []message{}
 		for _, e := range journal {
-			list = append(list, message{Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files})
+			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files})
 		}
 		reply(w, list)
 	})
@@ -433,6 +433,8 @@ type session struct {
 
 // message is one message of a session as the user saw it.
 type message struct {
+	// Key is the event's that brought it, empty in a journal older than keys.
+	Key string `json:"key,omitempty"`
 	// Mine marks the user's message; the others are den's.
 	Mine   bool      `json:"mine"`
 	Text   string    `json:"text"`

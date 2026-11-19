@@ -23,6 +23,9 @@ func TestJournal(t *testing.T) {
 	if len(list) != 2 || list[0].Type != Message || list[0].Text != "hello" || list[1].Text != "hi" || list[1].Session != "s1" {
 		t.Fatalf("journal %+v", list)
 	}
+	if list[0].Key == "" || list[0].Key == list[1].Key {
+		t.Fatalf("keys %q and %q", list[0].Key, list[1].Key)
+	}
 
 	if list, _ := Journal(h.Dir, "job1"); len(list) != 1 || list[0].Title != "morning" {
 		t.Fatalf("job journal %+v", list)
@@ -54,5 +57,34 @@ func TestFile(t *testing.T) {
 	h.Forget("s1")
 	if _, err := os.Stat(h.FilePath("s1", file)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("forgotten: %v", err)
+	}
+}
+
+// TestSlowListener checks that a listener that falls behind is dropped, so
+// it knows it missed events, while the others go on.
+func TestSlowListener(t *testing.T) {
+	var h Hub
+	slow, stopSlow := h.Listen()
+	fast, stopFast := h.Listen()
+	defer stopFast()
+
+	for range buffer + 1 {
+		h.Publish(Event{Type: Step, Session: "s1"})
+		<-fast
+	}
+
+	n := 0
+	for range slow {
+		n++
+	}
+	if n != buffer {
+		t.Fatalf("the slow listener got %d events, then its channel should close", n)
+	}
+	// Stopping a dropped listener does nothing.
+	stopSlow()
+
+	h.Publish(Event{Type: Idle, Session: "s1"})
+	if e := <-fast; e.Type != Idle {
+		t.Fatalf("the fast listener got %+v", e)
 	}
 }

@@ -18,6 +18,8 @@ release notes.
 ### Fixed
 
 - The app shows what each running turn does after it comes back to the foreground; it used to drop the step of every turn outside the chat's own session.
+- The app no longer misses or doubles messages: den reconnects an app that falls behind instead of dropping events, and each message has a key the app keeps it once by.
+- The app says when den or the app needs an update to understand the other.
 
 ## v0.11.0
 

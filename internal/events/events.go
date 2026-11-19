@@ -54,10 +54,13 @@ const (
 // Event is one thing that happened. Fields that do not apply to its kind
 // are empty.
 type Event struct {
-	Type    string    `json:"type"`
-	At      time.Time `json:"at"`
-	Session string    `json:"session,omitempty"`
-	Text    string    `json:"text,omitempty"`
+	Type string    `json:"type"`
+	At   time.Time `json:"at"`
+	// Key tells the event from any other, so a client that reads it twice,
+	// live and in its session's messages, keeps it once.
+	Key     string `json:"key"`
+	Session string `json:"session,omitempty"`
+	Text    string `json:"text,omitempty"`
 	// Title is the session's title: a job's result carries it, as do a /bg
 	// task's message and reply, and the event that titles a session.
 	Title string `json:"title,omitempty"`
@@ -101,17 +104,21 @@ type Hub struct {
 	listeners map[chan Event]bool
 }
 
-// buffer is how many events wait for a slow listener before it misses some.
+// buffer is how many events wait for a slow listener before den drops it.
 const buffer = 64
 
-// Publish passes e to every listener. A listener whose buffer is full
-// misses it rather than holds den up.
+// Publish passes e to every listener. A listener whose buffer is full is
+// dropped rather than holds den up: its channel closes, so it knows it
+// missed events and reads the state anew.
 func (h *Hub) Publish(e Event) {
 	if h == nil {
 		return
 	}
 	if e.At.IsZero() {
 		e.At = time.Now()
+	}
+	if e.Key == "" {
+		e.Key = rand.Text()[:16]
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -120,6 +127,8 @@ func (h *Hub) Publish(e Event) {
 		select {
 		case l <- e:
 		default:
+			delete(h.listeners, l)
+			close(l)
 		}
 	}
 }
@@ -135,14 +144,13 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 	h.listeners[l] = true
 	h.mu.Unlock()
 
-	var once sync.Once
 	return l, func() {
-		once.Do(func() {
-			h.mu.Lock()
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.listeners[l] {
 			delete(h.listeners, l)
-			h.mu.Unlock()
 			close(l)
-		})
+		}
 	}
 }
 
