@@ -192,6 +192,24 @@ func (f *fakeTelegram) expect(t *testing.T, want string) {
 	}
 }
 
+// expectAll waits for each of want to be sent, in any order.
+func (f *fakeTelegram) expectAll(t *testing.T, want ...string) {
+	t.Helper()
+	left := slices.Clone(want)
+	for len(left) > 0 {
+		select {
+		case got := <-f.sent:
+			i := slices.Index(left, got)
+			if i < 0 {
+				t.Fatalf("sent %q, want one of %q", got, left)
+			}
+			left = slices.Delete(left, i, i+1)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("nothing sent, want %q", left)
+		}
+	}
+}
+
 func (f *fakeTelegram) expectEdit(t *testing.T, want string) {
 	t.Helper()
 	select {
@@ -939,9 +957,7 @@ func TestForget(t *testing.T) {
 	}
 
 	// While a turn runs in the session, it stays.
-	c.stop = func() {}
-	c.turnID = "t1"
-	c.turns = []turnRef{{id: "t1", session: "main"}}
+	release := c.Occupy("main")
 	if err := c.Forget("main", nil); err == nil {
 		t.Fatal("forgot the session a turn runs in")
 	}
@@ -950,7 +966,7 @@ func TestForget(t *testing.T) {
 	}
 
 	// Once it ends, the cursor goes with the session.
-	c.stop, c.turnID = nil, ""
+	release()
 	if err := c.Forget("main", nil); err != nil {
 		t.Fatal(err)
 	}

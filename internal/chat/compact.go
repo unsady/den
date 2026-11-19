@@ -30,7 +30,7 @@ var (
 // is long enough to be worth it.
 func (c *Chat) compact(ctx context.Context) {
 	used := c.sizeOf(c.cursor(store.Telegram))
-	if c.waiting() || used < compactAbove {
+	if c.waiting() || c.agentBusy() || used < compactAbove {
 		return
 	}
 	if _, err := c.squeezeSession(ctx, false); err != nil {
@@ -98,12 +98,17 @@ func (c *Chat) squeezeSession(ctx context.Context, quiet bool) (acp.Compaction, 
 		return acp.Compaction{}, errors.New("a message is waiting")
 	}
 	m := c.mainModel()
+	// The session and the chat's agent are den's alone while it compacts.
 	c.mu.Lock()
+	if c.stop != nil || c.busy[session] > 0 {
+		c.mu.Unlock()
+		return acp.Compaction{}, errors.New("a turn runs")
+	}
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
+	release := c.occupy(session)
 	c.mu.Unlock()
 	defer stop()
-	release := c.Occupy(session)
 	defer release()
 
 	log.Printf("chat: compacting session %s", session)

@@ -171,10 +171,12 @@ type Chat struct {
 	// they went to, which come back as a turn of their own if fx did not
 	// deliver them, unless /stop dropped them.
 	steered map[string]string
-	// busy counts the turns that run in each session besides the worker's,
-	// such as a job's, a /bg task's, or compacting, whose messages wait
-	// until they end.
+	// busy counts the turns that run in each session, the chat's, a job's
+	// or a /bg task's, and compacting, whose messages wait until they end.
 	busy map[string]int
+	// ended says a turn on the chat's agent ended, from when the user's
+	// time away counts.
+	ended chan struct{}
 	// titled are the sessions den asked a title for since it started.
 	titled map[string]bool
 }
@@ -242,12 +244,27 @@ func (c *Chat) Session(turn string) string {
 	return ""
 }
 
-// Occupy marks session busy while a turn runs in it besides the worker's,
-// so its messages wait and it is not deleted, until release.
+// Occupy marks session busy while a turn runs in it, such as a job's, so
+// its messages wait and it is not deleted, until release.
 func (c *Chat) Occupy(session string) (release func()) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.occupy(session)
+}
+
+// claim occupies session unless it is busy already.
+func (c *Chat) claim(session string) (release func(), ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.busy[session] > 0 {
+		return nil, false
+	}
+	return c.occupy(session), true
+}
+
+// occupy marks session busy until release. The caller holds c.mu.
+func (c *Chat) occupy(session string) (release func()) {
 	c.busy[session]++
-	c.mu.Unlock()
 
 	var once sync.Once
 	return func() {
@@ -292,6 +309,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		store:   st,
 		wake:    make(chan struct{}, 1),
 		squeeze: make(chan struct{}, 1),
+		ended:   make(chan struct{}, 1),
 		notes:   make(chan string, 1),
 		bg:      map[string]context.CancelFunc{},
 		agent:   runner.NewAgent(cfg, ""),
@@ -317,9 +335,10 @@ var newSession = store.NewID
 func (c *Chat) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { c.work(ctx) })
+	// The worker starts turns, so it ends before den waits for them.
 	defer c.agent.Close()
-	defer wg.Wait()
 	defer c.background.Wait()
+	defer wg.Wait()
 
 	for ctx.Err() == nil {
 		// Secrets are read on each poll, so they can be added after den starts.
@@ -512,8 +531,7 @@ func (c *Chat) switchTo(session string) {
 // it.
 func (c *Chat) Forget(session string, drop func() error) error {
 	c.mu.Lock()
-	running := c.busy[session] > 0 ||
-		c.stop != nil && slices.ContainsFunc(c.turns, func(t turnRef) bool { return t.id == c.turnID && t.session == session })
+	running := c.busy[session] > 0
 	c.mu.Unlock()
 	if running {
 		return fmt.Errorf("%w; send /stop first", ErrBusy)
@@ -545,8 +563,8 @@ func (c *Chat) tell(ctx context.Context, telegram *notify.Telegram, notices []st
 	}
 }
 
-// queue keeps a message for the next turn. While a turn runs, it marks the
-// message with 👀, so the user sees it waits.
+// queue keeps a message for the next turn in its session. While a turn
+// runs there, it marks the message with 👀, so the user sees it waits.
 //
 // A text for the chat's own session joins the running turn instead, when it
 // is one of the agent's, and is marked with ✍.
@@ -574,7 +592,7 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 		return
 	}
 	c.mu.Lock()
-	busy := c.stop != nil
+	busy := c.busy[session] > 0
 	c.mu.Unlock()
 
 	if busy {
@@ -673,40 +691,63 @@ func (c *Chat) react(ctx context.Context, telegram *notify.Telegram, id int64, e
 	}
 }
 
-// work runs the waiting messages as turns, one turn at a time, and
-// compacts a long session once the user has been away for a while.
+// work starts a turn for each session that has messages waiting and no
+// turn running, so sessions do not wait for each other, and compacts the
+// chat's session once the user has been away for a while.
 func (c *Chat) work(ctx context.Context) {
 	var idle <-chan time.Time
+	// later is set when /compact came while the chat's agent was busy.
+	later := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-c.wake:
+		case <-c.ended:
+			idle = time.After(compactIdle)
+			if later {
+				later = false
+				c.background.Go(func() { c.squeezeNow(ctx) })
+			}
 		case <-idle:
 			idle = nil
-			c.compact(ctx)
+			c.background.Go(func() { c.compact(ctx) })
 		case <-c.squeeze:
-			if telegram, err := notify.Load(c.cfg); err == nil {
-				c.send(ctx, telegram, c.compactNow(ctx))
+			if c.agentBusy() {
+				later = true
+				break
 			}
+			c.background.Go(func() { c.squeezeNow(ctx) })
 		}
 
-		ran := false
 		for ctx.Err() == nil && c.turn(ctx) {
-			ran = true
-		}
-		if ran {
-			idle = time.After(compactIdle)
 		}
 	}
 }
 
-// turn runs the waiting messages for one session as one turn. It returns
-// false when there were none.
+// squeezeNow compacts the chat's session for /compact and tells the user.
+func (c *Chat) squeezeNow(ctx context.Context) {
+	if telegram, err := notify.Load(c.cfg); err == nil {
+		c.send(ctx, telegram, c.compactNow(ctx))
+	}
+}
+
+// agentBusy says whether the chat's agent runs a turn or compacts.
+func (c *Chat) agentBusy() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stop != nil
+}
+
+// turn starts a turn for the waiting messages of one session that has no
+// turn running. It returns false when there were none.
+//
+// A turn in the session a client is in runs on the chat's agent when it is
+// free, so a message sent meanwhile can join it. Any other turn, such as a
+// reply to a job's message, runs on an agent of its own, as /bg does.
 func (c *Chat) turn(ctx context.Context) bool {
-	// Messages for another session, such as replies to a job's message,
-	// wait for a turn of their own. The session is read before its
-	// messages leave the inbox, so a failure leaves them for the next try.
+	// The session is read before its messages leave the inbox, so a
+	// failure leaves them for the next try.
 	c.mu.Lock()
 	busy := c.occupied()
 	c.mu.Unlock()
@@ -722,85 +763,134 @@ func (c *Chat) turn(ctx context.Context) bool {
 		log.Printf("chat: session %s: %v", session, err)
 		return false
 	}
+	// den may have started compacting the session meanwhile.
+	release, ok := c.claim(session)
+	if !ok {
+		return false
+	}
 	messages, err := c.store.TakeTurn(context.Background(), session)
 	if err != nil || len(messages) == 0 {
+		release()
 		if err != nil {
 			log.Printf("chat: inbox: %v", err)
 		}
 		return false
 	}
-	untitled := c.untitled(session)
+	joined := session == c.cursor(store.Telegram) || session == c.cursor(appClient)
 
-	var texts, images []string
+	t := chatTurn{session: session, choice: choice, id: rand.Text(), untitled: c.untitled(session)}
 	// A turn started by den's reports alone, such as that a den map run
 	// ended, may end without a word to the user.
 	// A turn of the app's messages alone answers only in the app; den's
 	// reports go with the messages around them.
-	reports, app, asked := true, true, false
+	var texts []string
+	t.reports, t.app = true, true
 	for _, m := range messages {
-		reports = reports && m.Report
+		t.reports = t.reports && m.Report
 		if !m.Report {
-			asked = true
-			app = app && m.App
+			t.asked = true
+			t.app = t.app && m.App
 		}
 		texts = append(texts, m.Text)
 		if m.Image != "" {
-			images = append(images, m.Image)
+			t.images = append(t.images, m.Image)
 		}
 	}
-	app = app && asked
-	prompt := strings.Join(texts, "\n\n")
+	t.app = t.app && t.asked
+	t.prompt = strings.Join(texts, "\n\n")
 	// A session the user wrote in is kept as a past discussion.
-	if asked {
+	if t.asked {
 		if err := c.store.Replied(context.Background(), session); err != nil {
 			log.Printf("chat: session %s: %v", session, err)
 		}
 	}
 
+	run, stop := context.WithCancel(ctx)
 	c.mu.Lock()
-	provider, model, effort := choice.Provider, choice.Model, choice.Effort
-	turn, stop := context.WithCancel(ctx)
-	c.stop = stop
-	current := rand.Text()
-	c.turnID = current
-	c.attached = nil
-	c.turns = append(c.turns, turnRef{id: current, session: session, app: app})
-	// The agent starts a session den named before its first turn.
-	c.steering = session
-	c.agentTurn = current
+	t.own = !joined || c.stop != nil
+	if t.own {
+		c.bg[t.id] = stop
+		t.agent = runner.NewAgent(c.cfg, t.id)
+	} else {
+		c.stop = stop
+		c.turnID = t.id
+		c.attached = nil
+		// The agent starts a session den named before its first turn.
+		c.steering = session
+		c.agentTurn = t.id
+		t.agent = c.agent
+	}
+	c.turns = append(c.turns, turnRef{id: t.id, session: session, app: t.app})
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
 	c.mu.Unlock()
-	defer stop()
+	if t.own {
+		// The chat's agent may hold the session as it was before this turn.
+		c.agent.Drop(session)
+	}
+
+	c.background.Go(func() {
+		defer release()
+		defer stop()
+		c.run(ctx, run, t)
+	})
+	return true
+}
+
+// chatTurn is a turn of the chat's, from the messages it runs.
+type chatTurn struct {
+	id      string
+	session string
+	choice  runner.Choice
+	prompt  string
+	images  []string
+	// asked says the user wrote, reports that only den's reports came,
+	// and app that only the app's messages and den's reports came.
+	asked, reports, app bool
+	untitled            bool
+	// own marks a turn on an agent of its own rather than the chat's.
+	own   bool
+	agent *runner.Agent
+}
+
+// run runs t until turn ends, and sends its reply. ctx is the chat's,
+// which outlives turn to send what it said.
+func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
+	session := t.session
 	started := time.Now()
 	// A chat session gets its title from the user's first message, while
 	// its first turn runs.
-	if untitled && asked {
-		go c.title(session, prompt)
+	if t.untitled && t.asked {
+		go c.title(session, t.prompt)
 	}
 
+	// A turn on an agent of its own shows no steps, as /bg does: the
+	// chat's progress message is its agent's.
 	done := make(chan struct{})
 	shown := make(chan struct{})
 	steps := make(chan string, 64)
-	if !app {
+	if !t.app {
 		go c.showTyping(turn, done)
 	}
 	go func() {
-		c.showProgress(ctx, steps, done, !app)
+		c.showProgress(ctx, steps, done, !t.app && !t.own)
 		close(shown)
 	}()
 	req := runner.Request{
-		Prompt:     prompt,
-		Provider:   provider,
-		Model:      model,
-		Effort:     effort,
+		Prompt:     t.prompt,
+		Provider:   t.choice.Provider,
+		Model:      t.choice.Model,
+		Effort:     t.choice.Effort,
 		Resume:     session,
-		Images:     images,
+		Images:     t.images,
 		MaySilence: true,
 		Progress: func(line string) {
 			if text, ok := step(line); ok {
 				c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+			}
+			if t.own {
+				return
 			}
 			select {
 			case steps <- line:
@@ -808,24 +898,43 @@ func (c *Chat) turn(ctx context.Context) bool {
 			}
 		},
 	}
-	reply := c.agent.Ask(turn, req)
+	reply := t.agent.Ask(turn, req)
 	close(done)
 	<-shown
 
+	var files []Upload
 	c.mu.Lock()
-	c.stop = nil
-	c.turnID = ""
-	files := c.attached
-	c.attached = nil
-	c.steering = ""
+	if t.own {
+		delete(c.bg, t.id)
+	} else {
+		c.stop = nil
+		c.turnID = ""
+		files = c.attached
+		c.attached = nil
+		c.steering = ""
+	}
 	c.mu.Unlock()
+	if t.own {
+		t.agent.Close()
+	} else {
+		// The user's time away counts from the end of the chat's turn.
+		select {
+		case c.ended <- struct{}{}:
+		default:
+		}
+	}
 
 	if err := c.store.Touch(context.Background(), session); err != nil {
 		log.Printf("chat: touch %s: %v", session, err)
 	}
-	// The agent's turns tell how big their session has grown, and the
-	// first reply after den compacted a session says so.
-	compacted := c.measure(session, started, reply.Error == "")
+	// The chat's turns tell how big their session has grown, and the
+	// first reply after den compacted a session says so. The size is the
+	// largest prompt den saw meanwhile, so a turn on an agent of its own,
+	// which runs besides others, leaves it as it was.
+	compacted := ""
+	if !t.own {
+		compacted = c.measure(session, started, reply.Error == "")
+	}
 
 	log.Printf("chat: turn in %s", reply.Duration)
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
@@ -835,7 +944,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	defer c.Events.Publish(events.Event{Type: events.Idle, Session: session})
 	if turn.Err() == context.Canceled {
 		// /stop already answered, or den is shutting down.
-		return true
+		return
 	}
 	// A turn may end without a word, such as one den's report started, or
 	// one that answers a plain "ok". When a subagent's report took the
@@ -844,13 +953,13 @@ func (c *Chat) turn(ctx context.Context) bool {
 	silent := false
 	if reply.Error == "" && runner.IsSilent(reply.Output) {
 		earlier := ""
-		if !reports && (c.den == nil || !c.den.Busy(current) && !c.den.Busy(c.agent.Key())) {
+		if !t.reports && (c.den == nil || !c.den.Busy(t.id) && !c.den.Busy(t.agent.Key())) {
 			earlier = sessions.Answer(c.cfg.Sessions, session, started)
 		}
 		switch {
 		case (earlier == "" || runner.IsSilent(earlier)) && len(files) == 0:
 			log.Printf("chat: the turn had nothing to tell")
-			return true
+			return
 		case earlier == "" || runner.IsSilent(earlier):
 			silent = true
 		default:
@@ -870,8 +979,8 @@ func (c *Chat) turn(ctx context.Context) bool {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text
-	if app {
-		return true
+	if t.app {
+		return
 	}
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
@@ -892,7 +1001,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 		}
 		c.Sent(ids, session)
 	}
-	return true
 }
 
 // measure records session's size after a turn that started then, and

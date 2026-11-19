@@ -15,6 +15,7 @@ release notes.
 - den deletes the session of a job's message you did not reply to after 30 days. A session you wrote in stays.
 - Jobs, /bg tasks, and replies to their messages run the way the chat does, in a session den names before it starts. A reply to "Background task started" goes on in the task once it ends, and what a job or a task reports shows in its session in the app at once.
 - /compact, and den's own compacting while you are away, ask fx to compact the session as it is, without a turn of the model and without restarting the agent, and say how big it was and is. /compact compacts a session of any size. While you are away, den compacts the chat's session once it is past 60k tokens, whatever the model's window. This needs the fx fork's den.6 build.
+- Sessions no longer wait for each other: a reply to a job's message, or a message after /new while the old session still works, runs at once on an agent of its own, and only a message for a session that is working gets 👀.
 
 ### Fixed
 

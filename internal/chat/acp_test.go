@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -260,7 +261,7 @@ func TestNoSteerAfterSwitch(t *testing.T) {
 	cfg, telegram := startChat(t, nil)
 
 	// A message after /new starts the new session rather than joining the
-	// turn still running in the old one.
+	// turn still running in the old one, and does not wait for it.
 	telegram.message(42, "slow")
 	waitFor(t, func() bool {
 		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
@@ -268,9 +269,14 @@ func TestNoSteerAfterSwitch(t *testing.T) {
 	})
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
-	telegram.message(42, "next")
-	telegram.expect(t, "↩ Earlier session\n\nresume=none msg=slow lines=1")
-	telegram.expect(t, "resume=none msg=next lines=1")
+	id := telegram.update(42, map[string]any{"text": "next"})
+	telegram.expectAll(t, "resume=none msg=next lines=1", "↩ Earlier session\n\nresume=none msg=slow lines=1")
+
+	telegram.mu.Lock()
+	defer telegram.mu.Unlock()
+	if slices.Contains(telegram.reacted, fmt.Sprintf("%d 👀", id)) {
+		t.Fatal("the message for a free session was marked as waiting")
+	}
 }
 
 // waitFor waits until ok, for a few seconds.

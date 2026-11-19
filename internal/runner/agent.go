@@ -177,6 +177,21 @@ func (a *Agent) Close() {
 	}
 }
 
+// Drop stops fx when it holds session, so its next turn there reads what
+// another agent added to it meanwhile.
+func (a *Agent) Drop(session string) {
+	a.mu.Lock()
+	var conn *acp.Conn
+	if a.session == session {
+		conn = a.conn
+		a.conn, a.session = nil, ""
+	}
+	a.mu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+}
+
 // open returns fx for req, with the session it asks for open in it. It
 // starts fx again when it exited, or when req needs another session or
 // model.
