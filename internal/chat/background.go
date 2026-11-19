@@ -80,7 +80,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		title := c.makeTitle(run, task)
 		titled <- title
 		if started != 0 && title != "" {
-			c.editPlain(ctx, telegram, started, icons[store.Background]+" "+title+" runs in the background."+after)
+			c.editPlain(ctx, telegram, started, icons[store.KindBackground]+" "+title+" runs in the background."+after)
 		}
 	})
 
@@ -102,7 +102,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		title := <-titled
 		if reply.SessionID != "" {
 			err := c.store.AddSession(context.Background(), store.Session{
-				ID: reply.SessionID, Kind: store.Background, Parent: parent, Title: title, Created: asked,
+				ID: reply.SessionID, Kind: store.KindBackground, Parent: parent, Title: title, Created: asked,
 				Choice: store.Choice{Provider: provider, Model: model, Effort: effort},
 			})
 			if err != nil {
@@ -161,7 +161,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		}
 		c.tell(ctx, telegram, notices)
 		call, done := context.WithTimeout(ctx, time.Minute)
-		heading := icons[store.Background] + " " + titleOf(store.Session{Kind: store.Background, Title: title})
+		heading := icons[store.KindBackground] + " " + titleOf(store.Session{Kind: store.KindBackground, Title: title})
 		ids, err := telegram.SendIDs(call, heading+"\n\n"+answer(reply, false))
 		done()
 		if err != nil {

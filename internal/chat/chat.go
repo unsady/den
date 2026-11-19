@@ -760,6 +760,12 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	app = app && asked
 	prompt := strings.Join(texts, "\n\n")
+	// A session the user wrote in is kept as a past discussion.
+	if asked {
+		if err := c.store.Replied(context.Background(), session); err != nil {
+			log.Printf("chat: session %s: %v", session, err)
+		}
+	}
 
 	c.mu.Lock()
 	provider, model, effort := choice.Provider, choice.Model, choice.Effort

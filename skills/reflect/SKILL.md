@@ -15,7 +15,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
    den sessions recent --after .reflect-stamp
    ```
 
-   Skip sessions that are earlier reflect runs: their first message names the den job "reflect".
+   Skip sessions that are earlier reflect runs: their first message names the den job nightly-reflect, or "reflect" before it was renamed.
 
 2. If there are no sessions, run `touch .reflect-stamp` and reply `SILENT`.
 

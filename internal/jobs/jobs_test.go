@@ -2,94 +2,138 @@ package jobs
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/unsady/den/internal/store"
 )
 
+func open(t *testing.T) *Store {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), store.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return New(db)
+}
+
 func TestTakeDue(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "jobs.json")
-	store, created, err := Open(path)
-	if err != nil || !created {
-		t.Fatalf("open: created=%v err=%v", created, err)
+	s := open(t)
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
+	if _, err := s.Add(Job{Name: "call-the-bank", Title: "Позвонить в банк", Schedule: "in 1m", Prompt: "remind"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Add(Job{Name: "daily-plan", Title: "Daily plan", Schedule: "0 9 * * *", Prompt: "plan"}, now); err != nil {
+		t.Fatal(err)
 	}
 
-	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
-	once, _ := store.Add(Job{Schedule: "in 1m", Prompt: "remind"}, now)
-	daily, _ := store.Add(Job{Name: "daily", Schedule: "0 9 * * *", Prompt: "plan"}, now)
-
-	if due, _ := store.TakeDue(now, func(string) bool { return false }); len(due) != 0 {
+	never := func(string) bool { return false }
+	if due, _ := s.TakeDue(now, never); len(due) != 0 {
 		t.Fatalf("nothing is due yet, got %d", len(due))
 	}
 
 	later := now.Add(24 * time.Hour)
-	due, err := store.TakeDue(later, func(string) bool { return false })
+	due, err := s.TakeDue(later, never)
 	if err != nil || len(due) != 2 {
 		t.Fatalf("want both jobs due, got %d err=%v", len(due), err)
 	}
-
-	if _, err := store.Get(once.ID); err != ErrNotFound {
+	if _, err := s.Get("call-the-bank"); err != ErrNotFound {
 		t.Errorf("a one-shot job is removed when it is taken")
 	}
-
-	reopened, _, err := Open(path)
+	got, err := s.Get("daily-plan")
 	if err != nil {
 		t.Fatal(err)
-	}
-	got, err := reopened.Get("daily")
-	if err != nil || got.ID != daily.ID {
-		t.Fatalf("get by name: %v", err)
 	}
 	if want := time.Date(2026, 11, 11, 9, 0, 0, 0, time.Local); !got.NextRun.Equal(want) {
 		t.Errorf("next run %v, want %v", got.NextRun, want)
 	}
+
+	// A running job is skipped and stays due.
+	if due, _ := s.TakeDue(got.NextRun, func(name string) bool { return name == "daily-plan" }); len(due) != 0 {
+		t.Errorf("a skipped job was taken")
+	}
+}
+
+func TestName(t *testing.T) {
+	for _, name := range []string{"morning-brief", "news-alerts", "call-the-bank"} {
+		if err := CheckName(name); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "reflect", "a-b-c-d", "news-2", "News-alerts", "news_alerts", "news--alerts", "-news-alerts", "новости-утро"} {
+		if CheckName(name) == nil {
+			t.Errorf("%q passed", name)
+		}
+	}
+}
+
+func TestAddChecks(t *testing.T) {
+	s := open(t)
+	now := time.Now()
+	ok := Job{Name: "hourly-check", Title: "Check", Schedule: "every 1h", Prompt: "a"}
+	if _, err := s.Add(ok, now); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		change func(*Job)
+		want   string
+	}{
+		{func(j *Job) {}, "already exists"},
+		{func(j *Job) { j.Name = "check" }, "2 or 3"},
+		{func(j *Job) { j.Name, j.Title = "other-check", "" }, "title"},
+		{func(j *Job) { j.Name, j.Title = "other-check", "two\nlines" }, "one line"},
+		{func(j *Job) { j.Name, j.Prompt = "other-check", " " }, "prompt"},
+		{func(j *Job) { j.Name, j.Slot = "other-check", "gpt" }, "main or the second"},
+	} {
+		j := ok
+		tc.change(&j)
+		if _, err := s.Add(j, now); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%+v: got %v, want %q", j, err, tc.want)
+		}
+	}
 }
 
 func TestSlot(t *testing.T) {
-	store, _, _ := Open(filepath.Join(t.TempDir(), "jobs.json"))
-	now := time.Now()
-
-	j, err := store.Add(Job{Name: "x", Schedule: "every 1h", Prompt: "a", Slot: Main}, now)
-	if err != nil || j.Slot != "" {
-		t.Fatalf("main is stored empty: slot=%q err=%v", j.Slot, err)
+	s := open(t)
+	if _, err := s.Add(Job{Name: "hourly-check", Title: "Check", Schedule: "every 1h", Prompt: "a", Slot: Main}, time.Now()); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := store.Add(Job{Name: "y", Schedule: "every 1h", Prompt: "a", Slot: "gpt"}, now); err == nil {
-		t.Error("want an error for a slot that is not main or second")
-	}
-
-	if j, err = store.SetSlot("x", Second); err != nil || j.Slot != Second {
+	if j, err := s.SetSlot("hourly-check", Second); err != nil || j.Slot != Second {
 		t.Fatalf("set second: slot=%q err=%v", j.Slot, err)
 	}
-	if j, err = store.SetSlot("x", Main); err != nil || j.Slot != "" {
+	if j, err := s.SetSlot("hourly-check", Main); err != nil || j.Slot != "" {
 		t.Fatalf("set main: slot=%q err=%v", j.Slot, err)
 	}
-	if _, err := store.SetSlot("nope", Second); err != ErrNotFound {
+	if _, err := s.SetSlot("no-such-job", Second); err != ErrNotFound {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }
 
-func TestAddRejectsDuplicateNames(t *testing.T) {
-	store, _, _ := Open(filepath.Join(t.TempDir(), "jobs.json"))
-	now := time.Now()
-
-	if _, err := store.Add(Job{Name: "x", Schedule: "every 1h", Prompt: "a"}, now); err != nil {
+func TestRuns(t *testing.T) {
+	s := open(t)
+	now := time.Now().Truncate(time.Millisecond)
+	if _, err := s.Add(Job{Name: "hourly-check", Title: "Check", Schedule: "every 1h", Prompt: "a"}, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Add(Job{Name: "x", Schedule: "every 1h", Prompt: "b"}, now); err == nil {
-		t.Error("want an error for a duplicate name")
-	}
-}
-
-func TestRunPrune(t *testing.T) {
-	runs := NewRuns(t.TempDir())
-	runs.keep = 1
-	now := time.Now()
 	for i := range 3 {
-		if err := runs.Save(Run{JobID: "a", Started: now.Add(time.Duration(i) * time.Second)}); err != nil {
+		run := Run{Job: "hourly-check", Started: now.Add(time.Duration(i) * time.Second), Duration: 1500 * time.Millisecond, Output: "out"}
+		if i == 2 {
+			run.Error = "boom"
+		}
+		if err := s.Finish(run); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := runs.Last("a", 10)
-	if err != nil || len(got) != 1 || !got[0].Started.Equal(now.Add(2*time.Second)) {
-		t.Fatalf("runs %v %v", got, err)
+
+	runs, err := s.Runs("hourly-check", 2)
+	if err != nil || len(runs) != 2 || runs[0].Error != "boom" || runs[0].Duration != 1500*time.Millisecond {
+		t.Fatalf("runs %+v %v", runs, err)
+	}
+	j, _ := s.Get("hourly-check")
+	if j.LastStatus != "failed" || j.LastRun == nil || !j.LastRun.Equal(now.Add(2*time.Second)) {
+		t.Errorf("last run %v %q", j.LastRun, j.LastStatus)
 	}
 }

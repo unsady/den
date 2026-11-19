@@ -13,11 +13,11 @@ type Kind string
 
 const (
 	// Chat is a session the user talks in.
-	Chat Kind = "chat"
+	KindChat Kind = "chat"
 	// Background is a task /bg runs besides the chat.
-	Background Kind = "bg"
+	KindBackground Kind = "bg"
 	// Job is a job's run that wrote to the user.
-	Job Kind = "job"
+	KindJob Kind = "job"
 )
 
 // Choice is the model a session runs on. Empty fields take the chat's.
@@ -205,4 +205,38 @@ func escapeLike(s string) string {
 		out = append(out, r)
 	}
 	return string(out)
+}
+
+// Replied records that the user wrote in session, so it is kept as a past
+// discussion.
+func (s *Store) Replied(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET replied = 1 WHERE id = ?`, id)
+	return err
+}
+
+// Unreplied lists the sessions of kind started before before that the user
+// never wrote in, oldest first.
+func (s *Store) Unreplied(ctx context.Context, kind Kind, before time.Time) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM sessions WHERE kind = ? AND replied = 0 AND created < ? ORDER BY created`, kind, unix(before))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// SetSessionJob records which job's run session is.
+func (s *Store) SetSessionJob(ctx context.Context, id, job string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET job_id = ? WHERE id = ?`, job, id)
+	return err
 }

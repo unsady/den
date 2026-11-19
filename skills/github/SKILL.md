@@ -44,7 +44,7 @@ The space is a git repository, and the nightly review commits to it. When the us
 3. Add a job after the nightly review that stays quiet unless the push fails:
 
    ```bash
-   den job add --name backup --schedule "30 4 * * *" "Push the space to its backup with git -C ~/space push backup HEAD:main. Reply exactly SILENT when it succeeds; otherwise say why in one line."
+   den job add --name space-backup --title "Space backup" --schedule "30 4 * * *" "Push the space to its backup with git -C ~/space push backup HEAD:main. Reply exactly SILENT when it succeeds; otherwise say why in one line."
    ```
 
 The backup holds the space only, not `archive/` or `inbox/`.

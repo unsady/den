@@ -1,63 +1,72 @@
 package daemon
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/unsady/den/internal/jobs"
+	"github.com/unsady/den/internal/store"
 )
 
-func names(store *jobs.Store) []string {
+func names(t *testing.T, js *jobs.Store) []string {
+	t.Helper()
+	list, err := js.List()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out []string
-	for _, j := range store.List() {
+	for _, j := range list {
 		out = append(out, j.Name)
 	}
 	slices.Sort(out)
 	return out
 }
 
-func TestAddDefaultJobs(t *testing.T) {
-	// A new store gets every default job.
-	dir := t.TempDir()
-	store, created, err := jobs.Open(filepath.Join(dir, "jobs.json"))
+func openJobs(t *testing.T) (*store.Store, *jobs.Store) {
+	t.Helper()
+	db, err := store.Open(filepath.Join(t.TempDir(), store.File))
 	if err != nil {
 		t.Fatal(err)
 	}
-	list := filepath.Join(dir, "default-jobs")
-	if err := addDefaultJobs(store, list, created); err != nil {
+	t.Cleanup(func() { db.Close() })
+	return db, jobs.New(db)
+}
+
+func TestAddDefaultJobs(t *testing.T) {
+	ctx := context.Background()
+	db, js := openJobs(t)
+
+	// A new store gets every default job.
+	if err := addDefaultJobs(ctx, db, js); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(store); !slices.Equal(got, []string{"reflect", "tidy"}) {
+	if got := names(t, js); !slices.Equal(got, []string{reflectJob, tidyJob}) {
 		t.Fatalf("new store: %v", got)
 	}
 
 	// A removed one stays removed.
-	if _, err := store.Remove("tidy"); err != nil {
+	if _, err := js.Remove(tidyJob); err != nil {
 		t.Fatal(err)
 	}
-	if err := addDefaultJobs(store, list, false); err != nil {
+	if err := addDefaultJobs(ctx, db, js); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(store); !slices.Equal(got, []string{"reflect"}) {
+	if got := names(t, js); !slices.Equal(got, []string{reflectJob}) {
 		t.Fatalf("after removal: %v", got)
 	}
 
-	// A store from before the list gets only the new job, even when the user
-	// removed reflect.
-	dir = t.TempDir()
-	store, _, err = jobs.Open(filepath.Join(dir, "jobs.json"))
-	if err != nil {
+	// A user's job by a default's name stays theirs.
+	db, js = openJobs(t)
+	if _, err := js.Add(jobs.Job{Name: tidyJob, Title: "Mine", Schedule: "@daily", Prompt: "Mine."}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Add(jobs.Job{Name: "news", Schedule: "@daily", Prompt: "Use the news skill."}, time.Now()); err != nil {
+	if err := addDefaultJobs(ctx, db, js); err != nil {
 		t.Fatal(err)
 	}
-	if err := addDefaultJobs(store, filepath.Join(dir, "default-jobs"), false); err != nil {
-		t.Fatal(err)
-	}
-	if got := names(store); !slices.Equal(got, []string{"news", "tidy"}) {
-		t.Fatalf("old store: %v", got)
+	if j, _ := js.Get(tidyJob); j.Title != "Mine" {
+		t.Fatalf("the user's job became %+v", j)
 	}
 }

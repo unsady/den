@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/unsady/den/internal/config"
+	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/sessions"
 	"github.com/unsady/den/internal/store"
 )
@@ -71,12 +74,12 @@ func importLegacy(ctx context.Context, cfg config.Config, db *store.Store) error
 	ofJobs := jobSessions(filepath.Join(cfg.State, "runs"))
 	imported := map[string]bool{}
 	for _, s := range list {
-		session := store.Session{ID: s.ID, Kind: store.Chat, Created: s.Updated, Updated: s.Updated, Choice: choices[s.ID]}
+		session := store.Session{ID: s.ID, Kind: store.KindChat, Created: s.Updated, Updated: s.Updated, Choice: choices[s.ID]}
 		switch {
 		case ofJobs[s.ID]:
-			session.Kind = store.Job
+			session.Kind = store.KindJob
 		case startsNamed(filepath.Join(journal, s.ID+".jsonl")):
-			session.Kind = store.Background
+			session.Kind = store.KindBackground
 		}
 		// fx's own title is the start of the first message; only den's
 		// counts as one.
@@ -208,4 +211,166 @@ func startsNamed(path string) bool {
 		Title string `json:"title"`
 	}
 	return json.Unmarshal(scanner.Bytes(), &first) == nil && first.Type == "message" && first.Title != ""
+}
+
+// jobsImportedKey marks a store that took an older den's jobs and runs.
+const jobsImportedKey = "legacy.jobs.imported"
+
+// legacyNames are the new names of den's own jobs.
+var legacyNames = map[string]string{"reflect": reflectJob, "tidy": tidyJob}
+
+// importLegacyJobs fills the store, once, with the jobs an older den kept
+// in jobs.json, their runs in runs/, and which of den's own jobs it added.
+// A job keeps its name when it is a valid one; one that is not gets one
+// made from it. Its title is its name in words, which the user can change
+// by adding the job again.
+func importLegacyJobs(ctx context.Context, cfg config.Config, db *store.Store) error {
+	if done, err := db.Setting(ctx, jobsImportedKey); err != nil || done != "" {
+		return err
+	}
+
+	var old []struct {
+		ID         string     `json:"id"`
+		Name       string     `json:"name"`
+		Schedule   string     `json:"schedule"`
+		Prompt     string     `json:"prompt"`
+		Slot       string     `json:"slot"`
+		Silent     bool       `json:"silent"`
+		Once       bool       `json:"once"`
+		NextRun    time.Time  `json:"next_run"`
+		Created    time.Time  `json:"created"`
+		LastRun    *time.Time `json:"last_run"`
+		LastStatus string     `json:"last_status"`
+	}
+	data, err := os.ReadFile(filepath.Join(cfg.State, "jobs.json"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, &old); err != nil {
+			return fmt.Errorf("jobs.json: %w", err)
+		}
+	}
+
+	names := map[string]string{}
+	taken := map[string]bool{}
+	for _, j := range old {
+		name := legacyName(j.Name, j.ID, taken)
+		taken[name] = true
+		names[j.ID] = name
+		title := legacyTitle(name)
+		if j.Name == "reflect" || j.Name == "tidy" {
+			title = strings.ToUpper(j.Name[:1]) + j.Name[1:]
+		}
+		err := db.AddJob(ctx, store.Job{
+			Name: name, Title: title, Schedule: j.Schedule, Prompt: j.Prompt, Slot: j.Slot, Silent: j.Silent,
+			Once: j.Once, NextRun: j.NextRun, Created: j.Created, LastRun: j.LastRun, LastStatus: j.LastStatus,
+		})
+		if err != nil && !errors.Is(err, store.ErrJobExists) {
+			return err
+		}
+	}
+
+	runs := 0
+	records, _ := filepath.Glob(filepath.Join(cfg.State, "runs", "*", "*.json"))
+	for _, path := range records {
+		var run struct {
+			store.Run
+			JobID string `json:"job_id"`
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || json.Unmarshal(data, &run) != nil {
+			continue
+		}
+		name, ok := names[run.JobID]
+		if !ok {
+			// The job was removed; its runs keep its id for a name.
+			name = run.JobID
+		}
+		run.Run.Job = name
+		if err := db.AddRun(ctx, run.Run); err != nil {
+			return err
+		}
+		if run.SessionID != "" {
+			if err := db.SetSessionJob(ctx, run.SessionID, name); err != nil {
+				return err
+			}
+		}
+		runs++
+	}
+
+	// den's own jobs it added, by their new names.
+	var added []string
+	if data, err := os.ReadFile(filepath.Join(cfg.State, "default-jobs")); err == nil {
+		for _, name := range strings.Fields(string(data)) {
+			if n, ok := legacyNames[name]; ok {
+				added = append(added, n)
+			}
+		}
+	} else if len(old) > 0 {
+		// den added reflect with the jobs before it kept the list.
+		added = append(added, reflectJob)
+	}
+	if len(added) > 0 {
+		if err := db.SetSetting(ctx, defaultsKey, strings.Join(added, " ")); err != nil {
+			return err
+		}
+	}
+
+	// An older den did not record whether the user replied in a job's
+	// session; fx counts its turns.
+	list, err := sessions.List(cfg.Sessions, 1<<20)
+	if err != nil {
+		return err
+	}
+	for _, s := range list {
+		if s.Turns > 1 {
+			if err := db.Replied(ctx, s.ID); err != nil {
+				return err
+			}
+		}
+	}
+
+	log.Printf("import: %d jobs, %d runs", len(old), runs)
+	return db.SetSetting(ctx, jobsImportedKey, "1")
+}
+
+// legacyName is the name an older den's job takes: den's own jobs' new
+// names, the job's name when it is a valid one, or one made of its words,
+// with its id spelled in letters when that one is taken.
+func legacyName(name, id string, taken map[string]bool) string {
+	if n, ok := legacyNames[name]; ok {
+		return n
+	}
+	if jobs.CheckName(name) == nil && !taken[name] {
+		return name
+	}
+
+	var words []string
+	for w := range strings.FieldsFuncSeq(strings.ToLower(name), func(r rune) bool { return r < 'a' || r > 'z' }) {
+		words = append(words, w)
+	}
+	switch len(words) {
+	case 0:
+		words = []string{"older", "job"}
+	case 1:
+		words = append(words, "job")
+	}
+	base := strings.Join(words[:2], "-")
+	if !taken[base] {
+		return base
+	}
+	letters := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return 'a' + (r - '0')
+		}
+		return r
+	}, strings.ToLower(id))
+	return base + "-" + letters
+}
+
+// legacyTitle writes a job's name in words: news-alerts is "News alerts".
+func legacyTitle(name string) string {
+	title := strings.ReplaceAll(name, "-", " ")
+	return strings.ToUpper(title[:1]) + title[1:]
 }

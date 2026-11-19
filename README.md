@@ -109,13 +109,13 @@ Tailscale encrypts the connection. On an address outside it, such as your home n
 Ask the agent in the chat, or add a job yourself:
 
 ```bash
-den job add --schedule "in 30m" "Remind me to call the bank."
-den job add --name morning --schedule "0 9 * * 1-5" "Send me today's top three items from notes/todo.md."
+den job add --name call-the-bank --title "Call the bank" --schedule "in 30m" "Remind me to call the bank."
+den job add --name morning-brief --title "Morning brief" --schedule "0 9 * * 1-5" "Send me today's top three items from notes/todo.md."
 den job ls
-den job log morning
-den job run morning
-den job slot morning second
-den job rm morning
+den job log morning-brief
+den job run morning-brief
+den job slot morning-brief second
+den job rm morning-brief
 ```
 
 Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.

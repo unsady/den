@@ -115,6 +115,39 @@ var migrations = []string{
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	);`,
+
+	`CREATE TABLE jobs (
+		name        TEXT PRIMARY KEY,
+		title       TEXT NOT NULL,
+		schedule    TEXT NOT NULL,
+		prompt      TEXT NOT NULL,
+		slot        TEXT NOT NULL DEFAULT '' CHECK (slot IN ('', 'second')),
+		silent      INTEGER NOT NULL DEFAULT 0,
+		once        INTEGER NOT NULL DEFAULT 0,
+		next_run    INTEGER NOT NULL,
+		created     INTEGER NOT NULL,
+		last_run    INTEGER,
+		last_status TEXT NOT NULL DEFAULT ''
+	);
+
+	CREATE TABLE job_runs (
+		id            INTEGER PRIMARY KEY AUTOINCREMENT,
+		job           TEXT NOT NULL,
+		session_id    TEXT NOT NULL DEFAULT '',
+		started       INTEGER NOT NULL,
+		duration      INTEGER NOT NULL DEFAULT 0,
+		exit_code     INTEGER NOT NULL DEFAULT 0,
+		output        TEXT NOT NULL DEFAULT '',
+		error         TEXT NOT NULL DEFAULT '',
+		stderr        TEXT NOT NULL DEFAULT '',
+		delivered     INTEGER NOT NULL DEFAULT 0,
+		model         TEXT NOT NULL DEFAULT '',
+		input_tokens  INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX job_runs_job ON job_runs(job, started);
+
+	ALTER TABLE sessions ADD COLUMN replied INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -147,7 +180,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-// ErrNotFound says a session, or a client's cursor, is not in the store.
+// ErrNotFound says a session, a client's cursor, or a job is not in the
+// store.
 var ErrNotFound = errors.New("not found")
 
 func unix(t time.Time) int64 { return t.UnixMilli() }

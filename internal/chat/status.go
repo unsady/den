@@ -81,7 +81,7 @@ func jobsLines(list []jobs.Job) []string {
 	var next *jobs.Job
 	for i, j := range list {
 		if j.LastRun != nil && j.LastStatus != "ok" {
-			lines = append(lines, fmt.Sprintf("✗ %s failed %s", html.EscapeString(j.Label()), j.LastRun.Local().Format("Jan 2 15:04")))
+			lines = append(lines, fmt.Sprintf("✗ %s failed %s", html.EscapeString(j.Title), j.LastRun.Local().Format("Jan 2 15:04")))
 		}
 		if !j.NextRun.IsZero() && (next == nil || j.NextRun.Before(next.NextRun)) {
 			next = &list[i]
@@ -90,7 +90,7 @@ func jobsLines(list []jobs.Job) []string {
 
 	summary := fmt.Sprintf("Jobs: %d", len(list))
 	if next != nil {
-		summary += fmt.Sprintf(" · next %s at %s", html.EscapeString(next.Label()), next.NextRun.Local().Format("15:04"))
+		summary += fmt.Sprintf(" · next %s at %s", html.EscapeString(next.Title), next.NextRun.Local().Format("15:04"))
 	}
 	return append([]string{summary}, lines...)
 }

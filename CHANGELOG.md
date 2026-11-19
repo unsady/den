@@ -11,6 +11,8 @@ release notes.
 - Charts in the app: the agent describes a line or bar chart as data and sends it with its picture, so Telegram shows the picture and the den app draws the chart itself, in its own theme. Other files the agent sends show under its reply in the app too.
 - The files the agent sends in a turn, such as charts, arrive with its reply instead of before it, one by one: in the app they are part of the reply, and in Telegram they follow it, the pictures together as one album. A turn you started in the app sends its files only there.
 - den keeps its sessions in a database of its own, `den.db` in its state, and brings over the ones it had. A new session has no title until den makes one from your first message, in its language; a /bg task gets its title the same way.
+- Jobs and their runs live in den's database too. A job's name is 2 or 3 English words joined by "-", such as `morning-brief`, and it has a title in your language, which you see above its messages and in /jobs; the agent gives both when it adds a job. den's own jobs are now `nightly-reflect` and `nightly-tidy`, and older jobs keep their names, or get one made from it.
+- den deletes the session of a job's message you did not reply to after 30 days. A session you wrote in stays.
 
 ### Fixed
 

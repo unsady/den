@@ -51,7 +51,7 @@ func addSession(t *testing.T, c *Chat, s store.Session) {
 // has no label, whatever the app does meanwhile: each client has its cursor.
 func TestNoLabelAfterAppMoves(t *testing.T) {
 	_, telegram, c := startChatWith(t, nil)
-	addSession(t, c, store.Session{ID: "other", Kind: store.Chat, Title: "Elsewhere"})
+	addSession(t, c, store.Session{ID: "other", Kind: store.KindChat, Title: "Elsewhere"})
 
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
@@ -69,7 +69,7 @@ func TestNoLabelAfterAppMoves(t *testing.T) {
 
 func TestReplyToJobSession(t *testing.T) {
 	_, telegram, c := startChatWith(t, nil)
-	addSession(t, c, store.Session{ID: "job1", Kind: store.Job, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
+	addSession(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
 	c.Sent([]int64{900}, "job1")
 
 	// A reply goes to the job's session, on its model, and says so.
@@ -101,7 +101,7 @@ func TestSessionTitle(t *testing.T) {
 	if !c.untitled(session) {
 		t.Fatal("a new chat session has a title")
 	}
-	if s, _ := c.store.Session(ctx, session); s.Kind != store.Chat || s.Title != "" {
+	if s, _ := c.store.Session(ctx, session); s.Kind != store.KindChat || s.Title != "" {
 		t.Fatalf("new session %+v", s)
 	}
 

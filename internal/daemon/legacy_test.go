@@ -50,7 +50,7 @@ func TestImportLegacy(t *testing.T) {
 	ctx := context.Background()
 	// An import that failed partway left a session behind, which the next
 	// one keeps.
-	if err := db.AddSession(ctx, store.Session{ID: "chat1", Kind: store.Chat, Title: "Plan my week"}); err != nil {
+	if err := db.AddSession(ctx, store.Session{ID: "chat1", Kind: store.KindChat, Title: "Plan my week"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := importLegacy(ctx, cfg, db); err != nil {
@@ -58,10 +58,10 @@ func TestImportLegacy(t *testing.T) {
 	}
 
 	want := map[string]store.Session{
-		"chat1": {Kind: store.Chat, Title: "Plan my week"},
-		"chat2": {Kind: store.Chat},
-		"bg1":   {Kind: store.Background, Title: "compare-models"},
-		"job1":  {Kind: store.Job, Choice: store.Choice{Provider: "p", Model: "m"}},
+		"chat1": {Kind: store.KindChat, Title: "Plan my week"},
+		"chat2": {Kind: store.KindChat},
+		"bg1":   {Kind: store.KindBackground, Title: "compare-models"},
+		"job1":  {Kind: store.KindJob, Choice: store.Choice{Provider: "p", Model: "m"}},
 	}
 	list, _ := db.Sessions(ctx, store.Filter{})
 	if len(list) != len(want) {
@@ -108,5 +108,82 @@ func TestImportLegacy(t *testing.T) {
 	}
 	if _, err := db.Session(ctx, "chat1"); err == nil {
 		t.Error("a second import brought chat1 back")
+	}
+}
+
+func TestImportLegacyJobs(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Config{State: filepath.Join(dir, "state")}
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(cfg.State, "jobs.json"), `[
+		{"id":"66202d","name":"reflect","schedule":"0 4 * * *","prompt":"Use the reflect skill.","slot":"second","next_run":"2026-11-20T04:00:00Z"},
+		{"id":"7fb4a6","name":"news-alerts","schedule":"10 * * * *","prompt":"Use the news skill.","last_status":"ok","last_run":"2026-11-19T01:10:00Z"},
+		{"id":"a1b2c3","schedule":"in 30m","prompt":"Remind me.","once":true},
+		{"id":"e8fe13","name":"Morning","schedule":"0 9 * * *","prompt":"Plan."}]`)
+	write(filepath.Join(cfg.State, "default-jobs"), "reflect\ntidy\n")
+	write(filepath.Join(cfg.State, "runs", "7fb4a6", "1.json"), `{"job_id":"7fb4a6","started":"2026-11-19T01:10:00Z","session_id":"s1","output":"news","delivered":true}`)
+	write(filepath.Join(cfg.State, "runs", "gone", "1.json"), `{"job_id":"gone","started":"2026-11-18T01:00:00Z","error":"boom"}`)
+
+	db, err := store.Open(filepath.Join(cfg.State, store.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := db.AddSession(ctx, store.Session{ID: "s1", Kind: store.KindJob}); err != nil {
+		t.Fatal(err)
+	}
+	if err := importLegacyJobs(ctx, cfg, db); err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]string{
+		reflectJob:    "Reflect",
+		"news-alerts": "News alerts",
+		"older-job":   "Older job",
+		"morning-job": "Morning job",
+	}
+	list, _ := db.Jobs(ctx)
+	if len(list) != len(want) {
+		t.Fatalf("jobs %+v", list)
+	}
+	for _, j := range list {
+		if want[j.Name] != j.Title {
+			t.Errorf("%s titled %q", j.Name, j.Title)
+		}
+	}
+	if j, _ := db.Job(ctx, reflectJob); j.Slot != "second" || j.Prompt != "Use the reflect skill." {
+		t.Errorf("reflect %+v", j)
+	}
+	if runs, _ := db.Runs(ctx, "news-alerts", 5); len(runs) != 1 || runs[0].Output != "news" || runs[0].SessionID != "s1" {
+		t.Errorf("runs %+v", runs)
+	}
+	if runs, _ := db.Runs(ctx, "gone", 5); len(runs) != 1 || runs[0].Error != "boom" {
+		t.Errorf("a removed job's runs %+v", runs)
+	}
+	if s, _ := db.Session(ctx, "s1"); s.Job != "news-alerts" {
+		t.Errorf("session job %q", s.Job)
+	}
+	if v, _ := db.Setting(ctx, defaultsKey); v != reflectJob+" "+tidyJob {
+		t.Errorf("defaults %q", v)
+	}
+
+	// The jobs are imported once.
+	if _, err := db.RemoveJob(ctx, "news-alerts"); err != nil {
+		t.Fatal(err)
+	}
+	if err := importLegacyJobs(ctx, cfg, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Job(ctx, "news-alerts"); err == nil {
+		t.Error("a second import brought news-alerts back")
 	}
 }

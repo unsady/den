@@ -12,12 +12,12 @@ import (
 func TestJobsWaitForASlot(t *testing.T) {
 	d := &daemon{ctx: context.Background(), slots: make(chan struct{}, jobSlots(config.Config{Jobs: 1}))}
 
-	if !d.acquire(jobs.Job{ID: "a"}) {
+	if !d.acquire(jobs.Job{Name: "a"}) {
 		t.Fatal("the first job did not get the slot")
 	}
 
 	got := make(chan bool)
-	go func() { got <- d.acquire(jobs.Job{ID: "b"}) }()
+	go func() { got <- d.acquire(jobs.Job{Name: "b"}) }()
 	select {
 	case <-got:
 		t.Fatal("the second job started while the first ran")
@@ -41,7 +41,7 @@ func TestWaitingJobStopsOnShutdown(t *testing.T) {
 	d.slots <- struct{}{}
 
 	got := make(chan bool)
-	go func() { got <- d.acquire(jobs.Job{ID: "b"}) }()
+	go func() { got <- d.acquire(jobs.Job{Name: "b"}) }()
 	time.Sleep(50 * time.Millisecond)
 	stop()
 

@@ -24,7 +24,7 @@ func TestReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSession(context.Background(), Session{ID: "a", Kind: Chat}); err != nil {
+	if err := s.AddSession(context.Background(), Session{ID: "a", Kind: KindChat}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -41,7 +41,7 @@ func TestReopen(t *testing.T) {
 
 func TestTitleIsSetOnce(t *testing.T) {
 	s, ctx := open(t), context.Background()
-	if err := s.AddSession(ctx, Session{ID: "a", Kind: Chat}); err != nil {
+	if err := s.AddSession(ctx, Session{ID: "a", Kind: KindChat}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,9 +65,9 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 	s, ctx := open(t), context.Background()
 	base := time.Now().Add(-time.Hour)
 	for i, session := range []Session{
-		{ID: "chat", Kind: Chat, Title: "Taxes 2026"},
-		{ID: "bg", Kind: Background, Title: "Compare models"},
-		{ID: "job", Kind: Job, Job: "j1", Title: "Morning brief"},
+		{ID: "chat", Kind: KindChat, Title: "Taxes 2026"},
+		{ID: "bg", Kind: KindBackground, Title: "Compare models"},
+		{ID: "job", Kind: KindJob, Job: "j1", Title: "Morning brief"},
 	} {
 		session.Created = base.Add(time.Duration(i) * time.Minute)
 		if err := s.AddSession(ctx, session); err != nil {
@@ -86,7 +86,7 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 		t.Fatalf("order %q", ids)
 	}
 
-	list, _ = s.Sessions(ctx, Filter{Kinds: []Kind{Chat, Background}})
+	list, _ = s.Sessions(ctx, Filter{Kinds: []Kind{KindChat, KindBackground}})
 	if ids := idsOf(list); ids != "chat bg" {
 		t.Fatalf("kinds %q", ids)
 	}
@@ -103,7 +103,7 @@ func TestCursorsAndMessages(t *testing.T) {
 		t.Fatalf("empty cursor: %v", err)
 	}
 	for _, id := range []string{"a", "b"} {
-		if err := s.AddSession(ctx, Session{ID: id, Kind: Chat}); err != nil {
+		if err := s.AddSession(ctx, Session{ID: id, Kind: KindChat}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -155,4 +155,27 @@ func idsOf(list []Session) string {
 		out += s.ID
 	}
 	return out
+}
+
+func TestUnreplied(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	old := time.Now().Add(-48 * time.Hour)
+	for _, session := range []Session{
+		{ID: "old", Kind: KindJob, Created: old},
+		{ID: "answered", Kind: KindJob, Created: old},
+		{ID: "new", Kind: KindJob},
+		{ID: "chat", Kind: KindChat, Created: old},
+	} {
+		if err := s.AddSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Replied(ctx, "answered"); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := s.Unreplied(ctx, KindJob, time.Now().Add(-24*time.Hour))
+	if err != nil || len(ids) != 1 || ids[0] != "old" {
+		t.Fatalf("unreplied %v %v", ids, err)
+	}
 }

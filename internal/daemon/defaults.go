@@ -1,30 +1,27 @@
 package daemon
 
 import (
-	"errors"
-	"os"
+	"context"
 	"strings"
 	"time"
 
 	"github.com/unsady/den/internal/jobs"
+	"github.com/unsady/den/internal/store"
 )
 
-// addDefaultJobs adds each of defaultJobs once, and lists the ones it added
-// at path: an update brings a new one, and a job the user removed stays
-// removed.
-func addDefaultJobs(store *jobs.Store, path string, created bool) error {
-	added := map[string]bool{}
-	data, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		for _, name := range strings.Fields(string(data)) {
-			added[name] = true
-		}
-	case !errors.Is(err, os.ErrNotExist):
+// defaultsKey lists den's own jobs that den added once, so an update brings
+// a new one and a job the user removed stays removed.
+const defaultsKey = "jobs.defaults"
+
+// addDefaultJobs adds each of defaultJobs once.
+func addDefaultJobs(ctx context.Context, db *store.Store, js *jobs.Store) error {
+	value, err := db.Setting(ctx, defaultsKey)
+	if err != nil {
 		return err
-	case !created:
-		// den added reflect with the store before it kept this list.
-		added["reflect"] = true
+	}
+	added := map[string]bool{}
+	for _, name := range strings.Fields(value) {
+		added[name] = true
 	}
 
 	var names []string
@@ -33,13 +30,13 @@ func addDefaultJobs(store *jobs.Store, path string, created bool) error {
 		if added[j.Name] {
 			continue
 		}
-		if _, err := store.Get(j.Name); err == nil {
+		if _, err := js.Get(j.Name); err == nil {
 			// The user has a job of their own by this name.
 			continue
 		}
-		if _, err := store.Add(j, time.Now()); err != nil {
+		if _, err := js.Add(j, time.Now()); err != nil {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(names, "\n")+"\n"), 0o644)
+	return db.SetSetting(ctx, defaultsKey, strings.Join(names, " "))
 }

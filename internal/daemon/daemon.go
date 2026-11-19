@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -52,15 +51,20 @@ const tick = 15 * time.Second
 // defaultJobs are den's own jobs: the nightly review, and the tidying of
 // the space after it.
 var defaultJobs = []jobs.Job{
-	{Name: "reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill."},
-	{Name: "tidy", Schedule: "0 5 * * *", Prompt: "Use the tidy skill."},
+	{Name: reflectJob, Title: "Reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill."},
+	{Name: tidyJob, Title: "Tidy", Schedule: "0 5 * * *", Prompt: "Use the tidy skill."},
 }
+
+// den's own jobs' names.
+const (
+	reflectJob = "nightly-reflect"
+	tidyJob    = "nightly-tidy"
+)
 
 type daemon struct {
 	ctx   context.Context
 	cfg   config.Config
 	store *jobs.Store
-	runs  *jobs.Runs
 	// db keeps the sessions and the rest of den's own state.
 	db     *store.Store
 	usage  *usage.Store
@@ -107,14 +111,6 @@ func Serve(cfg config.Config) error {
 		return err
 	}
 
-	jobStore, created, err := jobs.Open(filepath.Join(cfg.State, "jobs.json"))
-	if err != nil {
-		return err
-	}
-	if err := addDefaultJobs(jobStore, filepath.Join(cfg.State, "default-jobs"), created); err != nil {
-		return err
-	}
-
 	if _, err := notify.Load(cfg); err != nil {
 		log.Printf("notifications are off until secrets arrive: %v", err)
 	}
@@ -150,6 +146,13 @@ func Serve(cfg config.Config) error {
 	if err := importLegacy(ctx, cfg, db); err != nil {
 		log.Printf("import: %v", err)
 	}
+	if err := importLegacyJobs(ctx, cfg, db); err != nil {
+		log.Printf("import jobs: %v", err)
+	}
+	jobStore := jobs.New(db)
+	if err := addDefaultJobs(ctx, db, jobStore); err != nil {
+		return err
+	}
 
 	ln, err := listen(cfg.Socket)
 	if err != nil {
@@ -160,7 +163,6 @@ func Serve(cfg config.Config) error {
 		ctx:     ctx,
 		cfg:     cfg,
 		store:   jobStore,
-		runs:    jobs.NewRuns(filepath.Join(cfg.State, "runs")),
 		db:      db,
 		usage:   usage.Open(cfg.State),
 		ask:     approve.New(cfg),
@@ -290,13 +292,49 @@ func (d *daemon) loop() {
 	t := time.NewTicker(tick)
 	defer t.Stop()
 
+	var swept time.Time
 	for {
 		d.runDue()
+		if time.Since(swept) > sweepEvery {
+			swept = time.Now()
+			d.sweep()
+		}
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// unrepliedFor is how long den keeps the session of a job's run the user
+// did not reply to, and sweepEvery how often it looks for such sessions.
+const (
+	unrepliedFor = 30 * 24 * time.Hour
+	sweepEvery   = 24 * time.Hour
+)
+
+// sweep deletes the sessions of job runs that wrote to the user longer
+// than unrepliedFor ago and that the user never replied to.
+func (d *daemon) sweep() {
+	ids, err := d.db.Unreplied(d.ctx, store.KindJob, time.Now().Add(-unrepliedFor))
+	if err != nil {
+		log.Printf("sweep: %v", err)
+		return
+	}
+	deleted := 0
+	for _, id := range ids {
+		if d.ctx.Err() != nil {
+			return
+		}
+		if _, err := d.deleteSession(d.ctx, id); err != nil {
+			log.Printf("sweep: session %s: %v", id, err)
+			continue
+		}
+		deleted++
+	}
+	if deleted > 0 {
+		log.Printf("sweep: deleted %d job sessions the user did not reply to", deleted)
 	}
 }
 
@@ -333,7 +371,7 @@ func (d *daemon) acquire(j jobs.Job) bool {
 	default:
 	}
 
-	log.Printf("job %s: waiting for a free slot (%d running)", j.Label(), len(d.slots))
+	log.Printf("job %s: waiting for a free slot (%d running)", j.Name, len(d.slots))
 	select {
 	case d.slots <- struct{}{}:
 		return true
@@ -345,11 +383,11 @@ func (d *daemon) acquire(j jobs.Job) bool {
 // start runs j in the background unless it is already running.
 func (d *daemon) start(j jobs.Job) bool {
 	d.mu.Lock()
-	if d.running[j.ID] {
+	if d.running[j.Name] {
 		d.mu.Unlock()
 		return false
 	}
-	d.running[j.ID] = true
+	d.running[j.Name] = true
 	d.mu.Unlock()
 
 	d.wg.Add(1)
@@ -357,7 +395,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		defer d.wg.Done()
 		defer func() {
 			d.mu.Lock()
-			delete(d.running, j.ID)
+			delete(d.running, j.Name)
 			d.mu.Unlock()
 		}()
 
@@ -367,7 +405,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		}
 		defer func() { <-d.slots }()
 
-		log.Printf("job %s: started", j.Label())
+		log.Printf("job %s: started", j.Name)
 		choice := d.chat.Choice(d.ctx, j.Slot)
 		turn := "job-" + rand.Text()[:12]
 		d.mu.Lock()
@@ -394,7 +432,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		// now instead of with the run's record.
 		if silent(j, run) && run.SessionID != "" {
 			if err := d.deleteJobSession(run.SessionID); err != nil {
-				log.Printf("job %s: delete session: %v", j.Label(), err)
+				log.Printf("job %s: delete session: %v", j.Name, err)
 			} else {
 				run.SessionID = ""
 			}
@@ -403,19 +441,22 @@ func (d *daemon) start(j jobs.Job) bool {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
 		}
 
-		if err := d.runs.Save(run); err != nil {
-			log.Printf("job %s: save run: %v", j.Label(), err)
+		if err := d.store.Finish(run); err != nil {
+			log.Printf("job %s: save run: %v", j.Name, err)
 		}
-		if err := d.store.Finish(j.ID, run.Started, run.Status()); err != nil {
-			log.Printf("job %s: %v", j.Label(), err)
-		}
-		log.Printf("job %s: %s in %s", j.Label(), run.Status(), run.Duration)
+		log.Printf("job %s: %s in %s", j.Name, run.Status(), run.Duration)
 	}()
 	return true
 }
 
 // ListJobs serves the chat's /jobs.
-func (d *daemon) ListJobs() []jobs.Job { return d.store.List() }
+func (d *daemon) ListJobs() []jobs.Job {
+	list, err := d.store.List()
+	if err != nil {
+		log.Printf("jobs: %v", err)
+	}
+	return list
+}
 
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
@@ -475,7 +516,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	var text string
 	switch {
 	case run.Error != "":
-		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Label(), run.Error)
+		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Name, run.Error)
 		// fx says why on its last line, such as that no provider is set up.
 		lines := strings.Split(strings.TrimSpace(run.Stderr), "\n")
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
@@ -497,22 +538,21 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	}
 	// A run that writes to the user keeps its session, named after the
 	// job, so a reply to its message goes on there on the same model.
-	name := jobName(j)
 	if run.SessionID != "" {
 		err := d.db.AddSession(d.ctx, store.Session{
-			ID: run.SessionID, Kind: store.Job, Job: j.ID, Title: name, Created: run.Started,
+			ID: run.SessionID, Kind: store.KindJob, Job: j.Name, Title: j.Title, Created: run.Started,
 			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
 		})
 		if err != nil {
-			log.Printf("job %s: session: %v", j.Label(), err)
+			log.Printf("job %s: session: %v", j.Name, err)
 		}
 	}
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: name, Model: run.Model, Text: result, Failed: run.Error != ""})
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))
 	if err != nil {
-		log.Printf("job %s: deliver: %v", j.Label(), err)
+		log.Printf("job %s: deliver: %v", j.Name, err)
 		return false
 	}
 	d.chat.Sent(ids, run.SessionID)
@@ -531,30 +571,15 @@ func silent(j jobs.Job, run jobs.Run) bool {
 }
 
 // heading names the job above its reply, which would otherwise read like a
-// reply in the chat.
-// jobName is a job's name: its own, or what kind of job it is.
-func jobName(j jobs.Job) string {
-	switch {
-	case j.Name != "":
-		return j.Name
-	case j.Once:
-		return "reminder"
-	}
-	return "job " + j.ID
-}
-
+// reply in the chat: its title, with den's own jobs' icons.
 func heading(j jobs.Job) string {
-	switch {
-	case j.Name == "reflect":
-		return "🌙 Reflect"
-	case j.Name == "tidy":
-		return "🧹 Tidy"
-	case j.Name != "":
-		return "⏰ " + j.Name
-	case j.Once:
-		return "⏰ Reminder"
+	switch j.Name {
+	case reflectJob:
+		return "🌙 " + j.Title
+	case tidyJob:
+		return "🧹 " + j.Title
 	}
-	return "⏰ Scheduled job " + j.ID
+	return "⏰ " + j.Title
 }
 
 // notify sends text to the user's Telegram at once, and to the app in the
@@ -593,7 +618,7 @@ func quietly(j jobs.Job, now time.Time) bool {
 	switch {
 	case j.Once:
 		return false
-	case j.Name == "reflect", j.Name == "tidy":
+	case j.Name == reflectJob, j.Name == tidyJob:
 		return true
 	}
 	hour := now.Hour()
@@ -619,7 +644,10 @@ func (d *daemon) send(text string, quiet bool) ([]int64, error) {
 
 // AddRequest is the body of POST /jobs.
 type AddRequest struct {
+	// Name is the job's slug, and Title what the user reads, in their
+	// language.
 	Name     string `json:"name"`
+	Title    string `json:"title"`
 	Schedule string `json:"schedule"`
 	Prompt   string `json:"prompt"`
 	// Slot is main or second, the chat's model the job runs on.
@@ -721,7 +749,12 @@ func (d *daemon) routes() http.Handler {
 	})
 
 	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, http.StatusOK, d.store.List())
+		list, err := d.store.List()
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, http.StatusOK, list)
 	})
 
 	mux.HandleFunc("POST /jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -731,7 +764,8 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		j, err := d.store.Add(jobs.Job{
-			Name:     strings.TrimSpace(req.Name),
+			Name:     req.Name,
+			Title:    req.Title,
 			Schedule: req.Schedule,
 			Prompt:   req.Prompt,
 			Slot:     req.Slot,
@@ -744,7 +778,7 @@ func (d *daemon) routes() http.Handler {
 		// A repeating job goes on working after the chat that added it, so
 		// /log shows it.
 		if !j.Once {
-			d.ask.Note(fmt.Sprintf("Job %s added: %s", j.Label(), j.Schedule), approve.Went)
+			d.ask.Note(fmt.Sprintf("Job %s added: %s", j.Name, j.Schedule), approve.Went)
 		}
 		reply(w, http.StatusCreated, j)
 	})
@@ -774,7 +808,7 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		if !j.Once {
-			d.ask.Note(fmt.Sprintf("Job %s removed", j.Label()), approve.Went)
+			d.ask.Note(fmt.Sprintf("Job %s removed", j.Name), approve.Went)
 		}
 		reply(w, http.StatusOK, j)
 	})
@@ -786,27 +820,19 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		if !d.start(j) {
-			fail(w, http.StatusConflict, fmt.Errorf("job %s is already running", j.Label()))
+			fail(w, http.StatusConflict, fmt.Errorf("job %s is already running", j.Name))
 			return
 		}
 		reply(w, http.StatusAccepted, j)
 	})
 
 	mux.HandleFunc("GET /jobs/{ref}/runs", func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("ref")
-		if j, err := d.store.Get(id); err == nil {
-			id = j.ID
-		}
-		// A removed job's runs are found by its ID, which names a folder.
-		if !jobID.MatchString(id) {
-			fail(w, http.StatusBadRequest, errors.New("not a job"))
-			return
-		}
+		// A removed job's runs stay under its name.
 		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
 		if n <= 0 {
 			n = 5
 		}
-		runs, err := d.runs.Last(id, n)
+		runs, err := d.store.Runs(r.PathValue("ref"), n)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
@@ -917,9 +943,6 @@ func (d *daemon) routes() http.Handler {
 
 	return mux
 }
-
-// jobID is what a job's ID looks like.
-var jobID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // firstSentence is the opening of instructions, enough to tell what a run
 // is for: its first line, up to its first sentence, at most 160 runes.

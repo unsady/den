@@ -8,7 +8,7 @@ import (
 func TestInbox(t *testing.T) {
 	s, ctx := open(t), context.Background()
 	for _, id := range []string{"a", "b"} {
-		if err := s.AddSession(ctx, Session{ID: id, Kind: Chat}); err != nil {
+		if err := s.AddSession(ctx, Session{ID: id, Kind: KindChat}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -132,7 +132,7 @@ func TestSettingsAndContext(t *testing.T) {
 		t.Fatalf("setting %q", v)
 	}
 
-	if err := s.AddSession(ctx, Session{ID: "a", Kind: Chat}); err != nil {
+	if err := s.AddSession(ctx, Session{ID: "a", Kind: KindChat}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetContext(ctx, "a", 1200); err != nil {

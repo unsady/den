@@ -29,17 +29,22 @@ An image goes as a photo, anything else as a file, up to 50 MB. `--widget` gives
 A job runs fx later in a fresh session in this folder, with den's rules and the space's memory but without the current chat. Its final reply is sent to the user, unless the reply is exactly `SILENT` or the job is `--silent`.
 
 ```bash
-den job add --schedule "in 30m" "Remind the user to call the bank."
-den job add --name morning --schedule "0 9 * * 1-5" "Check notes/todo.md and send the user today's three most important items."
+den job add --name call-the-bank --title "Позвонить в банк" --schedule "in 30m" "Remind the user to call the bank."
+den job add --name morning-brief --title "Утренняя сводка" --schedule "0 9 * * 1-5" "Check notes/todo.md and send the user today's three most important items."
 den job ls
-den job log morning
-den job run morning
-den job rm morning
+den job log morning-brief
+den job run morning-brief
+den job rm morning-brief
 ```
+
+Every job, a reminder too, needs both:
+
+- `--name`: 2 or 3 lowercase English words joined by `-`, without digits, that say what the job does, such as `morning-brief`. It is how you and den refer to the job, and it must be new.
+- `--title`: a few words in the user's language, which the user sees above the job's messages and in `/jobs`.
 
 Schedules: `in 30m` or `in 2h` (once), `2026-11-10 09:00` (once, local time), `every 2h`, a cron expression such as `0 9 * * 1-5`, or `@daily`.
 
-A job runs on the chat's main model, or on the second model the user chose in `/model` with `--slot second` or `den job slot morning second`. Which model is second, faster or stronger, is the user's choice: when they ask for a job on another model, use the second slot and tell them which model it is now, as `/status` shows. Without a second model, a job on it runs on the main one.
+A job runs on the chat's main model, or on the second model the user chose in `/model` with `--slot second` or `den job slot morning-brief second`. Which model is second, faster or stronger, is the user's choice: when they ask for a job on another model, use the second slot and tell them which model it is now, as `/status` shows. Without a second model, a job on it runs on the main one.
 
 Write the prompt so it stands on its own. The job will not see this conversation, so name the files, the facts, and what to send. For a reminder, the prompt can simply say what to remind the user of.
 

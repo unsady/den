@@ -166,15 +166,16 @@ func jobCommand(cfg config.Config, args []string) error {
 		fs := flag.NewFlagSet("job add", flag.ContinueOnError)
 		var req daemon.AddRequest
 		fs.StringVar(&req.Schedule, "schedule", "", "when the job runs")
-		fs.StringVar(&req.Name, "name", "", "a name to refer to the job by")
+		fs.StringVar(&req.Name, "name", "", "the job's name: 2 or 3 lowercase English words joined by -, such as morning-brief")
+		fs.StringVar(&req.Title, "title", "", "the job's title in the user's language, which the user reads")
 		fs.StringVar(&req.Slot, "slot", jobs.Main, "the chat's model the job runs on: main or second")
 		fs.BoolVar(&req.Silent, "silent", false, "keep the reply in the job log instead of sending it")
 		rest, err := parse(fs, args)
 		if err != nil {
 			return err
 		}
-		if req.Schedule == "" {
-			return fmt.Errorf("job add needs --schedule")
+		if req.Schedule == "" || req.Name == "" || req.Title == "" {
+			return fmt.Errorf("job add needs --name, --title, and --schedule")
 		}
 		req.Prompt = strings.Join(rest, " ")
 
@@ -182,7 +183,7 @@ func jobCommand(cfg config.Config, args []string) error {
 		if err := c.Do(http.MethodPost, "/jobs", req, &j); err != nil {
 			return err
 		}
-		fmt.Printf("added job %s, next run %s\n", label(j), when(j.NextRun))
+		fmt.Printf("added job %s, next run %s\n", j.Name, when(j.NextRun))
 		return nil
 
 	case "ls", "list":
@@ -205,7 +206,7 @@ func jobCommand(cfg config.Config, args []string) error {
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tNEXT\tSCHEDULE\tMODEL\tLAST\tPROMPT")
+		fmt.Fprintln(w, "NAME\tTITLE\tNEXT\tSCHEDULE\tMODEL\tLAST\tPROMPT")
 		for _, j := range list {
 			last := "-"
 			if j.LastRun != nil {
@@ -215,7 +216,7 @@ func jobCommand(cfg config.Config, args []string) error {
 			if j.Slot != "" {
 				slot = j.Slot
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, dash(j.Name), when(j.NextRun), j.Schedule, slot, last, oneLine(j.Prompt, 50))
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.Name, j.Title, when(j.NextRun), j.Schedule, slot, last, oneLine(j.Prompt, 50))
 		}
 		return w.Flush()
 
@@ -227,7 +228,7 @@ func jobCommand(cfg config.Config, args []string) error {
 		if err := c.Do(http.MethodPatch, "/jobs/"+url.PathEscape(args[0]), daemon.SlotRequest{Slot: args[1]}, &j); err != nil {
 			return err
 		}
-		fmt.Printf("job %s runs on the %s model\n", label(j), args[1])
+		fmt.Printf("job %s runs on the %s model\n", j.Name, args[1])
 		return nil
 
 	case "rm", "remove":
@@ -239,7 +240,7 @@ func jobCommand(cfg config.Config, args []string) error {
 		if err := c.Do(http.MethodDelete, "/jobs/"+url.PathEscape(ref), nil, &j); err != nil {
 			return err
 		}
-		fmt.Printf("removed job %s\n", label(j))
+		fmt.Printf("removed job %s\n", j.Name)
 		return nil
 
 	case "run":
@@ -251,7 +252,7 @@ func jobCommand(cfg config.Config, args []string) error {
 		if err := c.Do(http.MethodPost, "/jobs/"+url.PathEscape(ref)+"/run", nil, &j); err != nil {
 			return err
 		}
-		fmt.Printf("started job %s; see `den job log %s`\n", label(j), j.ID)
+		fmt.Printf("started job %s; see `den job log %s`\n", j.Name, j.Name)
 		return nil
 
 	case "log":
@@ -593,22 +594,8 @@ func printJSON(v any) error {
 	return enc.Encode(v)
 }
 
-func label(j jobs.Job) string {
-	if j.Name != "" {
-		return fmt.Sprintf("%s (%s)", j.Name, j.ID)
-	}
-	return j.ID
-}
-
 func when(t time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
-}
-
-func dash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
 }
 
 func oneLine(s string, limit int) string {

@@ -558,13 +558,13 @@ func (f *fakeTelegram) expectPrefix(t *testing.T, want string) string {
 
 func TestChatControls(t *testing.T) {
 	next := time.Date(2026, 11, 10, 4, 0, 0, 0, time.Local)
-	scheduler := &fakeDaemon{questions: map[string]string{"1": "Send it?", "2": "Push it?"}, list: []jobs.Job{{ID: "j1", Name: "reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill.", NextRun: next}}}
+	scheduler := &fakeDaemon{questions: map[string]string{"1": "Send it?", "2": "Push it?"}, list: []jobs.Job{{Name: "nightly-reflect", Title: "Reflect", Schedule: "0 4 * * *", Prompt: "Use the reflect skill.", NextRun: next}}}
 	cfg, telegram, c := startChatWith(t, scheduler)
 
 	now := time.Now()
 	seed(t, c,
-		store.Session{ID: "aaa", Kind: store.Chat, Title: "Taxes", Updated: now.Add(-2 * time.Hour)},
-		store.Session{ID: "bbb", Kind: store.Chat, Title: "Trip", Updated: now.Add(-time.Hour)},
+		store.Session{ID: "aaa", Kind: store.KindChat, Title: "Taxes", Updated: now.Add(-2 * time.Hour)},
+		store.Session{ID: "bbb", Kind: store.KindChat, Title: "Trip", Updated: now.Add(-time.Hour)},
 	)
 
 	// /sessions lists chat sessions, newest first, and a button switches.
@@ -600,7 +600,7 @@ func TestChatControls(t *testing.T) {
 
 	// /jobs lists the jobs; the agent changes and runs them.
 	telegram.message(42, "/jobs")
-	telegram.expect(t, "Jobs:\n\n<b>reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nAsk the agent to change or run a job.")
+	telegram.expect(t, "Jobs:\n\n<b>Reflect</b> · next Tue 10 Nov 04:00\nUse the reflect skill.\n\nAsk the agent to change or run a job.")
 	telegram.expectButtons(t, "x:")
 
 	// /model offers the current and recent models, the full list by
@@ -790,9 +790,9 @@ func TestSessionsList(t *testing.T) {
 
 	now := time.Now()
 	seed(t, c,
-		store.Session{ID: "aaa", Kind: store.Chat, Title: "Taxes", Updated: now.Add(-3 * time.Hour)},
-		store.Session{ID: "bbb", Kind: store.Chat, Title: "Trip", Updated: now.Add(-2 * time.Hour)},
-		store.Session{ID: "job", Kind: store.Job, Title: "News alerts", Updated: now.Add(-time.Hour)},
+		store.Session{ID: "aaa", Kind: store.KindChat, Title: "Taxes", Updated: now.Add(-3 * time.Hour)},
+		store.Session{ID: "bbb", Kind: store.KindChat, Title: "Trip", Updated: now.Add(-2 * time.Hour)},
+		store.Session{ID: "job", Kind: store.KindJob, Title: "News alerts", Updated: now.Add(-time.Hour)},
 	)
 
 	// Job runs stay out, and the session switched to last comes first.
@@ -869,8 +869,8 @@ func TestProgressNote(t *testing.T) {
 func TestTell(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	addSession(t, c, store.Session{ID: "main", Kind: store.Chat})
-	addSession(t, c, store.Session{ID: "job1", Kind: store.Job})
+	addSession(t, c, store.Session{ID: "main", Kind: store.KindChat})
+	addSession(t, c, store.Session{ID: "job1", Kind: store.KindJob})
 	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "t2", session: "job1"}}
 
 	if c.Tell("job", "[den: done]", "done") {
@@ -927,7 +927,7 @@ func TestReplyTarget(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
 	ctx := context.Background()
-	for _, s := range []store.Session{{ID: "main", Kind: store.Chat}, {ID: "job1", Kind: store.Job, Title: "news"}} {
+	for _, s := range []store.Session{{ID: "main", Kind: store.KindChat}, {ID: "job1", Kind: store.KindJob, Title: "news"}} {
 		if err := c.store.AddSession(ctx, s); err != nil {
 			t.Fatal(err)
 		}
@@ -962,7 +962,7 @@ func TestForget(t *testing.T) {
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
 	ctx := context.Background()
 	for _, id := range []string{"main", "old", "job1"} {
-		if err := c.store.AddSession(ctx, store.Session{ID: id, Kind: store.Chat}); err != nil {
+		if err := c.store.AddSession(ctx, store.Session{ID: id, Kind: store.KindChat}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1055,7 +1055,7 @@ func TestBackground(t *testing.T) {
 	telegram.expect(t, "resume=none msg=hi lines=1")
 	telegram.expect(t, "⚙ Modèles comparés\n\nresume=none msg=slow: compare two models lines=2")
 	// Its session is kept as a /bg task's, titled.
-	if s, err := testStore(t, cfg).Session(context.Background(), "ask1"); err != nil || s.Kind != store.Background || s.Title != "Modèles comparés" {
+	if s, err := testStore(t, cfg).Session(context.Background(), "ask1"); err != nil || s.Kind != store.KindBackground || s.Title != "Modèles comparés" {
 		t.Fatalf("background session %+v, %v", s, err)
 	}
 
@@ -1154,7 +1154,7 @@ func TestAnswerFailure(t *testing.T) {
 func TestInboxSurvivesARestart(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, nil, testStore(t, cfg))
-	addSession(t, c, store.Session{ID: "s1", Kind: store.Chat})
+	addSession(t, c, store.Session{ID: "s1", Kind: store.KindChat})
 	if err := c.enqueue(
 		entry{text: "Call the bank", image: "/inbox/a.jpg", session: "s1"},
 		entry{text: "[den: Mail to a@example.com was not sent.]", report: true, session: "s1"},
@@ -1227,7 +1227,7 @@ func TestAppTurn(t *testing.T) {
 
 	// A reply to a job's run goes on in its session, on the job's model, and
 	// only in the app.
-	if err := c.store.AddSession(context.Background(), store.Session{ID: "job1", Kind: store.Job, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}}); err != nil {
+	if err := c.store.AddSession(context.Background(), store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}}); err != nil {
 		t.Fatal(err)
 	}
 	c.Post(context.Background(), "more", "job1", nil)

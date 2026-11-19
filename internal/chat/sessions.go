@@ -48,7 +48,7 @@ func (c *Chat) joined(client string) (string, error) {
 	}
 
 	id := newSession()
-	if err := c.store.AddSession(context.Background(), store.Session{ID: id, Kind: store.Chat}); err != nil {
+	if err := c.store.AddSession(context.Background(), store.Session{ID: id, Kind: store.KindChat}); err != nil {
 		return "", err
 	}
 	return id, c.enter(client, id)
@@ -81,10 +81,10 @@ func (c *Chat) Sent(ids []int64, session string) {
 }
 
 // icons mark each kind of session above a reply from it.
-var icons = map[store.Kind]string{store.Chat: "↩", store.Background: "⚙", store.Job: "⏰"}
+var icons = map[store.Kind]string{store.KindChat: "↩", store.KindBackground: "⚙", store.KindJob: "⏰"}
 
 // placeholders name a session of each kind that has no title yet.
-var placeholders = map[store.Kind]string{store.Chat: "Earlier session", store.Background: "Background task", store.Job: "Job"}
+var placeholders = map[store.Kind]string{store.KindChat: "Earlier session", store.KindBackground: "Background task", store.KindJob: "Job"}
 
 // label names session above a reply in Telegram that comes from a session
 // other than Telegram's own, and is empty for Telegram's own.
@@ -94,7 +94,7 @@ func (c *Chat) label(session string) string {
 	}
 	s, err := c.store.Session(context.Background(), session)
 	if err != nil {
-		return icons[store.Chat] + " " + placeholders[store.Chat]
+		return icons[store.KindChat] + " " + placeholders[store.KindChat]
 	}
 	return icons[s.Kind] + " " + clipRunes(titleOf(s), 40)
 }
@@ -110,7 +110,7 @@ func titleOf(s store.Session) string {
 // untitled says whether session is a chat session that has no title yet.
 func (c *Chat) untitled(session string) bool {
 	s, err := c.store.Session(context.Background(), session)
-	return err == nil && s.Kind == store.Chat && s.Title == ""
+	return err == nil && s.Kind == store.KindChat && s.Title == ""
 }
 
 // choiceOf returns the model a turn in session runs on: the chat's for a
@@ -125,7 +125,7 @@ func (c *Chat) choiceOf(session string) (choice runner.Choice, agent bool, err e
 
 	chat := c.mainModel()
 	switch {
-	case s.Kind == store.Chat:
+	case s.Kind == store.KindChat:
 		return chat, true, nil
 	case s.Choice.Provider == "" && s.Choice.Model == "":
 		return chat, false, nil

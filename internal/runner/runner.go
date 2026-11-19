@@ -46,11 +46,11 @@ func IsSilent(reply string) bool {
 	return strings.TrimSpace(last) == Silent
 }
 
-const deliveredNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
+const deliveredNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
 	"Reply with exactly the English word " + Silent + ", untranslated, when there is nothing worth sending."
 
-const silentNote = "This is the scheduled den job %q (id %s). It runs in a fresh session without the user's chat history. " +
+const silentNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
 	"Your final reply is saved in the job log and is not sent to the user."
 
 // Prompt is the request fx receives for j. The job's own words come first,
@@ -61,7 +61,7 @@ func Prompt(j jobs.Job) string {
 	if j.Silent {
 		note = silentNote
 	}
-	return j.Prompt + "\n\n[" + fmt.Sprintf(note, j.Label(), j.ID) + "]"
+	return j.Prompt + "\n\n[" + fmt.Sprintf(note, j.Name) + "]"
 }
 
 // Choice is a model to use with its reasoning effort. Empty fields leave
@@ -77,7 +77,7 @@ type Choice struct {
 func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn string) jobs.Run {
 	reply := Ask(ctx, cfg, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Turn: turn})
 	return jobs.Run{
-		JobID:     j.ID,
+		Job:       j.Name,
 		Started:   reply.Started,
 		Duration:  reply.Duration,
 		ExitCode:  reply.ExitCode,

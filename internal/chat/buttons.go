@@ -29,9 +29,9 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 	switch {
 	case query != "":
 	case jobRuns:
-		filter.Kinds = []store.Kind{store.Job}
+		filter.Kinds = []store.Kind{store.KindJob}
 	default:
-		filter.Kinds = []store.Kind{store.Chat, store.Background}
+		filter.Kinds = []store.Kind{store.KindChat, store.KindBackground}
 	}
 	list, err := c.store.Sessions(ctx, filter)
 	if err != nil {
@@ -63,7 +63,7 @@ func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, word
 	var rows [][]notify.Button
 	for _, s := range list {
 		label := clipRunes(titleOf(s), 40) + " · " + ago(s.Updated)
-		if s.Kind != store.Chat && !jobRuns {
+		if s.Kind != store.KindChat && !jobRuns {
 			label = icons[s.Kind] + " " + label
 		}
 		rows = append(rows, []notify.Button{{Text: mark(label, s.ID == current), Data: "s:" + s.ID}})
@@ -92,7 +92,7 @@ func (c *Chat) listJobs(ctx context.Context, telegram *notify.Telegram, edit int
 	text := "Jobs:\n"
 	var rows [][]notify.Button
 	for _, j := range list {
-		text += fmt.Sprintf("\n<b>%s</b> · next %s", html.EscapeString(j.Label()), j.NextRun.Format("Mon 2 Jan 15:04"))
+		text += fmt.Sprintf("\n<b>%s</b> · next %s", html.EscapeString(j.Title), j.NextRun.Format("Mon 2 Jan 15:04"))
 		if j.LastRun != nil {
 			text += " · last " + j.LastStatus + " " + ago(*j.LastRun)
 		}
