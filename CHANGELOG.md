@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.10.1
+
 ### Fixed
 
 - den map on Grok, and titles of sessions on Grok: the Grok subscription refused them for not saying which Grok CLI sent them.
