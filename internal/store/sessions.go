@@ -220,9 +220,3 @@ func escapeLike(s string) string {
 	}
 	return string(out)
 }
-
-// SetSessionJob records which job's run session is.
-func (s *Store) SetSessionJob(ctx context.Context, id, job string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET job_id = ? WHERE id = ?`, job, id)
-	return err
-}

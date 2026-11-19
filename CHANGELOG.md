@@ -13,10 +13,13 @@ release notes.
 ### Changed
 
 - The agent stays quiet with `den quiet` instead of the word SILENT, so den no longer guesses from the reply's text whether to send it. A reply that is exactly SILENT still sends nothing until 2026-12-03, and den logs each one; the nightly tidy rewrites job prompts and skills in the space that still ask for the word.
+- den no longer brings over what a den older than v0.10.0 kept in files. To update from one, update to v0.11.0 first.
 
 ### Fixed
 
 - The app shows what each running turn does after it comes back to the foreground; it used to drop the step of every turn outside the chat's own session.
+- The app no longer misses or doubles messages: den reconnects an app that falls behind instead of dropping events, and each message has a key the app keeps it once by.
+- The app says when den or the app needs an update to understand the other.
 
 ## v0.11.0
 

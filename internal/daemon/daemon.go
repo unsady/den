@@ -138,15 +138,8 @@ func Serve(cfg config.Config) error {
 		return err
 	}
 	defer db.Close()
-	if err := importLegacy(ctx, cfg, db); err != nil {
-		log.Printf("import: %v", err)
-	}
 	jobStore := jobs.New(db)
-	// den's own jobs wait for the older den's, which say which of them the
-	// user removed.
-	if err := importLegacyJobs(ctx, cfg, db); err != nil {
-		log.Printf("import jobs: %v", err)
-	} else if err := addDefaultJobs(ctx, db, jobStore); err != nil {
+	if err := addDefaultJobs(ctx, db, jobStore); err != nil {
 		return err
 	}
 
