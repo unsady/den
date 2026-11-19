@@ -125,12 +125,12 @@ func (c *Chat) turn(ctx context.Context) bool {
 	run, stop := context.WithCancel(ctx)
 	c.mu.Lock()
 	t.own = !joined || c.stop != nil
+	c.attached[session] = []Upload{}
 	if t.own {
 		c.bg[t.id] = stop
 		t.agent = runner.NewAgent(c.cfg)
 	} else {
 		c.stop = stop
-		c.attached = nil
 		// The agent starts a session den named before its first turn.
 		c.steering = session
 		t.agent = c.agent
@@ -213,14 +213,13 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	close(done)
 	<-shown
 
-	var files []Upload
 	c.mu.Lock()
+	files := c.attached[session]
+	delete(c.attached, session)
 	if t.own {
 		delete(c.bg, t.id)
 	} else {
 		c.stop = nil
-		files = c.attached
-		c.attached = nil
 		c.steering = ""
 	}
 	c.mu.Unlock()

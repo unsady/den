@@ -1426,6 +1426,27 @@ func TestSend(t *testing.T) {
 	next(events.Idle)
 	quiet()
 
+	// So does a turn on an agent of its own, such as a new task's.
+	started, err := c.Start(context.Background(), "slow", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, runs := c.attached[started]
+		return string(data) == "slow" && runs
+	})
+	if err := c.Send(context.Background(), started, upload("d.png")); err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.Reply); e.Session != started || len(e.Files) != 1 || e.Files[0].Name != "d.png" {
+		t.Fatalf("new task's reply %+v", e)
+	}
+	next(events.Idle)
+	quiet()
+
 	// A file that comes once the turn is over goes on its own, to the
 	// session and Telegram.
 	if err := c.Send(context.Background(), session, upload("late.png")); err != nil {

@@ -138,9 +138,9 @@ type Chat struct {
 	// notes carry what a running command says about itself, such as how
 	// many items den map has done, to the progress message.
 	notes chan string
-	// attached are the files the running turn sent, which go with its
-	// reply.
-	attached []Upload
+	// attached are the files each running turn sent, by its session,
+	// which go with its reply.
+	attached map[string][]Upload
 	// bg stops each turn that /bg runs, by its ID, while it runs, and
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
@@ -244,20 +244,21 @@ func (c *Chat) poke() {
 
 func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Chat {
 	c := &Chat{
-		cfg:     cfg,
-		den:     den,
-		usage:   usage,
-		store:   st,
-		wake:    make(chan struct{}, 1),
-		squeeze: make(chan struct{}, 1),
-		ended:   make(chan struct{}, 1),
-		notes:   make(chan string, 1),
-		bg:      map[string]context.CancelFunc{},
-		agent:   runner.NewAgent(cfg),
-		busy:    map[string]int{},
-		steered: map[string]string{},
-		titled:  map[string]bool{},
-		Events:  &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
+		cfg:      cfg,
+		den:      den,
+		usage:    usage,
+		store:    st,
+		wake:     make(chan struct{}, 1),
+		squeeze:  make(chan struct{}, 1),
+		ended:    make(chan struct{}, 1),
+		notes:    make(chan string, 1),
+		bg:       map[string]context.CancelFunc{},
+		attached: map[string][]Upload{},
+		agent:    runner.NewAgent(cfg),
+		busy:     map[string]int{},
+		steered:  map[string]string{},
+		titled:   map[string]bool{},
+		Events:   &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
 	c.agent.OnTurn = c.steeredTurn

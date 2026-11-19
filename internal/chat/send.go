@@ -20,13 +20,14 @@ type Upload struct {
 	Widget json.RawMessage
 }
 
-// Send sends the user a file the agent in session sent. While the chat's
-// agent runs a turn there, the file waits for its reply, so they arrive
-// together. Otherwise it goes now, to Telegram and the session.
+// Send sends the user a file the agent in session sent. While a turn of
+// the chat's runs there, on its agent or one of its own, the file waits
+// for its reply, so they arrive together. Otherwise it goes now, to
+// Telegram and the session.
 func (c *Chat) Send(ctx context.Context, session string, f Upload) error {
 	c.mu.Lock()
-	if session != "" && session == c.steering {
-		c.attached = append(c.attached, f)
+	if files, ok := c.attached[session]; ok {
+		c.attached[session] = append(files, f)
 		c.mu.Unlock()
 		return nil
 	}
