@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/config"
 )
@@ -118,11 +119,9 @@ func (m *Models) keepGrokEfforts(resp *http.Response) {
 
 func keep(path string, v any) {
 	data, _ := json.Marshal(v)
-	if err := os.WriteFile(path+".tmp", data, 0o644); err != nil {
+	if err := atomicfile.Write(path, data, 0o644); err != nil {
 		log.Printf("models: %v", err)
-		return
 	}
-	os.Rename(path+".tmp", path)
 }
 
 // windowsFile is where den keeps a provider's context windows by model.

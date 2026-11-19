@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/config"
 )
 
@@ -102,10 +103,7 @@ func SaveCustom(cfg config.Config, list []Custom) error {
 		return err
 	}
 	path := filepath.Join(cfg.State, CustomFile)
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return atomicfile.Write(path, data, 0o600)
 }
 
 // service is how den sends the custom service's token.

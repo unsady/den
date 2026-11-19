@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/unsady/den/internal/atomicfile"
 )
 
 const (
@@ -109,10 +111,7 @@ func (a *Asker) saveRules(rules []Rule) error {
 		return err
 	}
 	path := filepath.Join(a.cfg.State, rulesFile)
-	if err := os.WriteFile(path+".tmp", append(data, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return atomicfile.Write(path, append(data, '\n'), 0o600)
 }
 
 // Note adds an action to the log, such as a request that wrote somewhere
@@ -135,9 +134,7 @@ func (a *Asker) Note(what, outcome string) {
 			buf.Write(append(kept, '\n'))
 		}
 		buf.Write(append(line, '\n'))
-		if err := os.WriteFile(path+".tmp", buf.Bytes(), 0o600); err == nil {
-			os.Rename(path+".tmp", path)
-		}
+		atomicfile.Write(path, buf.Bytes(), 0o600)
 		return
 	}
 

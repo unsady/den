@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/unsady/den/internal/atomicfile"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/fxsettings"
 )
@@ -85,11 +86,7 @@ func (c *Claude) learn(model string, size int) {
 	windows[model] = size
 	data, _ := json.Marshal(windows)
 	path := windowsFile(c.cfg)
-	if err := os.WriteFile(path+".tmp", data, 0o600); err != nil {
-		log.Printf("claude: %v", err)
-		return
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		log.Printf("claude: %v", err)
 		return
 	}
@@ -137,10 +134,7 @@ func (c *Claude) Save(token string) error {
 	}
 
 	path := c.path()
-	if err := os.WriteFile(path+".tmp", []byte(token), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
+	if err := atomicfile.Write(path, []byte(token), 0o600); err != nil {
 		return err
 	}
 	return c.Register()
