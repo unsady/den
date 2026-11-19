@@ -14,6 +14,7 @@ release notes.
 - Jobs and their runs live in den's database too. A job's name is 2 or 3 English words joined by "-", such as `morning-brief`, and it has a title in your language, which you see above its messages and in /jobs; the agent gives both when it adds a job. den's own jobs are now `nightly-reflect` and `nightly-tidy`, and older jobs keep their names, or get one made from it.
 - den deletes the session of a job's message you did not reply to after 30 days. A session you wrote in stays.
 - Jobs, /bg tasks, and replies to their messages run the way the chat does, in a session den names before it starts. A reply to "Background task started" goes on in the task once it ends, and what a job or a task reports shows in its session in the app at once.
+- /compact, and den's own compacting while you are away, ask fx to compact the session as it is, without a turn of the model and without restarting the agent, and say how big it was and is. /compact compacts a session of any size. This needs the fx fork's den.6 build.
 
 ### Fixed
 

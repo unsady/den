@@ -8,9 +8,8 @@ import (
 	"strings"
 )
 
-// fx ask writes each step it takes to stderr, such as "Running ls -la" or
-// "Reading notes/todo.md", and in between the output of the commands it
-// runs. A chat needs the steps only, said briefly.
+// The agent reports each step it takes as a line such as "Running ls -la"
+// or "Reading notes/todo.md". A chat needs the steps only, said briefly.
 
 // stepVerbs start the lines fx writes for its steps.
 var stepVerbs = []string{

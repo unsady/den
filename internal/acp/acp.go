@@ -320,6 +320,25 @@ func (c *Conn) Resume(ctx context.Context, id, cwd string) error {
 	return err
 }
 
+// Compaction is what came of compacting a session: whether fx compacted it,
+// and its size before and after in fx's estimate of tokens.
+type Compaction struct {
+	Compacted bool `json:"compacted"`
+	Before    int  `json:"tokensBefore"`
+	After     int  `json:"tokensAfter"`
+}
+
+// Compact compacts session in place, under its id, with the fx fork's
+// libfx/compact. The session must be open and idle.
+func (c *Conn) Compact(ctx context.Context, session string) (Compaction, error) {
+	var out Compaction
+	raw, err := c.call(ctx, "libfx/compact", map[string]any{"sessionId": session})
+	if err != nil {
+		return out, err
+	}
+	return out, json.Unmarshal(raw, &out)
+}
+
 // SetModel sets the model of the session and then its reasoning effort,
 // with session/set_config_option for the options "model" and "effort". An
 // empty model or effort is left as it is. The model must be one that fx's

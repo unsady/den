@@ -500,9 +500,6 @@ func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {
 	return http.StatusOK, nil
 }
 
-// LastContext serves the chat's /compact.
-func (d *daemon) LastContext(since time.Time) int { return d.models.Last(since) }
-
 // Answer passes the user's answer from the chat to a question den asked,
 // and Rules, Forget, and Actions serve the chat's /log.
 func (d *daemon) Answer(id, outcome string) (string, bool) { return d.ask.Answer(id, outcome) }

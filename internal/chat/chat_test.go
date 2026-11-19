@@ -28,40 +28,15 @@ import (
 	"github.com/unsady/den/internal/usage"
 )
 
-// fakeFX answers with the session it resumed and the first line of the
-// prompt, which holds the user's words.
+// fakeFX runs fx acp as fakeACP, and answers fx's quick commands.
 const fakeFX = `#!/bin/sh
 case "$1" in
 acp) DEN_FAKE_ACP=1 exec "$DEN_TEST_BINARY" "$@" ;;
 status) printf '{"model_source":"%s","model":"auto","connected_providers":["p1","p2"]}\n' "${FX_PROVIDER:-p1}"; exit ;;
 models) printf '{"ids":["auto","fast-%s","big-%s"]}\n' "${FX_PROVIDER:-p1}" "${FX_PROVIDER:-p1}"; exit ;;
 esac
-resume=none
-image=
-while [ $# -gt 0 ]; do
-	case "$1" in
-	--resume) resume=$2; shift ;;
-	--image) image=" image=$2"; shift ;;
-	--provider) image="$image provider=$2"; shift ;;
-	--model) image="$image model=$2"; shift ;;
-	--effort) image="$image effort=$2"; shift ;;
-	--) shift; break ;;
-	esac
-	shift
-done
-printf '%s' "$*" > last-prompt
-if [ -n "$FX_AUTO_COMPACT_PERCENT" ]; then echo "$FX_AUTO_COMPACT_PERCENT $resume" > compacted; fi
-first=$(printf '%s\n' "$*" | head -n 1)
-# A resumed session keeps its id; a new one, such as a /bg task's, is fx's.
-session=$resume
-if [ "$session" = none ]; then session=ask1; fi
-lines=$(printf '%s\n' "$*" | grep -c .)
-case "$first" in
-slow*) sleep 1 ;;
-steps*) echo "Reading a.txt" >&2; echo "total 0" >&2; echo "Running ls" >&2; echo "Running ls -la" >&2; sleep 1 ;;
-"[den: quiet"*|ok) printf '{"final_output":"SILENT","session_id":"%s"}\n' "$session"; exit ;;
-esac
-printf '{"final_output":"resume=%s msg=%s lines=%s%s","session_id":"%s","usage":{"input_tokens":100,"output_tokens":7}}\n' "$resume" "$first" "$lines" "$image" "$session"
+echo "fake fx: $1 is not faked" >&2
+exit 2
 `
 
 type fakeTelegram struct {
@@ -495,8 +470,6 @@ type fakeDaemon struct {
 
 func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
 
-func (f *fakeDaemon) LastContext(since time.Time) int { return f.context / 4 }
-
 func (f *fakeDaemon) Busy(turn string) bool { return false }
 
 func (f *fakeDaemon) JobSessions() map[string]bool {
@@ -724,17 +697,13 @@ func TestCompactWhenIdle(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		data, _ := os.ReadFile(compacted)
-		if string(data) == "10 s1\n" {
+		if string(data) == "s1\n" {
 			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("not compacted: %q", data)
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-	prompt, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
-	if !strings.HasPrefix(string(prompt), "[den: the user has been away") {
-		t.Fatalf("compacting prompt %q", prompt)
 	}
 	select {
 	case text := <-telegram.sent:
@@ -766,23 +735,15 @@ func TestCompactCommand(t *testing.T) {
 	telegram.message(42, "hello")
 	telegram.expect(t, "resume=none msg=hello lines=1")
 	telegram.message(42, "/compact")
-	got := telegram.expectPrefix(t, "🗜 Compacted the session: 50k → ")
-	if data, _ := os.ReadFile(filepath.Join(cfg.Space, "compacted")); string(data) != "10 s1\n" {
-		t.Fatalf("compacted %q, reply %q", data, got)
+	telegram.expect(t, "🗜 Compacted the session: 50k → 12k tokens.")
+	if data, _ := os.ReadFile(filepath.Join(cfg.Space, "compacted")); string(data) != "s1\n" {
+		t.Fatalf("compacted %q", data)
 	}
 
-	// A compaction the user asked for is not announced again.
+	// A compaction the user asked for is not announced again, and the
+	// agent goes on in the same session.
 	telegram.message(42, "back")
 	telegram.expect(t, "resume=s1 msg=back lines=1")
-
-	// fx does not compact a session under compactPercent of the window.
-	den.mu.Lock()
-	den.context = 10_000
-	den.mu.Unlock()
-	telegram.message(42, "small")
-	telegram.expect(t, "resume=s1 msg=small lines=1")
-	telegram.message(42, "/compact")
-	telegram.expect(t, "Context is 10k of 200k: fx compacts a session from 10% of the window, so this one stays as it is.")
 }
 
 func TestSessionsList(t *testing.T) {

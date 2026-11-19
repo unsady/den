@@ -192,7 +192,6 @@ type Run struct {
 	Job       string        `json:"job"`
 	Started   time.Time     `json:"started"`
 	Duration  time.Duration `json:"duration"`
-	ExitCode  int           `json:"exit_code"`
 	SessionID string        `json:"session_id,omitempty"`
 	Output    string        `json:"output,omitempty"`
 	Error     string        `json:"error,omitempty"`
@@ -225,9 +224,9 @@ func (s *Store) AddRun(ctx context.Context, r Run) error {
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO job_runs (job, session_id, started, duration, exit_code, output, error, stderr, delivered, model, input_tokens, output_tokens)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Job, r.SessionID, unix(r.Started), r.Duration.Milliseconds(), r.ExitCode, r.Output, r.Error, r.Stderr,
+		`INSERT INTO job_runs (job, session_id, started, duration, output, error, stderr, delivered, model, input_tokens, output_tokens)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Job, r.SessionID, unix(r.Started), r.Duration.Milliseconds(), r.Output, r.Error, r.Stderr,
 		r.Delivered, r.Model, r.InputTokens, r.OutputTokens); err != nil {
 		return err
 	}
@@ -243,7 +242,7 @@ func (s *Store) AddRun(ctx context.Context, r Run) error {
 // Runs returns up to n of the job's latest runs, newest first.
 func (s *Store) Runs(ctx context.Context, job string, n int) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT job, session_id, started, duration, exit_code, output, error, stderr, delivered, model, input_tokens, output_tokens
+		`SELECT job, session_id, started, duration, output, error, stderr, delivered, model, input_tokens, output_tokens
 		FROM job_runs WHERE job = ? ORDER BY started DESC, id DESC LIMIT ?`, job, n)
 	if err != nil {
 		return nil, err
@@ -254,7 +253,7 @@ func (s *Store) Runs(ctx context.Context, job string, n int) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		var started, duration int64
-		if err := rows.Scan(&r.Job, &r.SessionID, &started, &duration, &r.ExitCode, &r.Output, &r.Error, &r.Stderr,
+		if err := rows.Scan(&r.Job, &r.SessionID, &started, &duration, &r.Output, &r.Error, &r.Stderr,
 			&r.Delivered, &r.Model, &r.InputTokens, &r.OutputTokens); err != nil {
 			return nil, err
 		}

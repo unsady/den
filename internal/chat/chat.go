@@ -91,9 +91,6 @@ type Daemon interface {
 	// ContextSize is the largest prompt sent to the model since a time, in
 	// tokens, or 0 when unknown.
 	ContextSize(since time.Time) int
-	// LastContext is the size of the last prompt since a time, in tokens,
-	// or 0 when unknown.
-	LastContext(since time.Time) int
 	// Busy says whether work that a chat turn started, such as a den map
 	// run, still goes on in den's background.
 	Busy(turn string) bool
@@ -800,7 +797,6 @@ func (c *Chat) turn(ctx context.Context) bool {
 		Effort:     effort,
 		Resume:     session,
 		Images:     images,
-		Turn:       current,
 		MaySilence: true,
 		Progress: func(line string) {
 			if text, ok := step(line); ok {

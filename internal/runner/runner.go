@@ -6,13 +6,9 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"log"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,8 +18,6 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/proc"
-	"github.com/unsady/den/internal/seed"
-	"github.com/unsady/den/internal/sessions"
 )
 
 // systemPrompt takes the place of fx's own base prompt, which is written
@@ -82,7 +76,6 @@ func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn
 		Job:       j.Name,
 		Started:   reply.Started,
 		Duration:  reply.Duration,
-		ExitCode:  reply.ExitCode,
 		SessionID: reply.SessionID,
 		Output:    reply.Output,
 		Error:     reply.Error,
@@ -94,7 +87,7 @@ func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn
 	}
 }
 
-// Request is one fx ask call.
+// Request is one turn of the agent.
 type Request struct {
 	Prompt string
 	// Provider and Model, when set, override fx's own choice for this request.
@@ -105,14 +98,8 @@ type Request struct {
 	// Resume continues this session id instead of starting a new session.
 	// An Agent starts the session under this id when fx has none by it.
 	Resume string
-	// Images are attached to the request, as fx ask --image does.
+	// Images are attached to the request.
 	Images []string
-	// CompactPercent, when set, makes fx compact the session before the
-	// request once it fills this share of the model's window.
-	CompactPercent int
-	// Turn, when set, names the chat turn to the commands the agent runs, as
-	// DEN_TURN, so what they report shows in that turn's progress message.
-	Turn string
 	// MaySilence keeps a reply of Silent as it is, for a turn that need not
 	// answer, instead of taking the session's last answer in its place.
 	MaySilence bool
@@ -121,11 +108,10 @@ type Request struct {
 	Progress func(line string)
 }
 
-// Reply is what one fx ask call produced. Error is empty on success.
+// Reply is what one turn produced. Error is empty on success.
 type Reply struct {
 	Started   time.Time
 	Duration  time.Duration
-	ExitCode  int
 	SessionID string
 	Output    string
 	Error     string
@@ -135,110 +121,6 @@ type Reply struct {
 	OutputTokens int64
 	// New says the turn started its session.
 	New bool
-}
-
-// Ask runs fx ask as the agent in the space, bounded by cfg.JobTimeout.
-// Cancelling ctx stops fx and everything it started.
-func Ask(ctx context.Context, cfg config.Config, req Request) (reply Reply) {
-	reply = Reply{Started: time.Now()}
-	defer func() { reply.Duration = time.Since(reply.Started).Round(time.Second) }()
-
-	ctx, cancel := context.WithTimeout(ctx, cfg.JobTimeout)
-	defer cancel()
-
-	// fx reads the rules when a session starts, so a new one gets the
-	// notes as they are now.
-	if req.Resume == "" {
-		if err := seed.WriteRules(cfg); err != nil {
-			log.Printf("rules: %v", err)
-		}
-	}
-
-	args := []string{"ask", "--full-access", "--json", "--no-color", "--system", systemPrompt}
-	if req.Provider != "" {
-		args = append(args, "--provider", req.Provider)
-	}
-	if req.Model != "" {
-		args = append(args, "--model", req.Model)
-	}
-	if req.Effort != "" {
-		args = append(args, "--effort", req.Effort)
-	}
-	if req.Resume != "" {
-		args = append(args, "--resume", req.Resume)
-	}
-	for _, image := range req.Images {
-		args = append(args, "--image", image)
-	}
-	args = append(args, "--", req.Prompt)
-
-	cmd, err := proc.Command(ctx, cfg, cfg.FX, args...)
-	if err != nil {
-		reply.Error = err.Error()
-		return reply
-	}
-	cmd.Dir = cfg.Space
-	if req.CompactPercent > 0 {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("FX_AUTO_COMPACT_PERCENT=%d", req.CompactPercent))
-	}
-	if req.Turn != "" {
-		cmd.Env = append(cmd.Env, "DEN_TURN="+req.Turn)
-	}
-
-	var stdout bytes.Buffer
-	stderr := &tail{limit: 8 << 10}
-	cmd.Stdout = &stdout
-	cmd.Stderr = stderr
-	if req.Progress != nil {
-		cmd.Stderr = io.MultiWriter(stderr, &lines{emit: req.Progress})
-	}
-
-	ooms := proc.OOMKills()
-	err = cmd.Run()
-	reply.Stderr = stderr.String()
-
-	var exit *exec.ExitError
-	switch {
-	case errors.As(err, &exit):
-		reply.ExitCode = exit.ExitCode()
-	case err != nil:
-		reply.ExitCode = -1
-	}
-
-	result, parseErr := parse(stdout.Bytes())
-	reply.Output = result.output()
-	reply.SessionID = result.SessionID
-	if (reply.Output == Silent && !req.MaySilence) || reply.Output == "Done." {
-		// A subagent's report came after the answer and took the last word;
-		// the answer is in the session.
-		if answer := sessions.Answer(cfg.Sessions, reply.SessionID, reply.Started); answer != "" {
-			reply.Output = answer
-		}
-	}
-	if IsSilent(reply.Output) {
-		reply.Output = Silent
-	}
-	if result.Usage != nil {
-		reply.InputTokens = value(result.Usage.Input)
-		reply.OutputTokens = value(result.Usage.Output)
-	}
-
-	switch {
-	case ctx.Err() == context.DeadlineExceeded:
-		reply.Error = fmt.Sprintf("timed out after %s", cfg.JobTimeout)
-	case ctx.Err() == context.Canceled:
-		reply.Error = "stopped"
-	case proc.OutOfMemory(err, ooms):
-		reply.Error = fmt.Sprintf("fx ran out of memory: the kernel stopped it, and the container has %s", proc.MemoryLimit())
-	case err != nil && result.Error != "":
-		// fx names what went wrong in its result.
-		reply.Error = result.Error
-	case err != nil:
-		reply.Error = fmt.Sprintf("fx exited: %v", err)
-	case parseErr != nil:
-		reply.Error = parseErr.Error()
-	}
-	return reply
 }
 
 // Setup is the provider and model fx uses when den passes no flags.
@@ -339,52 +221,6 @@ func lastLine(text string) string {
 	return text
 }
 
-type askResult struct {
-	FinalOutput string `json:"final_output"`
-	Output      string `json:"output"`
-	SessionID   string `json:"session_id"`
-	Error       string `json:"error"`
-	// HTTPStatus is what the model's provider answered a failed request
-	// with, 0 when it did not fail or fx is too old to say.
-	HTTPStatus int `json:"http_status"`
-	Usage      *struct {
-		Input  *int64 `json:"input_tokens"`
-		Output *int64 `json:"output_tokens"`
-	} `json:"usage"`
-}
-
-func value(n *int64) int64 {
-	if n == nil {
-		return 0
-	}
-	return *n
-}
-
-func (r askResult) output() string {
-	if s := strings.TrimSpace(r.FinalOutput); s != "" {
-		return s
-	}
-	return strings.TrimSpace(r.Output)
-}
-
-// parse reads fx ask --json output: one JSON object, possibly after other
-// lines.
-func parse(stdout []byte) (askResult, error) {
-	var r askResult
-	data := bytes.TrimSpace(stdout)
-	if len(data) == 0 {
-		return r, errors.New("fx printed no result")
-	}
-	if json.Unmarshal(data, &r) == nil {
-		return r, nil
-	}
-
-	if i := bytes.LastIndexByte(data, '\n'); i >= 0 && json.Unmarshal(data[i+1:], &r) == nil {
-		return r, nil
-	}
-	return r, errors.New("fx printed a result den cannot read")
-}
-
 // tail keeps the last limit bytes written to it. fx acp writes to it while
 // den reads it.
 type tail struct {
@@ -407,25 +243,4 @@ func (t *tail) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return strings.TrimSpace(string(t.buf))
-}
-
-// lines calls emit with each complete line written to it.
-type lines struct {
-	emit    func(string)
-	partial []byte
-}
-
-func (l *lines) Write(p []byte) (int, error) {
-	l.partial = append(l.partial, p...)
-	for {
-		i := bytes.IndexByte(l.partial, '\n')
-		if i < 0 {
-			break
-		}
-		if line := strings.TrimSpace(string(l.partial[:i])); line != "" {
-			l.emit(line)
-		}
-		l.partial = l.partial[i+1:]
-	}
-	return len(p), nil
 }

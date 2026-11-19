@@ -14,7 +14,7 @@ import (
 )
 
 // The chat's agent runs fx acp, which fakeFX hands to this test binary:
-// fakeACP answers as fakeFX does for fx ask, over the protocol.
+// fakeACP is fx acp for the tests, run by fakeFX.
 
 func TestMain(m *testing.M) {
 	if os.Getenv("DEN_FAKE_ACP") == "1" {
@@ -192,6 +192,12 @@ func fakeACP(args []string) {
 			}
 			session, resume = m.Params.SessionID, m.Params.SessionID
 			answer(m.ID, map[string]any{})
+		case "libfx/compact":
+			// As fx's fork does: in place, under the session's id.
+			f, _ := os.OpenFile("compacted", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			fmt.Fprintln(f, m.Params.SessionID)
+			f.Close()
+			answer(m.ID, map[string]any{"compacted": true, "tokensBefore": 50_000, "tokensAfter": 12_000})
 		case "session/cancel":
 			select {
 			case cancel <- struct{}{}:

@@ -57,10 +57,9 @@ func NewAgent(cfg config.Config, key string) *Agent {
 // Key is what the commands the agent runs get as DEN_TURN.
 func (a *Agent) Key() string { return a.key }
 
-// Ask runs req as a turn, as runner.Ask does, in req.Resume, which it starts
-// when fx has no session by that id, or in a new session.
-// CompactPercent and Turn are not for an Agent: the chat compacts with Ask,
-// and the turn is the Agent's Key.
+// Ask runs req as a turn in req.Resume, which it starts when fx has no
+// session by that id, or in a new session. Its commands get the Agent's Key
+// as DEN_TURN.
 func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	reply = Reply{Started: time.Now()}
 	defer func() { reply.Duration = time.Since(reply.Started).Round(time.Second) }()
@@ -86,8 +85,8 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		prompt.Images = append(prompt.Images, acp.Image{MimeType: http.DetectContentType(data), Data: data})
 	}
 
-	// The reply is what the agent wrote after its last step, as fx ask
-	// gives it: what it said before a step is not part of the answer.
+	// The reply is what the agent wrote after its last step: what it said
+	// before a step is not part of the answer.
 	var last strings.Builder
 	ooms := proc.OOMKills()
 	res, err := conn.Prompt(ctx, session, prompt, func(ev acp.Event) {
@@ -135,6 +134,23 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		a.Close()
 	}
 	return reply
+}
+
+// Compact compacts req.Resume in place, on req's model, between turns.
+func (a *Agent) Compact(ctx context.Context, req Request) (acp.Compaction, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.cfg.JobTimeout)
+	defer cancel()
+
+	conn, session, _, err := a.open(ctx, req)
+	if err != nil {
+		return acp.Compaction{}, err
+	}
+	out, err := conn.Compact(ctx, session)
+	if err != nil {
+		a.Close()
+		return out, fmt.Errorf("compact: %w", err)
+	}
+	return out, nil
 }
 
 // Steer passes text to the turn that runs now. It returns acp.ErrIdle when
@@ -262,7 +278,7 @@ func (a *Agent) stderrText() string {
 	return a.stderr.String()
 }
 
-// stepLine says a tool call as fx ask writes it to stderr, such as
+// stepLine says a tool call as a step line, such as
 // "Running ls -la" or "Reading notes/todo.md", for the chat's progress.
 func stepLine(ev acp.Event) string {
 	var call struct {

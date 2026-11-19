@@ -3,6 +3,9 @@
 package runner
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,7 +29,7 @@ import (
 // outside, and each session is deleted once it is checked.
 func TestReplies(t *testing.T) {
 	job := func(prompt string) string {
-		return Prompt(jobs.Job{ID: "eval", Name: "eval", Prompt: prompt})
+		return Prompt(jobs.Job{Name: "den-eval", Title: "Eval", Prompt: prompt})
 	}
 	cases := []struct {
 		name, prompt string
@@ -125,4 +128,51 @@ func markdown(reply string) string {
 		}
 	}
 	return ""
+}
+
+// askResult is what fx ask --json prints.
+type askResult struct {
+	FinalOutput string `json:"final_output"`
+	Output      string `json:"output"`
+	SessionID   string `json:"session_id"`
+	Error       string `json:"error"`
+	// HTTPStatus is what the model's provider answered a failed request
+	// with, 0 when it did not fail or fx is too old to say.
+	HTTPStatus int `json:"http_status"`
+	Usage      *struct {
+		Input  *int64 `json:"input_tokens"`
+		Output *int64 `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+func value(n *int64) int64 {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
+func (r askResult) output() string {
+	if s := strings.TrimSpace(r.FinalOutput); s != "" {
+		return s
+	}
+	return strings.TrimSpace(r.Output)
+}
+
+// parse reads fx ask --json output: one JSON object, possibly after other
+// lines.
+func parse(stdout []byte) (askResult, error) {
+	var r askResult
+	data := bytes.TrimSpace(stdout)
+	if len(data) == 0 {
+		return r, errors.New("fx printed no result")
+	}
+	if json.Unmarshal(data, &r) == nil {
+		return r, nil
+	}
+
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 && json.Unmarshal(data[i+1:], &r) == nil {
+		return r, nil
+	}
+	return r, errors.New("fx printed a result den cannot read")
 }
