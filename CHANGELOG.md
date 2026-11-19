@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.10.0
+
 ### New
 
 - Charts in the app: the agent describes a line or bar chart as data and sends it with its picture, so Telegram shows the picture and the den app draws the chart itself, in its own theme. Other files the agent sends show under its reply in the app too.
