@@ -153,10 +153,13 @@ type Chat struct {
 	// join, and files and notes its commands send go with.
 	agent    *runner.Agent
 	steering string
-	// steered are the messages passed to the running turn, by the session
-	// they went to, which come back as a turn of their own if fx did not
-	// deliver them, unless /stop dropped them.
-	steered map[string]string
+	// steered are the messages passed to the running turn, which come back
+	// as a turn of their own if fx did not deliver them, unless /stop
+	// dropped them.
+	steered map[string]steered
+	// steps holds the latest step of each session's running turn, empty
+	// until its first, so a client that reconnects reads what runs.
+	steps map[string]string
 	// busy counts the turns that run in each session, the chat's, a job's
 	// or a /bg task's, and compacting, whose messages wait until they end.
 	busy map[string]int
@@ -165,6 +168,29 @@ type Chat struct {
 	ended chan struct{}
 	// titled are the sessions den asked a title for since it started.
 	titled map[string]bool
+	// quiet holds when each session's agent said it had nothing to send,
+	// until the turn that said it ends.
+	quiet map[string]time.Time
+}
+
+// Quiet marks the running turn in session as one with nothing to send.
+// Like Tell, it trusts the session the agent names: the mark only decides
+// whether the turn's reply is delivered.
+func (c *Chat) Quiet(session string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.quiet[session] = time.Now()
+}
+
+// Quieted says whether the turn in session that started at since was
+// marked quiet, and clears the mark. A mark from before since belongs to an
+// earlier turn and does not count.
+func (c *Chat) Quieted(session string, since time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	at, ok := c.quiet[session]
+	delete(c.quiet, session)
+	return ok && !at.Before(since)
 }
 
 // Tell gives the agent text as a new turn in session, such as what came of
@@ -256,8 +282,10 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		attached: map[string][]Upload{},
 		agent:    runner.NewAgent(cfg),
 		busy:     map[string]int{},
-		steered:  map[string]string{},
+		steered:  map[string]steered{},
 		titled:   map[string]bool{},
+		quiet:    map[string]time.Time{},
+		steps:    map[string]string{},
 		Events:   &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
@@ -379,4 +407,11 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-time.After(d):
 	}
+}
+
+// steered is a message passed to the running turn: the session it went to,
+// and when.
+type steered struct {
+	session string
+	at      time.Time
 }

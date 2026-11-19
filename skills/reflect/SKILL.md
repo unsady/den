@@ -17,7 +17,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
 
    Skip sessions that are earlier reflect runs: their first message names the den job nightly-reflect, or "reflect" before it was renamed.
 
-2. If there are no sessions, run `touch .reflect-stamp` and reply `SILENT`.
+2. If there are no sessions, run `touch .reflect-stamp` and `den quiet`.
 
 3. Read each session. The user's messages carry most of the signal: corrections, "remember", "always", "don't", and frustration with how something was done.
 
@@ -37,7 +37,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
    touch .reflect-stamp
    ```
 
-7. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, reply `SILENT`.
+7. Reply with one to three short lines on what changed, such as "User: prefers short answers. Skill trip-planning: check visa rules first." Write them in the language the user writes to you in, since the reply goes to them. If nothing changed, run `den quiet` instead.
 
 ## Where a lesson goes
 

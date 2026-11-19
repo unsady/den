@@ -105,9 +105,6 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 			reply.Output = answer
 		}
 	}
-	if IsSilent(reply.Output) {
-		reply.Output = Silent
-	}
 
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:

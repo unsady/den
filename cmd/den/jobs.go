@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -120,6 +121,7 @@ func jobCommand(cfg config.Config, args []string) error {
 	case "log":
 		fs := flag.NewFlagSet("job log", flag.ContinueOnError)
 		n := fs.Int("n", 3, "how many runs to show")
+		asJSON := fs.Bool("json", false, "print the runs as JSON")
 		rest, err := parse(fs, args)
 		if err != nil {
 			return err
@@ -132,6 +134,9 @@ func jobCommand(cfg config.Config, args []string) error {
 		var runs []jobs.Run
 		if err := c.Do(http.MethodGet, fmt.Sprintf("/jobs/%s/runs?n=%d", url.PathEscape(ref), *n), nil, &runs); err != nil {
 			return err
+		}
+		if *asJSON {
+			return json.NewEncoder(os.Stdout).Encode(runs)
 		}
 		if len(runs) == 0 {
 			fmt.Println("no runs yet")

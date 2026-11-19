@@ -26,7 +26,7 @@ An image goes as a photo, anything else as a file, up to 50 MB. `--widget` gives
 
 ## Schedule a job
 
-A job runs fx later in a fresh session in this folder, with den's rules and the space's memory but without the current chat. Its final reply is sent to the user, unless the reply is exactly `SILENT` or the job is `--silent`.
+A job runs fx later in a fresh session in this folder, with den's rules and the space's memory but without the current chat. Its final reply is sent to the user, unless the run ends with `den quiet` or the job is `--silent`. Write its prompt in plain words, such as "send nothing when it succeeds": den tells the job how to stay quiet.
 
 ```bash
 den job add --name call-the-bank --title "Позвонить в банк" --schedule "in 30m" "Remind the user to call the bank."

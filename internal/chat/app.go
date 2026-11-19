@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -153,8 +154,10 @@ type Model struct {
 // Setup is what the app shows of the chat.
 type Setup struct {
 	Session string `json:"session,omitempty"`
-	Busy    bool   `json:"busy"`
-	Model   Model  `json:"model"`
+	// Running holds the latest step of each session whose turn runs, empty
+	// until its first.
+	Running map[string]string `json:"running"`
+	Model   Model             `json:"model"`
 	// Second is the model the jobs set to it run on, nil without one.
 	Second *Model `json:"second,omitempty"`
 	// Recent are the models chosen last, newest first.
@@ -170,7 +173,7 @@ func (c *Chat) Setup(ctx context.Context) (Setup, error) {
 	}
 
 	c.mu.Lock()
-	s := Setup{Session: c.cursor(appClient), Busy: c.stop != nil, Providers: setup.Providers}
+	s := Setup{Session: c.cursor(appClient), Running: maps.Clone(c.steps), Providers: setup.Providers}
 	effort, second, recent := c.mainModel().Effort, c.second(), c.recent()
 	c.mu.Unlock()
 

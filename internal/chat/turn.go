@@ -149,6 +149,17 @@ func (c *Chat) turn(ctx context.Context) bool {
 	return true
 }
 
+// step records text as the latest step of session's running turn, and tells
+// the app; an empty text only records that the turn runs.
+func (c *Chat) step(session, text string) {
+	c.mu.Lock()
+	c.steps[session] = text
+	c.mu.Unlock()
+	if text != "" {
+		c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+	}
+}
+
 // chatTurn is a turn of the chat's, from the messages it runs.
 type chatTurn struct {
 	id      string
@@ -170,6 +181,12 @@ type chatTurn struct {
 func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	session := t.session
 	started := time.Now()
+	c.step(session, "")
+	defer func() {
+		c.mu.Lock()
+		delete(c.steps, session)
+		c.mu.Unlock()
+	}()
 	// A chat session gets its title from the user's first message, while
 	// its first turn runs.
 	if t.untitled && t.asked {
@@ -198,7 +215,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		MaySilence: true,
 		Progress: func(line string) {
 			if text, ok := step(line); ok {
-				c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+				c.step(session, text)
 			}
 			if t.own {
 				return
@@ -212,6 +229,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	reply := t.agent.Ask(turn, req)
 	close(done)
 	<-shown
+	quiet := c.Quieted(session, started)
 
 	c.mu.Lock()
 	files := c.attached[session]
@@ -253,18 +271,19 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	// A turn may end without a word, such as one den's report started, or
 	// one that answers a plain "ok". When a subagent's report took the
 	// last word, the answer before it is in the session. Files the turn
-	// sent go without a word.
+	// sent go without a word. A turn the agent marked quiet says nothing,
+	// whatever its text, so no earlier answer stands in for it.
 	silent := false
-	if reply.Error == "" && runner.IsSilent(reply.Output) {
+	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, session)) {
 		earlier := ""
-		if !t.reports && (c.den == nil || !c.den.Busy(session)) {
+		if !quiet && !t.reports && (c.den == nil || !c.den.Busy(session)) {
 			earlier = sessions.Answer(c.cfg.Sessions, session, started)
 		}
 		switch {
-		case (earlier == "" || runner.IsSilent(earlier)) && len(files) == 0:
+		case (earlier == "" || runner.LegacySilent(earlier, session)) && len(files) == 0:
 			log.Printf("chat: the turn had nothing to tell")
 			return
-		case earlier == "" || runner.IsSilent(earlier):
+		case earlier == "" || runner.LegacySilent(earlier, session):
 			silent = true
 		default:
 			reply.Output = earlier

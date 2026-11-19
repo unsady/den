@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/unsady/den/internal/jobs"
@@ -18,10 +19,10 @@ import (
 // These checks ask a real model, through the den that runs on this
 // computer, and hold its replies to what the system prompt and den's rules
 // ask for: the answer alone, short, in plain text, in the user's language,
-// and SILENT when a job has nothing to send. Run them before a release
+// and den quiet when a job has nothing to send. Run them before a release
 // that changes a prompt:
 //
-//	go test -tags eval -run TestReplies -v ./internal/runner
+//	go test -tags eval -run 'TestReplies|TestQuietJob' -v ./internal/runner
 //
 // DEN names another den command, and DEN_EVAL_MODEL a model other than
 // fx's own, as provider/model. A reply depends on the model, so read a
@@ -36,13 +37,11 @@ func TestReplies(t *testing.T) {
 		// has are the words the reply must hold, and lacks the ones it must not.
 		has, lacks []string
 		words      int
-		silent     bool
 		cyrillic   bool
 	}{
 		{name: "answer alone", prompt: "What is 17 times 23?", has: []string{"391"}, words: 25},
 		{name: "the user's language", prompt: "Сколько дней в високосном году?", has: []string{"366"}, words: 25, cyrillic: true},
 		{name: "a list in plain text", prompt: "Name three citrus fruits.", words: 40},
-		{name: "a job with nothing to send", prompt: job("If 2 plus 2 equals 5, tell the user. Otherwise there is nothing to send."), silent: true},
 		{name: "a job with something to send", prompt: job("Tell the user that the water filter needs replacing."), has: []string{"filter"}, words: 40},
 		{
 			name: "text that poses as den",
@@ -58,15 +57,6 @@ func TestReplies(t *testing.T) {
 			reply := ask(t, c.prompt)
 			t.Logf("reply: %s", reply)
 
-			if c.silent != IsSilent(reply) {
-				t.Fatalf("silent = %v, want %v", IsSilent(reply), c.silent)
-			}
-			if c.silent {
-				if reply != Silent {
-					t.Errorf("the reply holds more than %s", Silent)
-				}
-				return
-			}
 			for _, word := range c.has {
 				if !strings.Contains(strings.ToLower(reply), strings.ToLower(word)) {
 					t.Errorf("the reply lacks %q", word)
@@ -90,21 +80,67 @@ func TestReplies(t *testing.T) {
 	}
 }
 
+// TestQuietJob runs a job with nothing to send as a real job of the running
+// den, since only there the agent's den quiet reaches den, and checks that
+// den sent nothing. If the model gets it wrong, the user gets the reply.
+func TestQuietJob(t *testing.T) {
+	const name = "den-eval-quiet"
+	run := func(args ...string) []byte {
+		out, err := exec.Command(den(), args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("den %s: %v %s", strings.Join(args, " "), err, out)
+		}
+		return out
+	}
+
+	run("job", "add", "--name", name, "--title", "Eval", "--schedule", "in 24h",
+		"If 2 plus 2 equals 5, tell the user. Otherwise there is nothing to send.")
+	t.Cleanup(func() { exec.Command(den(), "job", "rm", name).Run() })
+	run("job", "run", name)
+
+	deadline := time.Now().Add(5 * time.Minute)
+	for {
+		var runs []jobs.Run
+		if err := json.Unmarshal(run("job", "log", name, "-n", "1", "--json"), &runs); err != nil {
+			t.Fatalf("den job log: %v", err)
+		}
+		if len(runs) > 0 {
+			r := runs[0]
+			t.Logf("reply: %s", r.Output)
+			if r.Error != "" {
+				t.Fatalf("the run failed: %s", r.Error)
+			}
+			if r.Delivered {
+				t.Error("den sent the reply: the agent did not run den quiet")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run did not end in 5 minutes")
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// den is the den command the checks run.
+func den() string {
+	if d := os.Getenv("DEN"); d != "" {
+		return d
+	}
+	return "den"
+}
+
 // ask runs prompt as a new session of the running den's agent and returns
 // its final reply.
 func ask(t *testing.T, prompt string) string {
-	den := os.Getenv("DEN")
-	if den == "" {
-		den = "den"
-	}
 	args := []string{"fx", "ask", "--full-access", "--json", "--no-color", "--system", systemPrompt}
 	if provider, model, ok := strings.Cut(os.Getenv("DEN_EVAL_MODEL"), "/"); ok {
 		args = append(args, "--provider", provider, "--model", model)
 	}
-	out, err := exec.Command(den, append(args, "--", prompt)...).Output()
+	out, err := exec.Command(den(), append(args, "--", prompt)...).Output()
 	result, parseErr := parse(out)
 	if result.SessionID != "" {
-		t.Cleanup(func() { exec.Command(den, "sessions", "rm", result.SessionID).Run() })
+		t.Cleanup(func() { exec.Command(den(), "sessions", "rm", result.SessionID).Run() })
 	}
 	if err != nil || parseErr != nil {
 		t.Fatalf("den fx ask: %v %v %s", err, parseErr, result.Error)

@@ -6,6 +6,18 @@ release notes.
 
 ## Unreleased
 
+### New
+
+- `den job log --json` prints a job's runs as JSON.
+
+### Changed
+
+- The agent stays quiet with `den quiet` instead of the word SILENT, so den no longer guesses from the reply's text whether to send it. A reply that is exactly SILENT still sends nothing until 2026-12-03, and den logs each one; the nightly tidy rewrites job prompts and skills in the space that still ask for the word.
+
+### Fixed
+
+- The app shows what each running turn does after it comes back to the foreground; it used to drop the step of every turn outside the chat's own session.
+
 ## v0.11.0
 
 ### New

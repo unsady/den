@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -31,18 +32,22 @@ var systemPrompt string
 // Silent is the reply that tells den a job has nothing to deliver.
 const Silent = "SILENT"
 
-// IsSilent reports whether a reply asks den to send nothing: Silent alone,
-// or Silent on the reply's last line after a status the model was told to
-// leave out.
-func IsSilent(reply string) bool {
-	reply = strings.TrimSpace(reply)
-	last := reply[strings.LastIndex(reply, "\n")+1:]
-	return strings.TrimSpace(last) == Silent
+// LegacySilent reports whether a reply is exactly Silent, the way agents
+// said they had nothing to send before den quiet, and logs each one under
+// who, the job or session that sent it. It is removed on 2026-12-03, when
+// the word stops working.
+func LegacySilent(reply, who string) bool {
+	if strings.TrimSpace(reply) != Silent {
+		return false
+	}
+
+	log.Printf("%s replied %s; den quiet replaces it, and the word stops working on 2026-12-03", who, Silent)
+	return true
 }
 
 const deliveredNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
-	"Reply with exactly the English word " + Silent + ", untranslated, when there is nothing worth sending."
+	"When there is nothing worth sending, run den quiet as your last step."
 
 const silentNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
 	"Your final reply is saved in the job log and is not sent to the user."

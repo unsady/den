@@ -231,7 +231,7 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 
 	text := strings.Join(texts, "\n\n")
 	c.mu.Lock()
-	c.steered[text] = session
+	c.steered[text] = steered{session: session, at: time.Now()}
 	c.mu.Unlock()
 	if err := c.agent.Steer(ctx, text); err != nil {
 		c.mu.Lock()
@@ -249,13 +249,13 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 // turn of its own in its session, unless /stop dropped it meanwhile.
 func (c *Chat) undelivered(text string) {
 	c.mu.Lock()
-	session, kept := c.steered[text]
+	st, kept := c.steered[text]
 	delete(c.steered, text)
 	c.mu.Unlock()
 	if !kept {
 		return
 	}
-	if err := c.enqueue(entry{text: text, session: session}); err != nil {
+	if err := c.enqueue(entry{text: text, session: st.session}); err != nil {
 		log.Printf("chat: undelivered message: %v", err)
 	}
 }
@@ -264,12 +264,16 @@ func (c *Chat) undelivered(text string) {
 // turn of its own, since the turn it was meant for had just ended.
 func (c *Chat) steeredTurn(text string, reply runner.Reply) {
 	c.mu.Lock()
+	st := c.steered[text]
 	delete(c.steered, text)
 	c.mu.Unlock()
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 		c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 	}
-	if reply.Error == "" && runner.IsSilent(reply.Output) {
+	// fx ran the message as a turn after den passed it, so a mark from
+	// before that belongs to the turn it was meant for.
+	quiet := c.Quieted(reply.SessionID, st.at)
+	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, reply.SessionID)) {
 		return
 	}
 	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})
