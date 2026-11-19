@@ -29,14 +29,19 @@ func (c *Chat) work(ctx context.Context) {
 		case <-c.wake:
 		case <-c.ended:
 			idle = time.After(compactIdle)
-			if later {
+			if later && !c.isStopping() {
 				later = false
 				c.background.Go(func() { c.squeezeNow(ctx) })
 			}
 		case <-idle:
 			idle = nil
-			c.background.Go(func() { c.compact(ctx) })
+			if !c.isStopping() {
+				c.background.Go(func() { c.compact(ctx) })
+			}
 		case <-c.squeeze:
+			if c.isStopping() {
+				break
+			}
 			if c.agentBusy() {
 				later = true
 				break
@@ -73,8 +78,11 @@ func (c *Chat) turn(ctx context.Context) bool {
 	// The session is read before its messages leave the inbox, so a
 	// failure leaves them for the next try.
 	c.mu.Lock()
-	busy := c.occupied()
+	busy, stopping := c.occupied(), c.stopping
 	c.mu.Unlock()
+	if stopping {
+		return false
+	}
 	session, err := c.store.NextTurn(context.Background(), busy...)
 	if err != nil || session == "" {
 		if err != nil {
@@ -274,7 +282,10 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	// The app hears the turn end however it ends.
 	defer c.Events.Publish(events.Event{Type: events.Idle, Session: session})
 	if turn.Err() == context.Canceled {
-		// /stop already answered, or den is shutting down.
+		// /stop already answered; den stopping says so.
+		if ctx.Err() != nil {
+			c.cutShort(session, t.app)
+		}
 		return
 	}
 	// A turn may end without a word, such as one that answers a plain "ok"

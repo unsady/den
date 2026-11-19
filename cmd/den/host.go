@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/unsady/den/internal/daemon"
 )
 
 // On the host, a Mac or a Linux machine, den runs den in its container: it
@@ -162,13 +165,13 @@ func hostRun(args []string) error {
 	case "start":
 		return launch(c, "Starting den", start)
 	case "stop":
-		if err := step("Stopping den", func(context.Context) error { return c.quiet("stop", c.Name) }); err != nil {
+		if err := step("Stopping den once what runs ends", func(context.Context) error { return c.quiet(stopArgs(c)...) }); err != nil {
 			return err
 		}
 		done("den stopped")
 		return nil
 	case "restart":
-		return launch(c, "Restarting den", recreate)
+		return launch(c, "Restarting den once what runs ends", recreate)
 	case "status":
 		return status(c)
 	case "logs":
@@ -319,9 +322,16 @@ func (c hostConfig) quiet(args ...string) error {
 	return nil
 }
 
+// stopArgs stop den's container, giving den the time it takes to let the
+// turns and jobs that run end, and a little more.
+func stopArgs(c hostConfig) []string {
+	wait := daemon.DrainTime + 30*time.Second
+	return []string{"stop", "-t", strconv.Itoa(int(wait.Seconds())), c.Name}
+}
+
 func recreate(c hostConfig) error {
 	if c.exists("inspect", c.Name) {
-		c.engine().command("stop", c.Name).Run()
+		c.engine().command(stopArgs(c)...).Run()
 		c.engine().command("rm", c.Name).Run()
 	}
 	return start(c)
@@ -336,7 +346,7 @@ func update(c hostConfig) error {
 		return err
 	}
 
-	if err := launch(c, "Restarting den", recreate); err != nil {
+	if err := launch(c, "Restarting den once what runs ends", recreate); err != nil {
 		return err
 	}
 	if old != "" {
