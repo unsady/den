@@ -23,7 +23,7 @@ Usage:
                                 Run the job on the chat's main or second model
   den job rm <id|name>
   den job run <id|name>
-  den job log <id|name> [-n <count>]
+  den job log <id|name> [-n <count>] [--json]
   den notify <text>             Send a message to the user; reads stdin without text
   den quiet                     Send nothing for this turn: end it with this command
   den send [--caption <text>] <file>
