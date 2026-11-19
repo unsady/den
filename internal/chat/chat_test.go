@@ -808,10 +808,10 @@ func TestSessionsList(t *testing.T) {
 func TestProgressNote(t *testing.T) {
 	cfg, telegram := startChat(t, nil)
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.turnID = "t1"
+	c.steering = "s1"
 
 	// A note from before the turn is not shown.
-	c.Note("t1", "stale")
+	c.Note("s1", "stale")
 	lines, done := make(chan string, 4), make(chan struct{})
 	shown := make(chan struct{})
 	go func() {
@@ -825,10 +825,10 @@ func TestProgressNote(t *testing.T) {
 
 	lines <- "Running den map -p @prompt.md jobs.jsonl"
 	time.Sleep(50 * time.Millisecond)
-	// A job's agent, or one between turns, is not this turn.
-	c.Note("", "🗂 from a job")
-	c.Note("t0", "🗂 from an old turn")
-	c.Note("t1", "🗂 3 of 10 items")
+	// Another session's agent, such as a job's, or none, is not this turn.
+	c.Note("", "🗂 from no session")
+	c.Note("job1", "🗂 from a job")
+	c.Note("s1", "🗂 3 of 10 items")
 	telegram.expect(t, "Working…\n→ Running den map…\n   🗂 3 of 10 items")
 
 	// The next step ends the note.
@@ -848,26 +848,25 @@ func TestTell(t *testing.T) {
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
 	addSession(t, c, store.Session{ID: "main", Kind: store.KindChat})
 	addSession(t, c, store.Session{ID: "job1", Kind: store.KindJob})
-	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "t2", session: "job1"}}
 
-	if c.Tell("job", "[den: done]", "done") {
-		t.Fatal("a turn the chat did not run took the note")
+	if c.Tell("gone", "[den: done]", "done") || c.Tell("", "[den: done]", "done") {
+		t.Fatal("a session den does not have took the report")
 	}
-	if !c.Tell("t1", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@main"}) {
+	if !c.Tell("main", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@main"}) {
 		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
-	// A report goes to its turn's session however the chat's cursor moves.
+	// A report goes to its session however the chat's cursor moves.
 	if err := c.enqueue(entry{text: "hi", session: "main"}); err != nil {
 		t.Fatal(err)
 	}
 	c.switchTo("")
-	if !c.Tell("t1", "[den: again]", "again") || inbox(t, c)[2] != "[den: again]@main" {
+	if !c.Tell("main", "[den: again]", "again") || inbox(t, c)[2] != "[den: again]@main" {
 		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
-	// A turn in another session, such as a reply to a job's message.
-	if !c.Tell("t2", "[den: sent]", "sent") || inbox(t, c)[3] != "[den: sent]@job1" {
+	// A job's session takes its reports too.
+	if !c.Tell("job1", "[den: sent]", "sent") || inbox(t, c)[3] != "[den: sent]@job1" {
 		t.Fatalf("inbox %q", inbox(t, c))
 	}
 
@@ -875,18 +874,6 @@ func TestTell(t *testing.T) {
 	stopped, notices := c.halt()
 	if stopped || !slices.Equal(notices, []string{"done", "again", "sent"}) || len(inbox(t, c)) != 0 {
 		t.Fatalf("stopped %v, notices %q, inbox %q", stopped, notices, inbox(t, c))
-	}
-}
-
-func TestSession(t *testing.T) {
-	cfg := config.Config{State: t.TempDir()}
-	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "bg1", session: "task"}}
-
-	for turn, want := range map[string]string{"": "", "job": "", "t1": "main", "bg1": "task"} {
-		if got := c.Session(turn); got != want {
-			t.Errorf("Session(%q) = %q, want %q", turn, got, want)
-		}
 	}
 }
 
@@ -1041,13 +1028,11 @@ func TestBackgroundReports(t *testing.T) {
 	if err := c.store.AddSession(ctx, store.Session{ID: "task", Kind: store.KindBackground}); err != nil {
 		t.Fatal(err)
 	}
-	c.turns = []turnRef{{id: "b1", session: "task"}}
-	c.bg["b1"] = func() {}
 	release := c.Occupy("task")
 
 	// A report goes to the task's session, where it waits while the task
 	// runs.
-	if !c.Tell("b1", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@task"}) {
+	if !c.Tell("task", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@task"}) {
 		t.Fatalf("inbox %q", inbox(t, c))
 	}
 	if next, _ := c.store.NextTurn(ctx, c.occupied()...); next != "" {
@@ -1059,14 +1044,6 @@ func TestBackgroundReports(t *testing.T) {
 	release()
 	if next, _ := c.store.NextTurn(ctx, c.occupied()...); next != "task" {
 		t.Fatalf("next turn in %q once the task ended", next)
-	}
-
-	if c.Current() != "b1" {
-		t.Fatalf("current %q with only a background turn running", c.Current())
-	}
-	c.turnID = "main"
-	if c.Current() != "" {
-		t.Fatalf("current %q with two turns running", c.Current())
 	}
 }
 
@@ -1083,12 +1060,14 @@ func TestSilentReport(t *testing.T) {
 	_, telegram, c := startChatWith(t, nil)
 	telegram.message(42, "hello")
 	telegram.expect(t, "resume=none msg=hello lines=1")
-	c.mu.Lock()
-	turn := c.turns[len(c.turns)-1].id
-	c.mu.Unlock()
+	// The agent's commands name the session it holds.
+	session := c.cursor(store.Telegram)
+	if data, _ := os.ReadFile(filepath.Join(c.cfg.Space, "den-session")); string(data) != session {
+		t.Fatalf("DEN_SESSION %q, want %q", data, session)
+	}
 
 	// A turn den's report started may end without a word to the user.
-	if !c.Tell(turn, "[den: quiet run ended]", "") {
+	if !c.Tell(session, "[den: quiet run ended]", "") {
 		t.Fatal("the chat's turn did not take the report")
 	}
 	select {
@@ -1354,7 +1333,7 @@ func TestAppBackground(t *testing.T) {
 }
 
 // TestSend keeps the files a turn sends for its reply, and sends a file
-// that comes after its turn where the turn answered.
+// that comes after its turn to its session.
 func TestSend(t *testing.T) {
 	cfg, telegram, c := startChatWith(t, nil)
 	c.Events.Dir = t.TempDir()
@@ -1377,9 +1356,11 @@ func TestSend(t *testing.T) {
 		t.Helper()
 		waitFor(t, func() bool {
 			data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
-			return string(data) == "slow" && c.Current() != ""
+			return string(data) == "slow" && c.agentBusy()
 		})
-		return c.Current()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.steering
 	}
 	upload := func(name string) Upload {
 		return Upload{Upload: notify.Upload{Name: name, Data: []byte(name)}}
@@ -1396,9 +1377,9 @@ func TestSend(t *testing.T) {
 	// A turn of Telegram's sends its files after its reply, the pictures
 	// as one album, and the app has them in the reply.
 	telegram.message(42, "slow")
-	turn := running()
+	session := running()
 	for _, name := range []string{"a.png", "notes.pdf", "b.jpg"} {
-		if err := c.Send(context.Background(), turn, upload(name)); err != nil {
+		if err := c.Send(context.Background(), session, upload(name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1416,8 +1397,8 @@ func TestSend(t *testing.T) {
 
 	// A turn of the app's sends them only there.
 	c.Post(context.Background(), "slow", "", nil)
-	turn = running()
-	if err := c.Send(context.Background(), turn, upload("c.png")); err != nil {
+	session = running()
+	if err := c.Send(context.Background(), session, upload("c.png")); err != nil {
 		t.Fatal(err)
 	}
 	if e := next(events.Reply); len(e.Files) != 1 || e.Files[0].Name != "c.png" {
@@ -1426,16 +1407,17 @@ func TestSend(t *testing.T) {
 	next(events.Idle)
 	quiet()
 
-	// A file that comes once the turn is over goes on its own.
-	if err := c.Send(context.Background(), turn, upload("late.png")); err != nil {
+	// A file that comes once the turn is over goes on its own, to the
+	// session and Telegram.
+	if err := c.Send(context.Background(), session, upload("late.png")); err != nil {
 		t.Fatal(err)
 	}
-	if e := next(events.File); len(e.Files) != 1 || e.Files[0].Name != "late.png" {
+	if e := next(events.File); len(e.Files) != 1 || e.Files[0].Name != "late.png" || e.Session != session {
 		t.Fatalf("late file %+v", e)
 	}
-	quiet()
+	telegram.expect(t, "📎 sendPhoto late.png")
 
-	// One from a job, of no turn of the chat's, goes to Telegram.
+	// One from a session the chat's agent does not run goes to Telegram.
 	if err := c.Send(context.Background(), "job", upload("job.pdf")); err != nil {
 		t.Fatal(err)
 	}

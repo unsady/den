@@ -296,7 +296,7 @@ func notifyCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("notify needs text, as arguments or on stdin")
 	}
 
-	if err := client.New(cfg).Do(http.MethodPost, "/notify", daemon.NotifyRequest{Text: text, Turn: os.Getenv("DEN_TURN")}, nil); err != nil {
+	if err := client.New(cfg).Do(http.MethodPost, "/notify", daemon.NotifyRequest{Text: text, Session: os.Getenv("DEN_SESSION")}, nil); err != nil {
 		return err
 	}
 	fmt.Println("sent")
@@ -322,7 +322,7 @@ func sendCommand(cfg config.Config, args []string) error {
 	if len(data) > notify.MaxUpload {
 		return fmt.Errorf("%s is over Telegram's 50 MB limit for bots", rest[0])
 	}
-	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data, Turn: os.Getenv("DEN_TURN")}
+	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data, Session: os.Getenv("DEN_SESSION")}
 	if *widgetFile != "" {
 		spec, err := os.ReadFile(*widgetFile)
 		if err != nil {
@@ -403,7 +403,7 @@ func fetchCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("fetch needs --secret and one URL")
 	}
 
-	req := fetch.Request{Secret: *secret, Method: *method, URL: rest[0], Header: header, Turn: os.Getenv("DEN_TURN")}
+	req := fetch.Request{Secret: *secret, Method: *method, URL: rest[0], Header: header, Session: os.Getenv("DEN_SESSION")}
 	switch {
 	case *data == "@-":
 		req.Body, err = io.ReadAll(os.Stdin)

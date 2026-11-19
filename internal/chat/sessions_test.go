@@ -56,7 +56,7 @@ func TestNoLabelAfterAppMoves(t *testing.T) {
 	telegram.message(42, "/new")
 	telegram.expect(t, "✦ New session · <b>auto</b> · p1")
 	telegram.message(42, "slow one")
-	waitFor(t, func() bool { return c.Current() != "" })
+	waitFor(t, c.agentBusy)
 
 	if err := c.Open(context.Background(), "other"); err != nil {
 		t.Fatal(err)

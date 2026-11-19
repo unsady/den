@@ -24,7 +24,8 @@ const maxMessage = 25 << 20
 
 // serveSMTP takes messages from the agent and sends each after the user
 // allows it. Any login is accepted: the client is already inside den's
-// container. The login names the agent's turn.
+// container. The login names the agent's session, which den tells what
+// came of each message, so den takes mail only from a session it knows.
 func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 	defer c.Close()
 
@@ -44,6 +45,8 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 	reply("220 den ESMTP ready")
 	var to []string
 	login := ""
+	// mailed is set once MAIL took a sender from a session den knows.
+	mailed := false
 	for {
 		line, err := read()
 		if err != nil {
@@ -77,9 +80,18 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 			}
 			reply("235 accepted: den uses the user's account")
 		case "MAIL":
-			to = nil
+			to, mailed = nil, false
+			if s.Known == nil || !s.Known(login) {
+				reply("530 log in as your session, with curl -u \"$DEN_SESSION:den\", so den can tell you what came of the message")
+				continue
+			}
+			mailed = true
 			reply("250 OK")
 		case "RCPT":
+			if !mailed {
+				reply("503 MAIL first")
+				continue
+			}
 			address := recipient(arg)
 			if len(to) >= 100 || address == "" {
 				reply("452 too many recipients")
@@ -101,9 +113,9 @@ func (s *Server) serveSMTP(ctx context.Context, c net.Conn) {
 			}
 			c.SetReadDeadline(time.Time{})
 			reply("%s", s.deliver(ctx, to, msg, login))
-			to = nil
+			to, mailed = nil, false
 		case "RSET":
-			to = nil
+			to, mailed = nil, false
 			reply("250 OK")
 		case "NOOP":
 			reply("250 OK")
@@ -142,17 +154,13 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte, login str
 	// Each mail is new, so it is asked about every time, unless it goes to
 	// one person the user allowed. The client does not wait for the answer:
 	// den sends the message once the user allows it, and tells the agent.
-	turn := ""
-	if s.Turn != nil {
-		turn = s.Turn(login)
-	}
 	what := "Mail to " + strings.Join(to, ", ")
 	q := approve.Question{Text: text, What: what, Source: "Mail"}
 	if len(to) == 1 {
 		q.MailTo(to[0])
 	}
 	_, err = s.later(q, func(answer error) {
-		s.sendLater(a, to, msg, what, turn, answer)
+		s.sendLater(a, to, msg, what, login, answer)
 	})
 	if err != nil {
 		log.Printf("mail: to %s: not sent: %v", strings.Join(to, ", "), err)
@@ -162,10 +170,10 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte, login str
 }
 
 // sendLater sends a message the user answered, and reports what came of it.
-func (s *Server) sendLater(a Account, to []string, msg []byte, what, turn string, answer error) {
+func (s *Server) sendLater(a Account, to []string, msg []byte, what, session string, answer error) {
 	report := func(agent, user string) {
 		if s.Report != nil {
-			s.Report(turn, agent, user)
+			s.Report(session, agent, user)
 		}
 	}
 	if answer != nil {

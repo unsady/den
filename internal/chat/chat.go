@@ -88,9 +88,9 @@ type Daemon interface {
 	Rules() []approve.Rule
 	Forget(id string) (approve.Rule, bool)
 	Actions(since time.Time) []approve.Action
-	// Busy says whether work that a chat turn started, such as a den map
-	// run, still goes on in den's background.
-	Busy(turn string) bool
+	// Busy says whether work that a turn in session started, such as a den
+	// map run, still goes on in den's background.
+	Busy(session string) bool
 }
 
 func help() string {
@@ -138,18 +138,12 @@ type Chat struct {
 	wake chan struct{}
 	// squeeze asks the worker to compact the session now, for /compact.
 	squeeze chan struct{}
-	// turnID names the running turn to the commands its agent runs, and
-	// is empty between turns.
-	turnID string
 	// notes carry what a running command says about itself, such as how
 	// many items den map has done, to the progress message.
 	notes chan string
 	// attached are the files the running turn sent, which go with its
 	// reply.
 	attached []Upload
-	// turns are the latest turns, so den can tell the agent of the session
-	// a turn ran in what came of a command it started.
-	turns []turnRef
 	// bg stops each turn that /bg runs, by its ID, while it runs, and
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
@@ -157,13 +151,11 @@ type Chat struct {
 	// albums hold the files of an album until the last one is saved.
 	albums map[string]*album
 
-	// agent runs the turns in chat sessions. steering is the session of the
-	// running turn when it is one of them, which a message for that session
-	// can join, and agentTurn is the latest of them, which the agent's
-	// DEN_TURN stands for.
-	agent     *runner.Agent
-	steering  string
-	agentTurn string
+	// agent runs the turns in the session a client is in. steering is the
+	// session of its running turn, which a message for that session can
+	// join, and files and notes its commands send go with.
+	agent    *runner.Agent
+	steering string
 	// steered are the messages passed to the running turn, by the session
 	// they went to, which come back as a turn of their own if fx did not
 	// deliver them, unless /stop dropped them.
@@ -178,41 +170,12 @@ type Chat struct {
 	titled map[string]bool
 }
 
-type turnRef struct {
-	id string
-	// session is the turn's.
-	session string
-	// app marks a turn that answers only in the app.
-	app bool
-}
-
-// keptTurns is how many of the latest turns Tell recognizes.
-const keptTurns = 100
-
-// Current is the running turn's ID, or "" between turns. While /bg turns
-// run besides it, den cannot tell which agent asked, so it is "" and what
-// came of the action goes to the user.
-func (c *Chat) Current() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	switch {
-	case len(c.bg) == 0:
-		return c.turnID
-	case c.turnID == "" && len(c.bg) == 1:
-		for id := range c.bg {
-			return id
-		}
-	}
-	return ""
-}
-
-// Tell gives the agent text as a new turn in the session of turn, such as
-// what came of a command that waited for the user after the agent's turn
-// ended. It returns false when the chat does not know turn, such as a
-// job's, and the caller tells the user instead.
-func (c *Chat) Tell(turn, text, notice string) bool {
-	session := c.Session(turn)
-	if session == "" {
+// Tell gives the agent text as a new turn in session, such as what came of
+// a command that waited for the user after the agent's turn ended. It
+// returns false when den does not have session, such as one the user
+// deleted meanwhile, and the caller tells the user instead.
+func (c *Chat) Tell(session, text, notice string) bool {
+	if !c.Known(session) {
 		return false
 	}
 	if err := c.enqueue(entry{text: text, report: true, notice: notice, session: session}); err != nil {
@@ -222,23 +185,16 @@ func (c *Chat) Tell(turn, text, notice string) bool {
 	return true
 }
 
-// Session returns the session of turn, the agent's DEN_TURN, or "" for a
-// turn the chat does not know.
-func (c *Chat) Session(turn string) string {
-	if turn == "" {
-		return ""
+// Known says whether den has session.
+func (c *Chat) Known(session string) bool {
+	if session == "" {
+		return false
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	turn = c.resolve(turn)
-	for _, t := range c.turns {
-		if t.id == turn {
-			return t.session
-		}
+	_, err := c.store.Session(context.Background(), session)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("chat: session %s: %v", session, err)
 	}
-	return ""
+	return err == nil
 }
 
 // Occupy marks session busy while a turn runs in it, such as a job's, so
@@ -281,15 +237,6 @@ func (c *Chat) occupied() []string {
 	return slices.Collect(maps.Keys(c.busy))
 }
 
-// resolve returns the turn the agent's DEN_TURN stands for, its latest, and
-// any other turn as it is. The caller holds c.mu.
-func (c *Chat) resolve(turn string) string {
-	if turn == c.agent.Key() {
-		return c.agentTurn
-	}
-	return turn
-}
-
 // poke wakes the worker to run what waits in the inbox.
 func (c *Chat) poke() {
 	select {
@@ -309,7 +256,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		ended:   make(chan struct{}, 1),
 		notes:   make(chan string, 1),
 		bg:      map[string]context.CancelFunc{},
-		agent:   runner.NewAgent(cfg, ""),
+		agent:   runner.NewAgent(cfg),
 		busy:    map[string]int{},
 		steered: map[string]string{},
 		titled:  map[string]bool{},
@@ -807,19 +754,13 @@ func (c *Chat) turn(ctx context.Context) bool {
 	t.own = !joined || c.stop != nil
 	if t.own {
 		c.bg[t.id] = stop
-		t.agent = runner.NewAgent(c.cfg, t.id)
+		t.agent = runner.NewAgent(c.cfg)
 	} else {
 		c.stop = stop
-		c.turnID = t.id
 		c.attached = nil
 		// The agent starts a session den named before its first turn.
 		c.steering = session
-		c.agentTurn = t.id
 		t.agent = c.agent
-	}
-	c.turns = append(c.turns, turnRef{id: t.id, session: session, app: t.app})
-	if len(c.turns) > keptTurns {
-		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
 	c.mu.Unlock()
 	if t.own {
@@ -905,7 +846,6 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		delete(c.bg, t.id)
 	} else {
 		c.stop = nil
-		c.turnID = ""
 		files = c.attached
 		c.attached = nil
 		c.steering = ""
@@ -945,7 +885,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	silent := false
 	if reply.Error == "" && runner.IsSilent(reply.Output) {
 		earlier := ""
-		if !t.reports && (c.den == nil || !c.den.Busy(t.id) && !c.den.Busy(t.agent.Key())) {
+		if !t.reports && (c.den == nil || !c.den.Busy(session)) {
 			earlier = sessions.Answer(c.cfg.Sessions, session, started)
 		}
 		switch {

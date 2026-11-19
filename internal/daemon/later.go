@@ -15,6 +15,7 @@ import (
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/store"
 )
 
 // serveMap asks the user to allow a den map run. A run the user allowed for
@@ -42,6 +43,14 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// den tells the agent's session what came of the run, so it runs only
+	// for a session den has.
+	s, err := d.db.Session(d.ctx, req.Session)
+	if err != nil {
+		fail(w, http.StatusBadRequest, fmt.Errorf("den cannot tell which session runs it: DEN_SESSION names none it has: %w", err))
+		return
+	}
+
 	model := req.Provider + "/" + req.Model
 	what := fmt.Sprintf("den map: %d items with %s", req.Items, model)
 	effort := req.Effort
@@ -65,10 +74,10 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, err)
 	case waiting:
 		reply(w, http.StatusAccepted, MapReply{Waiting: true})
-	case d.chat.Session(req.Turn) != "":
-		// A run of the chat's agent goes on in den's background even when a
-		// rule allows it, so the user can talk to the agent meanwhile. A
-		// job's agent has no chat to hear back in, so it runs its own.
+	case s.Kind != store.KindJob:
+		// A run goes on in den's background even when a rule allows it, so
+		// the user can talk to the agent meanwhile. A job's agent runs its
+		// own: its reply is the job's result, which needs the run's.
 		go d.mapLater(req, what, nil)
 		reply(w, http.StatusAccepted, MapReply{Started: true})
 	default:
@@ -85,7 +94,7 @@ func sameRun(a, b MapRequest) bool {
 // came of it, or that the user did not allow it.
 func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 	if answer != nil {
-		d.report(req.Turn, fmt.Sprintf("[den: %s did not run: %v.]", what, answer), "")
+		d.report(req.Session, fmt.Sprintf("[den: %s did not run: %v.]", what, answer), "")
 		return
 	}
 	if d.ctx.Err() != nil {
@@ -101,7 +110,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 		delete(d.grants, run)
 		d.mu.Unlock()
 	}()
-	d.runStarted(run, req.Turn, req.Model, req.Items)
+	d.runStarted(run, req.Session, req.Model, req.Items)
 
 	d.wg.Add(1)
 	defer d.wg.Done()
@@ -122,7 +131,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 		// progress before it goes to stderr.
 		user = "🗂 " + first
 	}
-	d.report(req.Turn, text, user)
+	d.report(req.Session, text, user)
 }
 
 // agentCommand runs den as the agent in dir. It returns all it printed,
@@ -157,23 +166,23 @@ func tail(text string, n int) string {
 	return "…\n" + text
 }
 
-// report tells the chat's agent what came of an action of its turn, as a
-// new turn. When the turn was not the chat's, such as a job's, or the user
-// switched sessions since, den tells the user user instead, and nothing
-// when it is empty, such as for an action the user denied: the question
-// already says so.
+// report tells session what came of an action its agent took, as a new
+// turn there. When den no longer has the session, such as one the user
+// deleted meanwhile, den tells the user user instead, and nothing when it
+// is empty, such as for an action the user denied: the question already
+// says so.
 //
-// A turn comes from the agent, as DEN_TURN or what it sets from it, and
-// the agent can name any, so a turn only ever says where den's answer goes:
-// it must never allow an action or reach a secret.
-func (d *daemon) report(turn, agent, user string) {
-	if turn != "" && d.chat.Tell(turn, agent, user) {
+// A session comes from the agent, as DEN_SESSION or what den sets from it,
+// and the agent can name any, so a session only ever says where den's
+// answer goes: it must never allow an action or reach a secret.
+func (d *daemon) report(session, agent, user string) {
+	if d.chat.Tell(session, agent, user) {
 		return
 	}
 	if user == "" {
 		return
 	}
-	if err := d.notify(turn, user); err != nil {
+	if err := d.notify(session, user); err != nil {
 		log.Printf("report: %v", err)
 	}
 }

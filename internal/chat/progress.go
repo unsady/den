@@ -32,12 +32,13 @@ func (c *Chat) showTyping(ctx context.Context, done <-chan struct{}) {
 	}
 }
 
-// Note shows text under the running step of the turn's progress message,
-// until the next step. It drops the text when turn is not the running turn,
-// such as from a job's agent, or an earlier note waits.
-func (c *Chat) Note(turn, text string) {
+// Note shows text under the running step of the progress message of the
+// chat agent's turn in session, until the next step. It drops the text when
+// the chat's agent runs no turn there, such as for a job's agent, or an
+// earlier note waits.
+func (c *Chat) Note(session, text string) {
 	c.mu.Lock()
-	running := turn != "" && c.resolve(turn) == c.turnID
+	running := session != "" && session == c.steering
 	c.mu.Unlock()
 	if !running {
 		return

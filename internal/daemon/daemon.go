@@ -4,7 +4,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,8 +77,6 @@ type daemon struct {
 
 	mu      sync.Mutex
 	running map[string]bool
-	// jobTurns are the sessions of the job runs going on, by turn.
-	jobTurns map[string]string
 	// grants are the den map runs the user allowed, by the grant den
 	// started each with.
 	grants map[string]MapRequest
@@ -159,17 +156,16 @@ func Serve(cfg config.Config) error {
 	}
 
 	d := &daemon{
-		ctx:      ctx,
-		cfg:      cfg,
-		store:    jobStore,
-		db:       db,
-		usage:    usage.Open(cfg.State),
-		ask:      approve.New(cfg),
-		running:  map[string]bool{},
-		jobTurns: map[string]string{},
-		grants:   map[string]MapRequest{},
-		maps:     map[string]*mapRun{},
-		slots:    make(chan struct{}, jobSlots(cfg)),
+		ctx:     ctx,
+		cfg:     cfg,
+		store:   jobStore,
+		db:      db,
+		usage:   usage.Open(cfg.State),
+		ask:     approve.New(cfg),
+		running: map[string]bool{},
+		grants:  map[string]MapRequest{},
+		maps:    map[string]*mapRun{},
+		slots:   make(chan struct{}, jobSlots(cfg)),
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
@@ -181,15 +177,11 @@ func Serve(cfg config.Config) error {
 	d.fetch = fetch.New(cfg, later, d.google)
 	d.fetch.Note = d.ask.Note
 	d.fetch.Report = d.report
+	d.fetch.Known = d.chat.Known
 	go func() {
 		m := mail.New(cfg, later)
 		m.Report = d.report
-		m.Turn = func(login string) string {
-			if d.knownTurn(login) {
-				return login
-			}
-			return d.chat.Current()
-		}
+		m.Known = d.chat.Known
 		if err := m.Serve(ctx); err != nil {
 			log.Printf("mail: %v", err)
 		}
@@ -198,7 +190,7 @@ func Serve(cfg config.Config) error {
 		git := gitproxy.New(cfg, later)
 		git.Note = d.ask.Note
 		git.Report = d.report
-		git.Turn = func() string { return d.chat.Current() }
+		git.Known = d.chat.Known
 		if err := git.Serve(ctx); err != nil {
 			log.Printf("git: %v", err)
 		}
@@ -431,7 +423,6 @@ func (d *daemon) start(j jobs.Job) bool {
 
 		log.Printf("job %s: started", j.Name)
 		choice := d.chat.Choice(d.ctx, j.Slot)
-		turn := "job-" + rand.Text()[:12]
 		// The run's session is in the store before it runs, so what its
 		// commands report goes there, and it is not deleted meanwhile.
 		session := store.NewID()
@@ -444,15 +435,7 @@ func (d *daemon) start(j jobs.Job) bool {
 			run = jobs.Run{Job: j.Name, Started: time.Now(), Error: fmt.Sprintf("den could not keep its session: %v", err)}
 		} else {
 			release := d.chat.Occupy(session)
-			d.mu.Lock()
-			d.jobTurns[turn] = session
-			d.mu.Unlock()
-
-			run = runner.Run(d.ctx, d.cfg, j, choice, turn, session)
-
-			d.mu.Lock()
-			delete(d.jobTurns, turn)
-			d.mu.Unlock()
+			run = runner.Run(d.ctx, d.cfg, j, choice, session)
 			release()
 		}
 
@@ -604,26 +587,11 @@ func heading(j jobs.Job) string {
 	return "⏰ " + j.Title
 }
 
-// knownTurn says whether turn is a job run's or the chat's that den knows.
-func (d *daemon) knownTurn(turn string) bool {
-	if turn == "" {
-		return false
-	}
-	d.mu.Lock()
-	_, ok := d.jobTurns[turn]
-	d.mu.Unlock()
-	return ok || d.chat.Session(turn) != ""
-}
-
-// notify sends text to the user's Telegram at once, and to the app in the
-// session of turn: a job run's or the chat's. Text from no turn, or from
-// one den does not know, has no session.
-func (d *daemon) notify(turn, text string) error {
-	d.mu.Lock()
-	session, ok := d.jobTurns[turn]
-	d.mu.Unlock()
-	if !ok {
-		session = d.chat.Session(turn)
+// notify sends text to the user's Telegram at once, and to the app in
+// session. Text from no session, or from one den does not have, has none.
+func (d *daemon) notify(session, text string) error {
+	if !d.chat.Known(session) {
+		session = ""
 	}
 	d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
 
@@ -683,16 +651,16 @@ type SlotRequest struct {
 // NotifyRequest is the body of POST /notify.
 type NotifyRequest struct {
 	Text string `json:"text"`
-	// Turn is the DEN_TURN of the agent that sent it, if any.
-	Turn string `json:"turn,omitempty"`
+	// Session is the DEN_SESSION of the agent that sent it, if any.
+	Session string `json:"session,omitempty"`
 }
 
 // ProgressRequest is the body of POST /progress: what a running command
 // says about itself, shown under its step in the chat.
 type ProgressRequest struct {
-	// Turn is the DEN_TURN den gave the chat's agent.
-	Turn string `json:"turn"`
-	Text string `json:"text"`
+	// Session is the DEN_SESSION of the agent whose command it is.
+	Session string `json:"session"`
+	Text    string `json:"text"`
 
 	// Run is the grant of a den map run in den's background, and the rest
 	// say how far it is.
@@ -717,9 +685,9 @@ type MapRequest struct {
 	// again once the user allows it.
 	Args []string `json:"args,omitempty"`
 	Dir  string   `json:"dir,omitempty"`
-	// Turn is the DEN_TURN of the chat's agent that ran the command, which
+	// Session is the DEN_SESSION of the agent that ran the command, which
 	// den tells what came of it.
-	Turn string `json:"turn,omitempty"`
+	Session string `json:"session,omitempty"`
 	// Run is the grant of the run den started after the user allowed it.
 	Run string `json:"run,omitempty"`
 }
@@ -729,8 +697,8 @@ type MapRequest struct {
 type MapReply struct {
 	Allowed bool `json:"allowed,omitempty"`
 	Waiting bool `json:"waiting,omitempty"`
-	// Started says den runs it in its background for the chat's agent, and
-	// tells the agent what came of it.
+	// Started says den runs it in its background, and tells the agent's
+	// session what came of it.
 	Started bool `json:"started,omitempty"`
 }
 
@@ -740,9 +708,9 @@ type SendRequest struct {
 	Name    string `json:"name"`
 	Caption string `json:"caption"`
 	Data    []byte `json:"data"`
-	// Turn is the DEN_TURN of the agent that sent it: the file goes with
-	// that turn's reply, or where the turn answered.
-	Turn string `json:"turn,omitempty"`
+	// Session is the DEN_SESSION of the agent that sent it: the file goes
+	// with the reply of the turn running there, or to the session.
+	Session string `json:"session,omitempty"`
 	// Widget describes the file for the app to draw itself, such as a
 	// chart's data; Telegram gets the file.
 	Widget json.RawMessage `json:"widget,omitempty"`
@@ -879,7 +847,7 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
 			return
 		}
-		if err := d.notify(req.Turn, req.Text); err != nil {
+		if err := d.notify(req.Session, req.Text); err != nil {
 			fail(w, http.StatusServiceUnavailable, err)
 			return
 		}
@@ -895,7 +863,7 @@ func (d *daemon) routes() http.Handler {
 		if req.Run != "" {
 			d.runProgress(req.Run, req.Done, req.Total, req.Failed)
 		} else {
-			d.chat.Note(req.Turn, req.Text)
+			d.chat.Note(req.Session, req.Text)
 		}
 		reply(w, http.StatusOK, map[string]bool{"shown": true})
 	})
@@ -913,7 +881,7 @@ func (d *daemon) routes() http.Handler {
 		ctx, cancel := context.WithTimeout(d.ctx, 5*time.Minute)
 		defer cancel()
 		upload := chat.Upload{Upload: notify.Upload{Name: filepath.Base(req.Name), Data: req.Data, Caption: req.Caption}, Widget: req.Widget}
-		if err := d.chat.Send(ctx, req.Turn, upload); errors.Is(err, notify.ErrNotConfigured) {
+		if err := d.chat.Send(ctx, req.Session, upload); errors.Is(err, notify.ErrNotConfigured) {
 			fail(w, http.StatusServiceUnavailable, err)
 			return
 		} else if err != nil {

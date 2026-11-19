@@ -20,32 +20,20 @@ type Upload struct {
 	Widget json.RawMessage
 }
 
-// Send sends the user a file the agent of turn sent. While turn runs, the
-// file waits for its reply, so they arrive together. Otherwise it goes now
-// where turn answers: to the app for a turn of the app's, and to Telegram
-// and the turn's session for one of Telegram's or a job's.
-func (c *Chat) Send(ctx context.Context, turn string, f Upload) error {
+// Send sends the user a file the agent in session sent. While the chat's
+// agent runs a turn there, the file waits for its reply, so they arrive
+// together. Otherwise it goes now, to Telegram and the session.
+func (c *Chat) Send(ctx context.Context, session string, f Upload) error {
 	c.mu.Lock()
-	turn = c.resolve(turn)
-	if turn != "" && turn == c.turnID {
+	if session != "" && session == c.steering {
 		c.attached = append(c.attached, f)
 		c.mu.Unlock()
 		return nil
-	}
-	var session string
-	app := false
-	for _, t := range c.turns {
-		if t.id == turn {
-			session, app = t.session, t.app
-		}
 	}
 	c.mu.Unlock()
 
 	if kept := c.keep(session, []Upload{f}); len(kept) > 0 {
 		c.Events.Publish(events.Event{Type: events.File, Session: session, Files: kept})
-	}
-	if app {
-		return nil
 	}
 
 	telegram, err := notify.Load(c.cfg)

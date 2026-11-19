@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,11 +25,11 @@ import (
 // its steps. fx keeps one session per process: a turn in another session, or
 // on another model, starts the process again, which takes a moment.
 //
-// The commands the agent runs carry the Agent's Key as DEN_TURN, since the
-// process outlives the turn; the chat tells which turn the key stands for.
+// Each fx process holds one session, and the commands it runs carry that
+// session's id as DEN_SESSION, so den tells that session what came of
+// them.
 type Agent struct {
 	cfg config.Config
-	key string
 
 	// OnDropped gets a message Steer passed that fx did not deliver, such as
 	// one that came as the turn was ending; the chat runs it as a turn.
@@ -46,21 +45,14 @@ type Agent struct {
 	choice  Choice
 }
 
-// NewAgent returns an Agent whose commands get key as DEN_TURN, or a key
-// of its own when key is empty. It starts fx at its first turn.
-func NewAgent(cfg config.Config, key string) *Agent {
-	if key == "" {
-		key = "acp-" + rand.Text()
-	}
-	return &Agent{cfg: cfg, key: key}
+// NewAgent returns an Agent. It starts fx at its first turn.
+func NewAgent(cfg config.Config) *Agent {
+	return &Agent{cfg: cfg}
 }
 
-// Key is what the commands the agent runs get as DEN_TURN.
-func (a *Agent) Key() string { return a.key }
-
-// Ask runs req as a turn in req.Resume, which it starts when fx has no
-// session by that id, or in a new session. Its commands get the Agent's Key
-// as DEN_TURN.
+// Ask runs req as a turn in req.Resume, the session den named, which it
+// starts when fx has none by that id. Its commands get the id as
+// DEN_SESSION.
 func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	reply = Reply{Started: time.Now()}
 	defer func() { reply.Duration = time.Since(reply.Started).Round(time.Second) }()
@@ -199,6 +191,12 @@ func (a *Agent) Drop(session string) {
 func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session string, started bool, err error) {
 	choice := Choice{Provider: req.Provider, Model: req.Model, Effort: req.Effort}
 
+	// den names every session before its first turn, and the commands
+	// fx runs tell den which session they are in.
+	if req.Resume == "" {
+		return nil, "", false, errors.New("den named no session for the turn")
+	}
+
 	a.mu.Lock()
 	conn = a.conn
 	alive := conn != nil
@@ -233,12 +231,12 @@ func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session 
 		return nil, "", false, err
 	}
 	cmd.Dir = a.cfg.Space
-	cmd.Env = append(cmd.Env, "DEN_TURN="+a.key)
-	// git names the turn to den's proxy for GitHub only, so a push that
-	// waits for the user tells this agent what came of it.
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT=1",
+	// fx holds this one session until it exits. git names it to den's
+	// proxy for GitHub only, so a push that waits for the user tells the
+	// session what came of it.
+	cmd.Env = append(cmd.Env, "DEN_SESSION="+req.Resume, "GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=http.http://"+gitproxy.Addr+"/.extraHeader",
-		"GIT_CONFIG_VALUE_0="+gitproxy.TurnHeader+": "+a.key)
+		"GIT_CONFIG_VALUE_0="+gitproxy.SessionHeader+": "+req.Resume)
 	stderr := &tail{limit: 8 << 10}
 	cmd.Stderr = stderr
 

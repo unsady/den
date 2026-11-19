@@ -75,6 +75,7 @@ func fakeACP(args []string) {
 
 	prompt := func(id json.RawMessage, text string, images int) {
 		os.WriteFile("last-prompt", []byte(text), 0o644)
+		os.WriteFile("den-session", []byte(os.Getenv("DEN_SESSION")), 0o644)
 		first, _, _ := strings.Cut(text, "\n")
 		lines := 0
 		for line := range strings.SplitSeq(text, "\n") {

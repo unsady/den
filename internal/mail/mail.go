@@ -120,12 +120,11 @@ type Server struct {
 	later Later
 	// Report tells the agent what came of a message that waited for the
 	// user, as the fetcher's Report does.
-	Report func(turn, agent, user string)
-	// Turn names the turn that sent a message over SMTP with login, which
-	// the agent sets to its DEN_TURN, as the mail skill says. A login that
-	// names no turn den knows leaves den to guess. The turn only says
-	// where den's answer goes, and allows nothing.
-	Turn func(login string) string
+	Report func(session, agent, user string)
+	// Known says whether den has a session. The agent logs in to SMTP as
+	// its DEN_SESSION, as the mail skill says, and den takes a message only
+	// from a session it knows, so it knows whom to tell what came of it.
+	Known func(session string) bool
 	// dial reaches the account's IMAP server.
 	dial func(addr string) (net.Conn, error)
 	// send hands a message to the account's SMTP server.

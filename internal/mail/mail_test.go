@@ -2,7 +2,6 @@ package mail
 
 import (
 	"bufio"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -149,8 +148,8 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 		return true, nil
 	})
 	var reports []string
-	s.Turn = func(login string) string { return cmp.Or(login, "t1") }
-	s.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
+	s.Known = func(session string) bool { return session == "s1" || session == "s2" }
+	s.Report = func(session, agent, user string) { reports = append(reports, session+" "+agent) }
 	var sent []string
 	s.send = func(a Account, to []string, msg []byte) error {
 		sent = append(sent, a.SMTP+" "+strings.Join(to, ",")+" "+string(msg))
@@ -159,7 +158,16 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 	addr := serve(t, func(c net.Conn) { s.serveSMTP(context.Background(), c) })
 
 	msg := []byte("To: Anya <anya@example.com>\r\nSubject: Dinner\r\n\r\nAt 7?\r\n.hidden dot\r\n")
-	if err := smtp.SendMail(addr, nil, "agent@den", []string{"anya@example.com", "boss@example.com"}, msg); err != nil {
+	// den takes mail only from a session it has, which the agent logs in as.
+	for _, auth := range []smtp.Auth{nil, smtp.PlainAuth("", "gone", "x", "127.0.0.1")} {
+		if err := smtp.SendMail(addr, auth, "agent@den", []string{"anya@example.com"}, msg); err == nil || !strings.Contains(err.Error(), "DEN_SESSION") {
+			t.Fatalf("sent without a session: %v", err)
+		}
+	}
+	if len(asked) != 0 {
+		t.Fatalf("asked %q", asked)
+	}
+	if err := smtp.SendMail(addr, smtp.PlainAuth("", "s1", "x", "127.0.0.1"), "agent@den", []string{"anya@example.com", "boss@example.com"}, msg); err != nil {
 		t.Fatal(err)
 	}
 	if len(asked) != 1 || !strings.Contains(asked[0], "Subject: Dinner") || !strings.Contains(asked[0], "Bcc: boss@example.com") {
@@ -174,9 +182,9 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 		t.Fatalf("two recipients: %q", rules[0])
 	}
 
-	// The agent logs in as its turn, which the report goes to.
+	// The report goes to the session the agent logged in as.
 	allow = false
-	auth := smtp.PlainAuth("", "t2", "x", "127.0.0.1")
+	auth := smtp.PlainAuth("", "s2", "x", "127.0.0.1")
 	err := smtp.SendMail(addr, auth, "agent@den", []string{"Anya@Example.com"}, msg)
 	if err != nil || len(sent) != 1 {
 		t.Fatalf("denied: %v, sent %d", err, len(sent))
@@ -184,7 +192,7 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 	if len(rules) != 2 || rules[1] != "mail to anya@example.com|mail to anya@example.com" {
 		t.Fatalf("one recipient: %q", rules)
 	}
-	want := "t1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|t2 [den: Mail to Anya@Example.com was not sent: denied.]"
+	want := "s1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|s2 [den: Mail to Anya@Example.com was not sent: denied.]"
 	if got := strings.Join(reports, "|"); got != want {
 		t.Fatalf("reports %q", got)
 	}

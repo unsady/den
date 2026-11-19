@@ -57,13 +57,15 @@ func TestFetch(t *testing.T) {
 		}
 		return true, nil
 	}, nil)
-	f.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
+	f.Report = func(session, agent, user string) { reports = append(reports, session+" "+agent) }
+	f.Known = func(session string) bool { return session == "s1" }
 	f.client.Transport = server.Client().Transport
 
+	session := "s1"
 	do := func(method, path, body string) (Response, error) {
 		return f.Do(context.Background(), Request{
 			Secret: "github", Method: method, URL: server.URL + path, Body: []byte(body),
-			Header: map[string]string{"Authorization": "stolen"},
+			Header: map[string]string{"Authorization": "stolen"}, Session: session,
 		})
 	}
 
@@ -130,7 +132,7 @@ func TestFetch(t *testing.T) {
 			t.Fatalf("%v: %+v %v", c, resp, err)
 		}
 	}
-	if len(reports) != 16 || !strings.HasPrefix(reports[0], " [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200, quoted below") || !strings.Contains(reports[0], ">\nok\n</quoted ") {
+	if len(reports) != 16 || !strings.HasPrefix(reports[0], "s1 [den: the user allowed GitHub: POST /repos/other/x/issues/1/comments, and den sent it. The service answered 200, quoted below") || !strings.Contains(reports[0], ">\nok\n</quoted ") {
 		t.Fatalf("reports %q", reports)
 	}
 	if len(asked) != 16 || !strings.HasPrefix(asked[0], "↗︎ GitHub: POST /repos/other/x/issues/1/comments\nWrites outside your own repositories.\n\n{\n  \"body\": \"hi\"\n}") {
@@ -141,9 +143,21 @@ func TestFetch(t *testing.T) {
 	if resp, err := do("POST", "/repos/other/x/issues", `{"title":"no"}`); err != nil || !resp.Waiting {
 		t.Fatalf("denied: %+v %v", resp, err)
 	}
-	if got := reports[len(reports)-1]; got != " [den: GitHub: POST /repos/other/x/issues was not sent: denied.]" {
+	if got := reports[len(reports)-1]; got != "s1 [den: GitHub: POST /repos/other/x/issues was not sent: denied.]" {
 		t.Fatalf("denied report %q", got)
 	}
+
+	// A request that would wait for the user needs a session den has, to
+	// tell it what came of the request.
+	for _, session = range []string{"", "gone"} {
+		if _, err := do("POST", "/repos/other/x/issues", `{"title":"lost"}`); !errors.Is(err, ErrRequest) {
+			t.Fatalf("session %q: %v", session, err)
+		}
+	}
+	if len(asked) != 17 {
+		t.Fatalf("asked %d times", len(asked))
+	}
+	session = "s1"
 
 	mu.Lock()
 	for _, s := range seen {

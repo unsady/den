@@ -289,11 +289,11 @@ func (h *held) call(method, path string, body, out any) error {
 
 // moveLater moves the branches of a kept push once the user answered, and
 // reports what came of it, as pushLater does for a push den kept itself.
-func (p *Proxy) moveLater(h *held, what, turn string, answer error) {
+func (p *Proxy) moveLater(h *held, what, session string, answer error) {
 	defer h.drop()
 	report := func(agent, user string) {
 		if p.Report != nil {
-			p.Report(turn, agent, user)
+			p.Report(session, agent, user)
 		}
 	}
 	if answer != nil {

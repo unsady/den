@@ -92,7 +92,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		Instructions: instructions,
 		Args:         args,
 		Dir:          dir,
-		Turn:         os.Getenv("DEN_TURN"),
+		Session:      os.Getenv("DEN_SESSION"),
 		Run:          *run,
 	}
 	for line := range bytes.SplitSeq(data, []byte("\n")) {
@@ -154,12 +154,12 @@ func mapProgress(cfg config.Config, run string) func(mapper.Status) {
 // chatNote shows text under the running step in the user's chat, when the
 // chat's agent runs this command.
 func chatNote(cfg config.Config, text string) {
-	turn := os.Getenv("DEN_TURN")
-	if turn == "" {
+	session := os.Getenv("DEN_SESSION")
+	if session == "" {
 		return
 	}
 	// The chat is a nicety: a daemon that is away does not stop the run.
-	_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Turn: turn, Text: text}, nil)
+	_ = client.New(cfg).Wait(5*time.Second).Do(http.MethodPost, "/progress", daemon.ProgressRequest{Session: session, Text: text}, nil)
 }
 
 // maxWorkers bounds how many requests one run sends at once, so a provider

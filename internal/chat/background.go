@@ -68,10 +68,6 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 
 	c.mu.Lock()
 	c.bg[id] = cancel
-	c.turns = append(c.turns, turnRef{id: id, session: session, app: app})
-	if len(c.turns) > keptTurns {
-		c.turns = c.turns[len(c.turns)-keptTurns:]
-	}
 	c.mu.Unlock()
 	const after = " Its answer comes here; reply to it to go on there."
 	var started int64
@@ -108,7 +104,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 	c.background.Go(func() {
 		defer cancel()
 		defer release()
-		agent := runner.NewAgent(c.cfg, id)
+		agent := runner.NewAgent(c.cfg)
 		reply := agent.Ask(run, runner.Request{
 			Prompt:   task,
 			Provider: m.Provider,

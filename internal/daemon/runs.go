@@ -21,8 +21,8 @@ var runsEvery = 10 * time.Second
 // mapRun is one den map run in den's background, as its last progress
 // report says.
 type mapRun struct {
-	// turn is the chat turn that started the run, if any.
-	turn    string
+	// session is the session whose agent started the run.
+	session string
 	label   string
 	started time.Time
 	done    int
@@ -32,10 +32,10 @@ type mapRun struct {
 
 // runStarted adds a run to the message, and starts showing the message
 // when it is the first.
-func (d *daemon) runStarted(run, turn, label string, total int) {
+func (d *daemon) runStarted(run, session, label string, total int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.maps[run] = &mapRun{turn: turn, label: label, started: time.Now(), total: total}
+	d.maps[run] = &mapRun{session: session, label: label, started: time.Now(), total: total}
 	d.mapsChanged = true
 	if !d.mapsShown {
 		d.mapsShown = true
@@ -57,12 +57,12 @@ func (d *daemon) runProgress(run string, done, total, failed int) bool {
 	return ok
 }
 
-// Busy says whether a run that the chat's turn started still goes on.
-func (d *daemon) Busy(turn string) bool {
+// Busy says whether a run that a turn in session started still goes on.
+func (d *daemon) Busy(session string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, r := range d.maps {
-		if turn != "" && r.turn == turn {
+		if session != "" && r.session == session {
 			return true
 		}
 	}

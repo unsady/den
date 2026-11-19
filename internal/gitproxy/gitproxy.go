@@ -57,23 +57,23 @@ const maxHeld = 64 << 20
 // paths are the requests of git's smart HTTP protocol for one repository.
 var paths = regexp.MustCompile(`^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/(info/refs|git-upload-pack|git-receive-pack)$`)
 
-// TurnHeader names the agent's turn in its git's requests to den: the
-// agent's fx sets it for git from DEN_TURN, so a push that waits for the
-// user tells that turn what came of it. Like DEN_TURN, it only says where
-// den's answer goes, and allows nothing.
-const TurnHeader = "X-Den-Turn"
+// SessionHeader names the agent's session in its git's requests to den:
+// den sets it for the git of each fx it starts, so a push that waits for
+// the user tells that session what came of it. It only says where den's
+// answer goes, and allows nothing.
+const SessionHeader = "X-Den-Session"
 
 type Proxy struct {
 	cfg   config.Config
 	later Later
 	// Note logs a push that went without a question.
 	Note func(what, outcome string)
-	// Report tells the agent what came of a push that waited for the user,
-	// as the fetcher's Report does.
-	Report func(turn, agent, user string)
-	// Turn names the chat's turn running now, if any, which most likely
-	// pushed, for a push whose git did not name its turn in TurnHeader.
-	Turn func() string
+	// Report tells the session what came of a push that waited for the
+	// user, as the fetcher's Report does.
+	Report func(session, agent, user string)
+	// Known says whether den has the session a push names. A push that
+	// waits for the user needs one, so den knows whom to tell.
+	Known func(session string) bool
 	// upstream is GitHub's address, and api its API's; tests change them.
 	// Without api, a question shows a push by its commit IDs alone.
 	upstream  string
@@ -122,9 +122,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner, repo, op := m[1], m[2], m[3]
-	// The turn is den's business, not GitHub's.
-	turn := r.Header.Get(TurnHeader)
-	r.Header.Del(TurnHeader)
+	// The session is den's business, not GitHub's.
+	session := r.Header.Get(SessionHeader)
+	r.Header.Del(SessionHeader)
 
 	// A push's branches become the agent's only once GitHub took them, so
 	// a push GitHub refuses cannot claim a branch, such as main.
@@ -137,7 +137,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		r.Body = io.NopCloser(body)
 		if q := p.question(owner+"/"+repo, commands); q != nil {
-			if !p.hold(w, r, owner, repo, turn, body, commands, caps, *q) {
+			if !p.hold(w, r, owner, repo, session, body, commands, caps, *q) {
 				return
 			}
 		} else if p.Note != nil {
@@ -237,7 +237,11 @@ func pushName(repo string, commands []command) string {
 // hold asks the user about a push. It returns true when a rule allows it
 // and the push goes on. Otherwise it keeps the push, refuses it for now so
 // git does not wait, and sends it to GitHub once the user allows it.
-func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, turn string, body io.Reader, commands []command, caps string, q approve.Question) bool {
+func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, session string, body io.Reader, commands []command, caps string, q approve.Question) bool {
+	if p.Known == nil || !p.Known(session) {
+		refuse(w, commands, caps, fmt.Errorf("den cannot tell which session pushed: %s names none it knows", SessionHeader))
+		return false
+	}
 	data, err := io.ReadAll(io.LimitReader(body, maxHeld+1))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -249,9 +253,6 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, turn s
 	}
 	r.Body = io.NopCloser(bytes.NewReader(data))
 
-	if turn == "" && p.Turn != nil {
-		turn = p.Turn()
-	}
 	header := r.Header.Clone()
 	// GitHub takes the commits under refs of den's own first, so the
 	// question can say what they are.
@@ -264,10 +265,10 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, turn s
 	}
 	waiting, err := p.later(q, func(answer error) {
 		if h != nil {
-			p.moveLater(h, q.What, turn, answer)
+			p.moveLater(h, q.What, session, answer)
 			return
 		}
-		p.pushLater(owner, repo, header, data, commands, q.What, turn, answer)
+		p.pushLater(owner, repo, header, data, commands, q.What, session, answer)
 	})
 	if h != nil && !waiting {
 		// A rule allows it, or nobody could be asked: the push goes on, or
@@ -333,10 +334,10 @@ func (p *Proxy) record(repo string, commands []command, took map[string]bool) {
 // pushLater sends a push the user answered to GitHub, and reports what came
 // of it. A branch that moved on GitHub in the meantime refuses the push, as
 // it would refuse git itself.
-func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, commands []command, what, turn string, answer error) {
+func (p *Proxy) pushLater(owner, repo string, header http.Header, data []byte, commands []command, what, session string, answer error) {
 	report := func(agent, user string) {
 		if p.Report != nil {
-			p.Report(turn, agent, user)
+			p.Report(session, agent, user)
 		}
 	}
 	if answer != nil {

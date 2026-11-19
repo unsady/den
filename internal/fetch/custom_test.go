@@ -61,12 +61,13 @@ func TestCustomService(t *testing.T) {
 		return true, nil
 	}, nil)
 	f.client.Transport = server.Client().Transport
+	f.Known = func(session string) bool { return session == "s1" }
 
 	// A read goes at once with the token; a write waits for the user.
-	if _, err := f.Do(context.Background(), Request{Secret: "crm", URL: server.URL + "/api/events", Header: map[string]string{"Authorization": "stolen"}}); err != nil {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "crm", URL: server.URL + "/api/events", Header: map[string]string{"Authorization": "stolen"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Do(context.Background(), Request{Secret: "crm", Method: "POST", URL: server.URL + "/api/events", Body: []byte(`{"title":"x"}`)}); err != nil {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "crm", Method: "POST", URL: server.URL + "/api/events", Body: []byte(`{"title":"x"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if len(asked) != 1 || !strings.HasPrefix(asked[0], "↗︎ crm: POST /api/events\nIt may change data on 127.0.0.1.") {
@@ -74,7 +75,7 @@ func TestCustomService(t *testing.T) {
 	}
 
 	// A service that never asks sends its token in its own header.
-	if _, err := f.Do(context.Background(), Request{Secret: "keyed", Method: "DELETE", URL: server.URL + "/x"}); err != nil {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "keyed", Method: "DELETE", URL: server.URL + "/x"}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Join(got, "|") != "GET Bearer tok |DELETE  key" {
@@ -82,17 +83,17 @@ func TestCustomService(t *testing.T) {
 	}
 
 	// A service that asks only about deletes takes other writes at once.
-	if resp, err := f.Do(context.Background(), Request{Secret: "shop", Method: "PATCH", URL: server.URL + "/api/products/1", Body: []byte(`{}`)}); err != nil || resp.Waiting {
+	if resp, err := f.Do(context.Background(), Request{Session: "s1", Secret: "shop", Method: "PATCH", URL: server.URL + "/api/products/1", Body: []byte(`{}`)}); err != nil || resp.Waiting {
 		t.Fatalf("patch: %+v %v", resp, err)
 	}
-	if resp, err := f.Do(context.Background(), Request{Secret: "shop", Method: "DELETE", URL: server.URL + "/api/products/1"}); err != nil || !resp.Waiting {
+	if resp, err := f.Do(context.Background(), Request{Session: "s1", Secret: "shop", Method: "DELETE", URL: server.URL + "/api/products/1"}); err != nil || !resp.Waiting {
 		t.Fatalf("delete: %+v %v", resp, err)
 	}
 	if len(asked) != 2 || !strings.HasPrefix(asked[1], "↗︎ shop: DELETE /api/products/1") {
 		t.Fatalf("asked %q", asked)
 	}
 
-	if _, err := f.Do(context.Background(), Request{Secret: "crm", URL: "https://evil.example/x"}); !errors.Is(err, ErrRequest) {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "crm", URL: "https://evil.example/x"}); !errors.Is(err, ErrRequest) {
 		t.Fatalf("other host: %v", err)
 	}
 }

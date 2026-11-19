@@ -102,10 +102,11 @@ func TestDraftChangedAfterTheQuestion(t *testing.T) {
 		return true, nil
 	}, nil)
 	f.client.Transport = server.Client().Transport
-	f.Report = func(turn, agent, user string) { reports = append(reports, agent) }
+	f.Report = func(session, agent, user string) { reports = append(reports, agent) }
+	f.Known = func(session string) bool { return session == "s1" }
 
 	send := func() {
-		resp, err := f.Do(context.Background(), Request{Secret: "google", Method: "POST", URL: server.URL + "/gmail/v1/users/me/drafts/send", Body: []byte(`{"id":"r1"}`)})
+		resp, err := f.Do(context.Background(), Request{Session: "s1", Secret: "google", Method: "POST", URL: server.URL + "/gmail/v1/users/me/drafts/send", Body: []byte(`{"id":"r1"}`)})
 		if err != nil || !resp.Waiting {
 			t.Fatalf("%+v %v", resp, err)
 		}
@@ -130,10 +131,10 @@ func TestDraftChangedAfterTheQuestion(t *testing.T) {
 	}
 
 	// Batches and method overrides are turned away.
-	if _, err := f.Do(context.Background(), Request{Secret: "google", Method: "POST", URL: server.URL + "/batch/gmail/v1"}); !errors.Is(err, ErrRequest) {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "google", Method: "POST", URL: server.URL + "/batch/gmail/v1"}); !errors.Is(err, ErrRequest) {
 		t.Fatalf("batch: %v", err)
 	}
-	if _, err := f.Do(context.Background(), Request{Secret: "google", Method: "POST", URL: server.URL + "/calendar/v3/calendars/primary/events", Header: map[string]string{"X-HTTP-Method-Override": "DELETE"}}); !errors.Is(err, ErrRequest) {
+	if _, err := f.Do(context.Background(), Request{Session: "s1", Secret: "google", Method: "POST", URL: server.URL + "/calendar/v3/calendars/primary/events", Header: map[string]string{"X-HTTP-Method-Override": "DELETE"}}); !errors.Is(err, ErrRequest) {
 		t.Fatalf("override: %v", err)
 	}
 }

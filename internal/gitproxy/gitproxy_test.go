@@ -51,12 +51,12 @@ func TestPush(t *testing.T) {
 	must(seed, "push", bare, "main")
 
 	var mu sync.Mutex
-	var auth, turns []string
+	var auth, sessions []string
 	backend := &cgi.Handler{Path: gitPath, Args: []string{"http-backend"}, Env: []string{"GIT_PROJECT_ROOT=" + filepath.Join(root, "github"), "GIT_HTTP_EXPORT_ALL=1"}}
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		auth = append(auth, r.Header.Get("Authorization"))
-		turns = append(turns, r.Header.Get(TurnHeader))
+		sessions = append(sessions, r.Header.Get(SessionHeader))
 		mu.Unlock()
 		backend.ServeHTTP(w, r)
 	}))
@@ -74,8 +74,8 @@ func TestPush(t *testing.T) {
 		then = answer
 		return true, nil
 	})
-	p.Turn = func() string { return "t1" }
-	p.Report = func(turn, agent, user string) { reports = append(reports, turn+" "+agent) }
+	p.Known = func(session string) bool { return session == "s1" }
+	p.Report = func(session, agent, user string) { reports = append(reports, session+" "+agent) }
 	p.upstream = github.URL
 	// Without GitHub's API, den keeps a push itself and asks by commit IDs.
 	p.api = ""
@@ -84,8 +84,13 @@ func TestPush(t *testing.T) {
 
 	work := filepath.Join(root, "work")
 	must(root, "clone", proxy.URL+"/me/repo", work)
-	if auth[0] != "Basic eC1hY2Nlc3MtdG9rZW46dG9r" {
-		t.Fatalf("authorization %q", auth[0])
+	// den sets this for the agent's git, as the agent's session.
+	must(work, "config", "http.extraHeader", SessionHeader+": s1")
+	mu.Lock()
+	first := auth[0]
+	mu.Unlock()
+	if first != "Basic eC1hY2Nlc3MtdG9rZW46dG9r" {
+		t.Fatalf("authorization %q", first)
 	}
 
 	// A new branch, and later changes to it, go at once.
@@ -97,10 +102,21 @@ func TestPush(t *testing.T) {
 		t.Fatalf("asked %q", asked)
 	}
 
+	// A push that waits for the user needs a session den has, to tell it
+	// what came of the push.
+	for _, header := range []string{"", SessionHeader + ": gone"} {
+		out, err := run(work, "-c", "http.extraHeader=", "-c", "http.extraHeader="+header, "push", "origin", "HEAD:main")
+		if err == nil || !strings.Contains(out, "den cannot tell which session pushed") {
+			t.Fatalf("push from session %q: %v\n%s", header, err, out)
+		}
+	}
+	if len(asked) != 0 {
+		t.Fatalf("asked %q", asked)
+	}
+
 	// main is not the agent's: den keeps the push and refuses it for now,
-	// and the user denies it. The agent's git names its turn, which den
-	// keeps to itself.
-	out, err := run(work, "-c", "http.extraHeader="+TurnHeader+": t2", "push", "origin", "HEAD:main")
+	// and the user denies it.
+	out, err := run(work, "push", "origin", "HEAD:main")
 	if err == nil || !strings.Contains(out, "den: waiting for the user in Telegram") {
 		t.Fatalf("held push: %v\n%s", err, out)
 	}
@@ -131,8 +147,8 @@ func TestPush(t *testing.T) {
 		t.Fatalf("main is at %q", head)
 	}
 	want := []string{
-		"t2 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
-		"t1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches.]",
+		"s1 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
+		"s1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches.]",
 	}
 	if len(reports) != 3 || reports[0] != want[0] || reports[1] != want[1] || !strings.Contains(reports[2], "GitHub refused it: refs/heads/main") {
 		t.Fatalf("reports %q", reports)
@@ -140,8 +156,11 @@ func TestPush(t *testing.T) {
 
 	// The agent's own branch goes away without a question, and den
 	// remembers its branches across restarts.
-	if slices.ContainsFunc(turns, func(s string) bool { return s != "" }) {
-		t.Fatalf("GitHub got the turn: %q", turns)
+	mu.Lock()
+	leaked := slices.ContainsFunc(sessions, func(s string) bool { return s != "" })
+	mu.Unlock()
+	if leaked {
+		t.Fatal("GitHub got the session")
 	}
 	if !New(cfg, nil).mine["me/repo:feature"] {
 		t.Fatal("forgot the agent's branch")
@@ -255,7 +274,8 @@ func TestHeldPush(t *testing.T) {
 		then = answer
 		return true, nil
 	})
-	p.Report = func(turn, agent, user string) { reports = append(reports, agent) }
+	p.Report = func(session, agent, user string) { reports = append(reports, agent) }
+	p.Known = func(session string) bool { return session == "s1" }
 	p.upstream = github.URL
 	p.api = api.URL
 	proxy := httptest.NewServer(p)
@@ -263,6 +283,7 @@ func TestHeldPush(t *testing.T) {
 
 	work := filepath.Join(root, "work")
 	must(root, "clone", proxy.URL+"/me/repo", work)
+	must(work, "config", "http.extraHeader", SessionHeader+": s1")
 	must(work, "commit", "--allow-empty", "-m", "third")
 	third := must(work, "rev-parse", "HEAD")
 
