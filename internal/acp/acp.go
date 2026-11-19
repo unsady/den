@@ -137,9 +137,9 @@ type message struct {
 
 // Conn is one running fx acp server.
 type Conn struct {
-	// OnDropped is called when fx reports that a steer was not delivered,
-	// with the session and the key given to Steer. A steer also counts as
-	// dropped when the server exits before it answers. Set it before the
+	// OnDropped is called when fx did not deliver a steer, with the session
+	// and the key given to Steer. Any error fx answers a steer with counts,
+	// and so does the server exiting before it answers. Set it before the
 	// first Steer. It runs on its own goroutine.
 	OnDropped func(session, key string)
 
@@ -420,8 +420,10 @@ func (c *Conn) steerAnswered(id int64) func(*message) {
 			return
 		}
 
-		dropped := m.gone != nil || (m.Error != nil && strings.Contains(m.Error.Message, "not delivered"))
-		if m.gone == nil && m.Error == nil {
+		// fx answers a steer the turn ended before with an error, and its
+		// message is no contract, so any error means it was not delivered.
+		dropped := m.gone != nil || m.Error != nil
+		if !dropped {
 			var meta struct {
 				Meta struct {
 					Fx struct {

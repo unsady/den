@@ -322,7 +322,7 @@ func TestSteer(t *testing.T) {
 		f.text("s1", "done")
 		f.reply(turn, map[string]any{"stopReason": "end_turn"})
 		f.reply(first, map[string]any{"stopReason": "end_turn", "_meta": map[string]any{"fx": map[string]any{"steering": "absorbed"}}})
-		f.fail(second, -32600, "Steering prompt was not delivered because the turn ended first; send it as a new prompt")
+		f.fail(second, -32600, "any message")
 	}()
 
 	within(t, func() {
