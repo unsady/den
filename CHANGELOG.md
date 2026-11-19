@@ -10,6 +10,10 @@ release notes.
 
 - The app can start a new task in a session of its own with one message, while the sessions it already has keep their turns.
 
+### Fixed
+
+- A file the agent sends, such as a chart, in a turn of a session other than the one the app or Telegram is in, such as a new task's or a reply to a job, now comes with that turn's reply instead of ahead of it on its own, and a turn started in the app no longer sends it to Telegram too.
+
 ## v0.10.1
 
 ### Fixed
