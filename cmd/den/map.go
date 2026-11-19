@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
+	"github.com/unsady/den/internal/fxsettings"
 	"github.com/unsady/den/internal/mapper"
 	"github.com/unsady/den/internal/models"
 )
@@ -53,7 +53,7 @@ func mapCommand(cfg config.Config, args []string) error {
 		instructions = string(data)
 	}
 
-	provider, err := mapProvider(filepath.Join(cfg.Sessions, "..", "..", "settings.json"), *model)
+	provider, err := mapProvider(fxsettings.Path(cfg), *model)
 	if err != nil {
 		return err
 	}
