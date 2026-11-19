@@ -68,6 +68,12 @@ type Models struct {
 	// grokAPI is the subscription's model API and xaiAPI xAI's own, which
 	// fx asks for the models' modalities; tests change them.
 	grokAPI, xaiAPI string
+	// grokRelease says which Grok CLI is current; tests change it. den
+	// keeps what it said, and when, under grokVersionMu.
+	grokRelease      string
+	grokVersionMu    sync.Mutex
+	grokVersionValue string
+	grokVersionAt    time.Time
 
 	mu sync.Mutex
 	// calls are the recent model requests, oldest first, and written how
@@ -82,7 +88,7 @@ var promptTokens = regexp.MustCompile(`"(?:prompt|input)_tokens"\s*:\s*(\d+)`)
 
 func New(cfg config.Config) *Models {
 	// The sessions live at ~/.fx/sessions/v2.
-	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex", grok: grok.New(cfg), claude: claude.New(cfg), grokAPI: "https://cli-chat-proxy.grok.com/v1", xaiAPI: "https://api.x.ai/v1"}
+	m := &Models{cfg: cfg, home: filepath.Dir(filepath.Dir(cfg.Sessions)), codex: codex.New(cfg), chatgpt: "https://chatgpt.com/backend-api/codex", grok: grok.New(cfg), claude: claude.New(cfg), grokAPI: "https://cli-chat-proxy.grok.com/v1", xaiAPI: "https://api.x.ai/v1", grokRelease: "https://x.ai/cli/stable"}
 	m.loadCalls()
 	return m
 }
@@ -523,6 +529,16 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 	if !ok {
 		return
 	}
+	// The subscription's API refuses a request that does not say which
+	// Grok CLI sent it. fx says so itself; den's own requests do not.
+	version := r.Header.Get("x-grok-client-version")
+	if base == m.grokAPI && version == "" {
+		version, err = m.grokVersion(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(out *httputil.ProxyRequest) {
@@ -536,6 +552,7 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 			if base == m.grokAPI {
 				out.Out.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
 				out.Out.Header.Set("x-authenticateresponse", "authenticate-response")
+				out.Out.Header.Set("x-grok-client-version", version)
 			}
 		},
 		FlushInterval: -1,
