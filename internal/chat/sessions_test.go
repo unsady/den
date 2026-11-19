@@ -128,13 +128,14 @@ func TestSessionTitle(t *testing.T) {
 	if s, _ := c.store.Session(ctx, session); s.Title != "Trip to Lisbon" {
 		t.Fatalf("title %q", s.Title)
 	}
-	if *asked != 2 {
+	// A session is asked a title once.
+	if *asked != 1 {
 		t.Fatalf("asked %d times", *asked)
 	}
 }
 
 func TestInvalidTitleAnswer(t *testing.T) {
-	for _, answer := range []string{"One\nTwo", "", "  \n"} {
+	for _, answer := range []string{"", "  \n", "one two three four five six seven eight nine ten eleven"} {
 		answerTitles(t, answer)
 		c := newChat(t)
 		session, err := c.joined(store.Telegram)
@@ -180,7 +181,7 @@ func TestCleanTitle(t *testing.T) {
 		{"one two three four five six seven eight nine ten", "one two three four five six seven eight nine ten", true},
 		{"one two three four five six seven eight nine ten eleven", "", false},
 		{long, "", false},
-		{"Two\nlines", "", false},
+		{"Here is a title:\nPlanning the trip", "Planning the trip", true},
 		{"", "", false},
 		{" \n ", "", false},
 		{"\"\"", "", false},

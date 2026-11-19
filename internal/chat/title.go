@@ -14,8 +14,17 @@ import (
 )
 
 // One-shot questions to a model: a session's title and a /bg task's name.
-// They go through den's model proxy to the second model when the chat has
-// one, since it is usually the cheaper, or to the main one.
+// They go through den's model proxy to the provider of the second model
+// when the chat has one, since it is usually the cheaper, or of the main
+// one, and to the provider's quick model when it has one.
+
+// quickModels are the providers' cheap models for one-shot questions, as
+// fx titles its sessions with for Codex and Grok.
+var quickModels = map[string]string{
+	"claude": "haiku",
+	"codex":  "gpt-5.6-luna",
+	"grok":   "grok-4.5",
+}
 
 // askURL is where den asks provider's models, through its proxy: path is
 // chat/completions, or responses for a subscription that takes only those.
@@ -53,6 +62,9 @@ func (c *Chat) ask(ctx context.Context, instructions, input string) (string, err
 	}
 	if provider == "" || model == "" {
 		return "", errors.New("no model is set up")
+	}
+	if quick, ok := quickModels[provider]; ok {
+		model = quick
 	}
 
 	// The ChatGPT and Grok subscriptions take only the Responses API.
@@ -94,9 +106,17 @@ func (c *Chat) makeTitle(ctx context.Context, message string) string {
 	return title
 }
 
-// title names session from the user's first message in it. A failure
-// leaves it untitled, and its next turn tries again.
+// title names session from the user's first message in it, once: a
+// failure leaves it untitled until den restarts.
 func (c *Chat) title(session, message string) {
+	c.mu.Lock()
+	tried := c.titled[session]
+	c.titled[session] = true
+	c.mu.Unlock()
+	if tried {
+		return
+	}
+
 	title := c.makeTitle(context.Background(), message)
 	if title == "" {
 		return
@@ -112,9 +132,10 @@ func (c *Chat) title(session, message string) {
 	}
 }
 
-// cleanTitle takes a title from a model's answer: one line of at most
-// maxTitle runes, without the quotes and the period a model may add. It
-// reports false when the answer is no title.
+// cleanTitle takes a title from a model's answer: its last line, past any
+// words of the model's own, of at most maxTitle runes, without the quotes
+// and the period a model may add. It reports false when the answer is no
+// title.
 func cleanTitle(answer string) (string, bool) {
 	var lines []string
 	for line := range strings.Lines(answer) {
@@ -122,10 +143,10 @@ func cleanTitle(answer string) (string, bool) {
 			lines = append(lines, line)
 		}
 	}
-	if len(lines) != 1 {
+	if len(lines) == 0 {
 		return "", false
 	}
-	title := strings.Join(strings.Fields(lines[0]), " ")
+	title := strings.Join(strings.Fields(lines[len(lines)-1]), " ")
 	if n := len(strings.Fields(title)); n == 0 || n > 10 || len([]rune(title)) > maxTitle {
 		return "", false
 	}

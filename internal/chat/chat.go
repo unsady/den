@@ -174,6 +174,8 @@ type Chat struct {
 	// they went to, which come back as a turn of their own if fx did not
 	// deliver them, unless /stop dropped them.
 	steered map[string]string
+	// titled are the sessions den asked a title for since it started.
+	titled map[string]bool
 }
 
 type turnRef struct {
@@ -298,6 +300,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		bg:      map[string]context.CancelFunc{},
 		agent:   runner.NewAgent(cfg),
 		steered: map[string]string{},
+		titled:  map[string]bool{},
 		Events:  &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
