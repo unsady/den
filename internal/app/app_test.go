@@ -129,7 +129,7 @@ func TestServer(t *testing.T) {
 	if status, _ := call("GET", "/setup", token+"x", ""); status != http.StatusUnauthorized {
 		t.Fatalf("wrong token: %d", status)
 	}
-	if status, body := call("GET", "/setup", token, ""); status != http.StatusOK || !strings.Contains(body, `"name":"M"`) {
+	if status, body := call("GET", "/setup", token, ""); status != http.StatusOK || !strings.Contains(body, `"name":"M"`) || !strings.Contains(body, `"api":1`) {
 		t.Fatalf("setup: %d %s", status, body)
 	}
 

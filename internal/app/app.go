@@ -190,14 +190,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /events", s.stream)
 
-	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) {
-		setup, err := s.chat.Setup(r.Context())
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-		reply(w, setup)
-	})
+	mux.HandleFunc("GET /setup", s.setup)
 
 	mux.HandleFunc("GET /models", func(w http.ResponseWriter, r *http.Request) {
 		list, err := s.chat.Models(r.Context(), r.URL.Query().Get("provider"))
@@ -450,14 +443,22 @@ type message struct {
 	Files []events.Attachment `json:"files,omitempty"`
 }
 
-// setup answers with the chat's setup, after a change to it.
+// API is the version of what den and the app say to each other. It goes up
+// with each change an app built for the one before would misread, so an app
+// that speaks another version tells the user which side to update.
+const API = 1
+
+// setup answers with the chat's setup and the API, after a change to it.
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	setup, err := s.chat.Setup(r.Context())
 	if err != nil {
 		fail(w, http.StatusInternalServerError, err)
 		return
 	}
-	reply(w, setup)
+	reply(w, struct {
+		chat.Setup
+		API int `json:"api"`
+	}{setup, API})
 }
 
 func reply(w http.ResponseWriter, v any) {
