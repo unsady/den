@@ -162,6 +162,10 @@ func tail(text string, n int) string {
 // switched sessions since, den tells the user user instead, and nothing
 // when it is empty, such as for an action the user denied: the question
 // already says so.
+//
+// A turn comes from the agent, as DEN_TURN or what it sets from it, and
+// the agent can name any, so a turn only ever says where den's answer goes:
+// it must never allow an action or reach a secret.
 func (d *daemon) report(turn, agent, user string) {
 	if turn != "" && d.chat.Tell(turn, agent, user) {
 		return
