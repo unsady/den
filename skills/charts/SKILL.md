@@ -25,7 +25,7 @@ Write the chart as JSON:
 }
 ```
 
-`kind` is `line`, `bar`, or `hbar` (horizontal bars, for long category names). `unit` is optional and goes after each value. Every series has a value for each label: at most 6 series and 60 labels.
+`kind` is `line`, `bar`, or `hbar` (horizontal bars, for long category names). `unit` is optional and goes after each value. Every series has a value for each label: at most 6 series and 60 labels. Where a series has no data, such as an hour with no calls, its value is `null`: the chart leaves a gap there. Never fill a gap with a neighbour's value or a zero, which shows data that is not there.
 
 ```bash
 uv run --with matplotlib python /usr/share/den/skills/charts/plot.py /tmp/chart.json /tmp/chart.png

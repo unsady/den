@@ -8,6 +8,7 @@ release notes.
 
 ### New
 
+- A chart's data may have `null` where there is no data, such as an hour with no calls. The app and the picture leave a gap there instead of drawing values that were not measured.
 - `den job log --json` prints a job's runs as JSON.
 
 ### Changed
