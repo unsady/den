@@ -61,37 +61,39 @@ func (s *Store) Inbox(ctx context.Context) ([]Message, error) {
 	return scanMessages(rows)
 }
 
-// TakeTurn takes the messages of the session whose message waits longest
-// out of the inbox, oldest first, for one turn. It returns no messages when
+// NextTurn returns the session whose message waits longest, or "" when
 // none wait.
-func (s *Store) TakeTurn(ctx context.Context) (string, []Message, error) {
+func (s *Store) NextTurn(ctx context.Context) (string, error) {
+	var session string
+	err := s.db.QueryRowContext(ctx, `SELECT session_id FROM inbox ORDER BY id LIMIT 1`).Scan(&session)
+	if isNoRows(err) {
+		return "", nil
+	}
+	return session, err
+}
+
+// TakeTurn takes session's messages out of the inbox, oldest first, for one
+// turn.
+func (s *Store) TakeTurn(ctx context.Context, session string) ([]Message, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	defer tx.Rollback()
 
-	var session string
-	err = tx.QueryRowContext(ctx, `SELECT session_id FROM inbox ORDER BY id LIMIT 1`).Scan(&session)
-	if err != nil {
-		if isNoRows(err) {
-			return "", nil, nil
-		}
-		return "", nil, err
-	}
-
 	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM inbox WHERE session_id = ? ORDER BY id`, session)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	list, err := scanMessages(rows)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM inbox WHERE session_id = ?`, session); err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	return session, list, tx.Commit()
+	return list, tx.Commit()
 }
 
 // ClearInbox drops every waiting message and returns them.

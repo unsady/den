@@ -29,16 +29,28 @@ func TestInbox(t *testing.T) {
 	}
 
 	// The session whose message waits longest goes first, with all of its.
-	session, list, err := s.TakeTurn(ctx)
-	if err != nil || session != "a" || len(list) != 2 || list[0].Text != "1" || !list[1].Report || list[1].Notice != "n" {
-		t.Fatalf("turn %q %+v %v", session, list, err)
+	take := func() (string, []Message) {
+		t.Helper()
+		session, err := s.NextTurn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := s.TakeTurn(ctx, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return session, list
 	}
-	session, list, _ = s.TakeTurn(ctx)
+	session, list := take()
+	if session != "a" || len(list) != 2 || list[0].Text != "1" || !list[1].Report || list[1].Notice != "n" {
+		t.Fatalf("turn %q %+v", session, list)
+	}
+	session, list = take()
 	if session != "b" || len(list) != 1 || !list[0].App {
 		t.Fatalf("turn %q %+v", session, list)
 	}
-	if session, list, err := s.TakeTurn(ctx); session != "" || list != nil || err != nil {
-		t.Fatalf("empty inbox gave %q %+v %v", session, list, err)
+	if session, list := take(); session != "" || list != nil {
+		t.Fatalf("empty inbox gave %q %+v", session, list)
 	}
 
 	// Deleting a session drops what waits for it; clearing drops the rest.

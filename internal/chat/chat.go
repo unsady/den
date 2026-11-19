@@ -707,19 +707,26 @@ func (c *Chat) work(ctx context.Context) {
 // false when there were none.
 func (c *Chat) turn(ctx context.Context) bool {
 	// Messages for another session, such as replies to a job's message,
-	// wait for a turn of their own.
-	session, messages, err := c.store.TakeTurn(context.Background())
-	if err != nil {
-		log.Printf("chat: inbox: %v", err)
-		return false
-	}
-	if len(messages) == 0 {
+	// wait for a turn of their own. The session is read before its
+	// messages leave the inbox, so a failure leaves them for the next try.
+	session, err := c.store.NextTurn(context.Background())
+	if err != nil || session == "" {
+		if err != nil {
+			log.Printf("chat: inbox: %v", err)
+		}
 		return false
 	}
 	choice, agent, err := c.choiceOf(session)
 	if err != nil {
-		log.Printf("chat: messages for session %s dropped: %v", session, err)
-		return true
+		log.Printf("chat: session %s: %v", session, err)
+		return false
+	}
+	messages, err := c.store.TakeTurn(context.Background(), session)
+	if err != nil || len(messages) == 0 {
+		if err != nil {
+			log.Printf("chat: inbox: %v", err)
+		}
+		return false
 	}
 	untitled := c.untitled(session)
 
