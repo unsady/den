@@ -64,6 +64,9 @@ type Event struct {
 	// Title is the session's title: a job's result carries it, as do a /bg
 	// task's message and reply, and the event that titles a session.
 	Title string `json:"title,omitempty"`
+	// Kind is what started the session, as the app's session list says it:
+	// bg on a /bg task's message and reply, job on a job's result.
+	Kind  string `json:"kind,omitempty"`
 	Model string `json:"model,omitempty"`
 	// Failed marks a job's failure, or a turn's.
 	Failed bool `json:"failed,omitempty"`
