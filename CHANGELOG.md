@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.11.0
+
 ### New
 
 - The app can start a new task in a session of its own with one message, while the sessions it already has keep their turns.
