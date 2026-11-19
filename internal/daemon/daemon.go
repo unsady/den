@@ -481,9 +481,6 @@ func (d *daemon) ListJobs() []jobs.Job {
 	return list
 }
 
-// ContextSize serves the chat's /status.
-func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
-
 // deleteSession deletes session id from fx and from den's store, fx first,
 // so a failure leaves it to delete again. On an error it returns the HTTP
 // status that suits it.

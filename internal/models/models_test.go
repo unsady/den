@@ -82,18 +82,15 @@ func TestProtectMovesTheKeyAndProxies(t *testing.T) {
 	}
 
 	// The proxy notes the prompt size the provider reports.
-	start := time.Now()
+	start := time.Now().Add(-time.Millisecond)
 	resp, err = http.Post(proxy.URL+"/go/chat/completions?usage=1", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if peak := m.Peak(start); peak != 38211 {
-		t.Fatalf("peak %d", peak)
-	}
-	if peak := m.Peak(time.Now().Add(time.Second)); peak != 0 {
-		t.Fatalf("peak after %d", peak)
+	if in := lastIn(m, start); in != 38211 {
+		t.Fatalf("prompt %d", in)
 	}
 
 	// A rate limit fx would wait out for hours ends the turn instead.
@@ -219,8 +216,8 @@ func TestCodexGetsTheRealToken(t *testing.T) {
 	if got.URL.Path != "/backend-api/codex/responses" || got.Header.Get("Authorization") != "Bearer real" || got.Header.Get("chatgpt-account-id") != "acct-1" {
 		t.Fatalf("sent %s with %q, account %q", got.URL.Path, got.Header.Get("Authorization"), got.Header.Get("chatgpt-account-id"))
 	}
-	if m.Peak(start) != 1234 {
-		t.Fatalf("peak %d", m.Peak(start))
+	if in := lastIn(m, start); in != 1234 {
+		t.Fatalf("prompt %d", in)
 	}
 
 	// fx's refresh gets a stand-in that names the account.
@@ -354,8 +351,8 @@ func TestMeterTakesCodexWholeUsage(t *testing.T) {
 	io.Copy(io.Discard, body)
 	body.Close()
 
-	if got := m.Peak(start); got != 5200 {
-		t.Fatalf("peak %d, want 5200", got)
+	if got := lastIn(m, start); got != 5200 {
+		t.Fatalf("prompt %d, want 5200", got)
 	}
 }
 
@@ -447,4 +444,13 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 	if !strings.Contains(string(data), `"sub":"user-1"`) {
 		t.Fatalf("userinfo %s", data)
 	}
+}
+
+// lastIn is the prompt size of the latest call since a time, 0 without one.
+func lastIn(m *Models, since time.Time) int {
+	calls := m.Calls(since)
+	if len(calls) == 0 {
+		return 0
+	}
+	return calls[len(calls)-1].In
 }

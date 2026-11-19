@@ -31,7 +31,8 @@ func TestMain(m *testing.M) {
 // the prompt, its count of lines, its images, the flags fx started with, and a
 // message steered into the turn as steered=<text>.
 //
-// As fx does, it saves a session with its first prompt, in the index of
+// As fx does, it saves a session with its first prompt, logs its prompt's
+// size, the number in the space's context-size file, when there is one, in the index of
 // sessions/ beside the space, and answers a resume of one it has not saved
 // with ACP's resource-not-found code.
 func fakeACP(args []string) {
@@ -119,6 +120,13 @@ func fakeACP(args []string) {
 		}
 		resume = session
 		save(session)
+		// As fx does, the session's log tells how big its prompt was.
+		if size, err := os.ReadFile("context-size"); err == nil {
+			os.MkdirAll(filepath.Join("sessions", session), 0o755)
+			f, _ := os.OpenFile(filepath.Join("sessions", session, "log.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			fmt.Fprintf(f, `{"kind":"item","type":"model_call","ts":%d,"data":{"purpose":"turn","outcome":"completed","input_tokens":%s}}`+"\n", time.Now().UnixMilli(), size)
+			f.Close()
+		}
 		held := steers
 		steers, steered, running = nil, nil, false
 		mu.Unlock()

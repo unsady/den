@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/models"
@@ -192,12 +191,4 @@ func memory() (used, total int64) {
 		}
 	}
 	return total - available, total
-}
-
-// contextSize is the largest prompt since started, or 0 without a daemon.
-func (c *Chat) contextSize(started time.Time) int {
-	if c.den == nil {
-		return 0
-	}
-	return c.den.ContextSize(started)
 }

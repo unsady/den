@@ -204,9 +204,6 @@ func (r *meter) finish() {
 	if len(r.errText) > 0 {
 		r.call.Error = strings.Join(strings.Fields(string(r.errText)), " ")
 	}
-	if r.call.In > 0 {
-		r.m.record(r.call.In)
-	}
 	r.m.addCall(r.call)
 }
 

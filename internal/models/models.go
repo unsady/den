@@ -68,42 +68,10 @@ type Models struct {
 	grokAPI, xaiAPI string
 
 	mu sync.Mutex
-	// prompts are the prompt sizes of recent requests, oldest first.
-	prompts []prompt
 	// calls are the recent model requests, oldest first, and written how
 	// many lines the calls file holds.
 	calls   []Call
 	written int
-}
-
-// prompt is the size a provider reported for one request's prompt.
-type prompt struct {
-	at     time.Time
-	tokens int
-}
-
-// Peak returns the largest prompt of the requests since a time, in tokens:
-// within one turn the context only grows, so it is the turn's context size.
-// It is 0 when no provider reported one.
-func (m *Models) Peak(since time.Time) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	peak := 0
-	for _, p := range m.prompts {
-		if !p.at.Before(since) {
-			peak = max(peak, p.tokens)
-		}
-	}
-	return peak
-}
-
-func (m *Models) record(tokens int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.prompts = append(m.prompts, prompt{at: time.Now(), tokens: tokens})
-	if len(m.prompts) > 500 {
-		m.prompts = m.prompts[len(m.prompts)-500:]
-	}
 }
 
 // promptTokens finds the prompt size in Chat Completions' usage and in the
@@ -615,7 +583,7 @@ func (m *Models) serveClaude(w http.ResponseWriter, r *http.Request, rest string
 		}
 		start := time.Now()
 		w = &metered{ResponseWriter: w, meter: m.measure(nil, start, "claude", requestModel(body), http.StatusOK)}
-		m.claude.Chat(w, r, body, conversation(body), m.record)
+		m.claude.Chat(w, r, body, conversation(body))
 		w.(*metered).meter.finish()
 	default:
 		http.Error(w, "den passes on only Claude's chat completions and models", http.StatusNotFound)

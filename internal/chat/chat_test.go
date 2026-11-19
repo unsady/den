@@ -480,13 +480,9 @@ type fakeDaemon struct {
 	// rules and actions are what /log shows.
 	rules   []approve.Rule
 	actions []approve.Action
-	// context is the size every turn reports.
-	context int
 	// jobSessions are the sessions of job runs.
 	jobSessions map[string]bool
 }
-
-func (f *fakeDaemon) ContextSize(since time.Time) int { return f.context }
 
 func (f *fakeDaemon) Busy(turn string) bool { return false }
 
@@ -703,7 +699,8 @@ func TestChatControls(t *testing.T) {
 func TestCompactWhenIdle(t *testing.T) {
 	compactIdle, compactAbove = 200*time.Millisecond, 40_000
 	t.Cleanup(func() { compactIdle, compactAbove = 50*time.Minute, 60_000 })
-	cfg, telegram := startChat(t, &fakeDaemon{context: 50_000})
+	cfg, telegram := startChat(t, nil)
+	os.WriteFile(filepath.Join(cfg.Space, "context-size"), []byte("50000"), 0o644)
 	catalogs := filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "model-catalogs")
 	os.MkdirAll(catalogs, 0o755)
 	os.WriteFile(filepath.Join(catalogs, "p1.json"), []byte(`{"auto":{"limit":{"context":200000}}}`), 0o644)
@@ -739,8 +736,8 @@ func TestCompactWhenIdle(t *testing.T) {
 }
 
 func TestCompactCommand(t *testing.T) {
-	den := &fakeDaemon{context: 50_000}
-	cfg, telegram := startChat(t, den)
+	cfg, telegram := startChat(t, nil)
+	os.WriteFile(filepath.Join(cfg.Space, "context-size"), []byte("50000"), 0o644)
 	catalogs := filepath.Join(filepath.Dir(filepath.Dir(cfg.Sessions)), "model-catalogs")
 	os.MkdirAll(catalogs, 0o755)
 	os.WriteFile(filepath.Join(catalogs, "p1.json"), []byte(`{"auto":{"limit":{"context":200000}}}`), 0o644)

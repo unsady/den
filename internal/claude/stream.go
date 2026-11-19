@@ -67,7 +67,7 @@ func (u usage) prompt() int { return u.Input + u.CacheRead + u.CacheCreation }
 
 // relay turns claude's events into one assistant message for fx. It ends
 // with the message that asks for tools, or with the turn's result.
-func (c *Claude) relay(ctx context.Context, s *session, rep *reply, record func(int)) {
+func (c *Claude) relay(ctx context.Context, s *session, rep *reply) {
 	var (
 		kinds = map[int]string{}
 		calls = map[int]int{}
@@ -126,7 +126,6 @@ func (c *Claude) relay(ctx context.Context, s *session, rep *reply, record func(
 				if stop == "tool_use" {
 					s.emit(rep)
 					rep.finish("tool_calls", used)
-					record(used.prompt())
 					return
 				}
 			}
@@ -156,14 +155,12 @@ func (c *Claude) relay(ctx context.Context, s *session, rep *reply, record func(
 				c.drop(s)
 				s.shut()
 				rep.finish(reason, used)
-				record(used.prompt())
 				return
 			}
 			// The process waits for the next turn.
 			s.finish(rep)
 			c.rest(s)
 			rep.finish(reason, used)
-			record(used.prompt())
 			return
 		}
 	}

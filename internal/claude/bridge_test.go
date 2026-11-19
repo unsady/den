@@ -224,8 +224,7 @@ type harness struct {
 	srv *httptest.Server
 	log string
 
-	mu      sync.Mutex
-	prompts []int
+	mu sync.Mutex
 }
 
 func setup(t *testing.T, scenario string) *harness {
@@ -249,11 +248,7 @@ func setup(t *testing.T, scenario string) *harness {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/claude/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		c.Chat(w, r, body, "conv", func(n int) {
-			h.mu.Lock()
-			h.prompts = append(h.prompts, n)
-			h.mu.Unlock()
-		})
+		c.Chat(w, r, body, "conv")
 	})
 	mux.HandleFunc("/claude-mcp/", func(w http.ResponseWriter, r *http.Request) {
 		c.MCP(w, r, strings.TrimPrefix(r.URL.Path, "/claude-mcp/"))
@@ -400,9 +395,6 @@ func TestText(t *testing.T) {
 	}
 	if a.prompt != 17 || a.out != 7 {
 		t.Errorf("usage = %d in, %d out, want 17 in, 7 out", a.prompt, a.out)
-	}
-	if len(h.prompts) != 1 || h.prompts[0] != 17 {
-		t.Errorf("recorded %v", h.prompts)
 	}
 	log := h.waitLog(`"content":"hi"`)
 	if n := len(h.c.bridge.sessions); n != 1 {
@@ -814,7 +806,7 @@ func TestNoMemoryRefusesAProcessOverTheLimit(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{"model": "sonnet", "messages": []any{map[string]any{"role": "user", "content": "other"}}})
 	rec := httptest.NewRecorder()
-	h.c.Chat(rec, httptest.NewRequest("POST", "/", bytes.NewReader(body)), body, "conv2", func(int) {})
+	h.c.Chat(rec, httptest.NewRequest("POST", "/", bytes.NewReader(body)), body, "conv2")
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "30" {
 		t.Errorf("got %d, Retry-After %q, want 429 and 30", rec.Code, rec.Header().Get("Retry-After"))
 	}
@@ -824,7 +816,7 @@ func TestNoMemoryRefusesAProcessOverTheLimit(t *testing.T) {
 
 	free = minFree
 	rec = httptest.NewRecorder()
-	h.c.Chat(rec, httptest.NewRequest("POST", "/", bytes.NewReader(body)), body, "conv2", func(int) {})
+	h.c.Chat(rec, httptest.NewRequest("POST", "/", bytes.NewReader(body)), body, "conv2")
 	if rec.Code != http.StatusOK {
 		t.Errorf("with room, got %d: %s", rec.Code, rec.Body)
 	}

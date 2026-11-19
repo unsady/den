@@ -284,8 +284,8 @@ func fingerprint(m message) string {
 var models = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Chat answers fx's Chat Completions request with claude. conv names
-// fx's conversation, and record gets the size of the prompt.
-func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv string, record func(tokens int)) {
+// fx's conversation.
+func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv string) {
 	var req request
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -373,7 +373,7 @@ func (c *Claude) Chat(w http.ResponseWriter, r *http.Request, body []byte, conv 
 			return
 		}
 	}
-	c.relay(r.Context(), s, rep, record)
+	c.relay(r.Context(), s, rep)
 }
 
 // resume finds the live session that the request continues, and the user

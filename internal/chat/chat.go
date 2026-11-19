@@ -88,9 +88,6 @@ type Daemon interface {
 	Rules() []approve.Rule
 	Forget(id string) (approve.Rule, bool)
 	Actions(since time.Time) []approve.Action
-	// ContextSize is the largest prompt sent to the model since a time, in
-	// tokens, or 0 when unknown.
-	ContextSize(since time.Time) int
 	// Busy says whether work that a chat turn started, such as a den map
 	// run, still goes on in den's background.
 	Busy(turn string) bool
@@ -927,14 +924,9 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	if err := c.store.Touch(context.Background(), session); err != nil {
 		log.Printf("chat: touch %s: %v", session, err)
 	}
-	// The chat's turns tell how big their session has grown, and the
-	// first reply after den compacted a session says so. The size is the
-	// largest prompt den saw meanwhile, so a turn on an agent of its own,
-	// which runs besides others, leaves it as it was.
-	compacted := ""
-	if !t.own {
-		compacted = c.measure(session, started, reply.Error == "")
-	}
+	// A turn tells how big its session has grown, and the first reply
+	// after den compacted a session says so.
+	compacted := c.measure(session, started, reply.Error == "")
 
 	log.Printf("chat: turn in %s", reply.Duration)
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
@@ -1008,7 +1000,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 // away, once, after a turn that did not fail.
 func (c *Chat) measure(session string, started time.Time, ok bool) string {
 	ctx := context.Background()
-	size := c.contextSize(started)
+	size := sessions.ContextSize(c.cfg.Sessions, session, started)
 	if size > 0 {
 		if err := c.store.SetContext(ctx, session, size); err != nil {
 			log.Printf("chat: context of %s: %v", session, err)
