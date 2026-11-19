@@ -79,8 +79,9 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		prompt.Images = append(prompt.Images, acp.Image{MimeType: http.DetectContentType(data), Data: data})
 	}
 
-	// The reply is what the agent wrote after its last step: what it said
-	// before a step is not part of the answer.
+	// The reply is what the agent wrote after its last step. What it said
+	// before a step, such as "Reddit gives a stub, trying the old site", is
+	// not part of the answer but says what it does, so it goes to Said.
 	var last strings.Builder
 	ooms := proc.OOMKills()
 	res, err := conn.Prompt(ctx, session, prompt, func(ev acp.Event) {
@@ -88,9 +89,13 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		case acp.KindText:
 			last.WriteString(ev.Text)
 		case acp.KindToolCall:
+			said := strings.TrimSpace(last.String())
 			last.Reset()
 			if req.Progress != nil {
 				req.Progress(stepLine(ev))
+			}
+			if said != "" && req.Said != nil {
+				req.Said(said)
 			}
 		}
 	})

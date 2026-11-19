@@ -49,10 +49,16 @@ func (c *Chat) Note(session, text string) {
 	}
 }
 
+// progress is what a turn reports as it goes: a line fx wrote for a step,
+// or what the agent said before the step.
+type progress struct {
+	line, said string
+}
+
 // showProgress keeps one message in the chat that lists the latest steps fx
 // reported, and deletes it when done closes, before the reply is sent.
 // Without show, as for a turn the app asked for, it only reads the steps.
-func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-chan struct{}, show bool) {
+func (c *Chat) showProgress(ctx context.Context, lines <-chan progress, done <-chan struct{}, show bool) {
 	t := time.NewTicker(progressEvery)
 	defer t.Stop()
 
@@ -73,8 +79,15 @@ func (c *Chat) showProgress(ctx context.Context, lines <-chan string, done <-cha
 		case note = <-c.notes:
 			changed = len(recent) > 0
 
-		case line := <-lines:
-			text, ok := step(line)
+		case p := <-lines:
+			// What the agent said goes under the step it came with, as a
+			// note does.
+			if p.said != "" {
+				note = clipRunes(p.said, 200)
+				changed = len(recent) > 0
+				continue
+			}
+			text, ok := step(p.line)
 			if !ok {
 				continue
 			}

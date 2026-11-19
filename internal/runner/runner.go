@@ -108,6 +108,9 @@ type Request struct {
 	// Progress, when set, receives each line fx writes to stderr while it
 	// works, such as "Reading notes/todo.md" before a tool runs.
 	Progress func(line string)
+	// Said, when set, receives what the agent wrote before a step, right
+	// after that step's line went to Progress.
+	Said func(text string)
 }
 
 // Reply is what one turn produced. Error is empty on success.

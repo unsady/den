@@ -194,7 +194,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	// chat's progress message is its agent's.
 	done := make(chan struct{})
 	shown := make(chan struct{})
-	steps := make(chan string, 64)
+	steps := make(chan progress, 64)
 	if !t.app {
 		go c.showTyping(turn, done)
 	}
@@ -217,7 +217,20 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 				return
 			}
 			select {
-			case steps <- line:
+			case steps <- progress{line: line}:
+			default:
+			}
+		},
+		// What the agent said before a step tells what it does better than
+		// the step's command, so it stands for the step in the app and goes
+		// under it in the chat.
+		Said: func(text string) {
+			c.step(session, clipRunes(text, 200))
+			if t.own {
+				return
+			}
+			select {
+			case steps <- progress{said: text}:
 			default:
 			}
 		},
