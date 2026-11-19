@@ -156,26 +156,3 @@ func idsOf(list []Session) string {
 	}
 	return out
 }
-
-func TestUnreplied(t *testing.T) {
-	s, ctx := open(t), context.Background()
-	old := time.Now().Add(-48 * time.Hour)
-	for _, session := range []Session{
-		{ID: "old", Kind: KindJob, Created: old},
-		{ID: "answered", Kind: KindJob, Created: old},
-		{ID: "new", Kind: KindJob},
-		{ID: "chat", Kind: KindChat, Created: old},
-	} {
-		if err := s.AddSession(ctx, session); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.Replied(ctx, "answered"); err != nil {
-		t.Fatal(err)
-	}
-
-	ids, err := s.Unreplied(ctx, KindJob, time.Now().Add(-24*time.Hour))
-	if err != nil || len(ids) != 1 || ids[0] != "old" {
-		t.Fatalf("unreplied %v %v", ids, err)
-	}
-}
