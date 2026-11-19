@@ -28,7 +28,9 @@ type legacyChoice struct {
 // importLegacy fills the store, once, from the files an older den kept:
 // fx's list of sessions, the titles den made in the journal, the job runs'
 // sessions, and chat.json's session, models, offset, waiting messages, and
-// the bot's messages. The files stay as they were.
+// the bot's messages. The files stay as they were. Every step but the
+// waiting messages can be taken again, so an import that failed partway
+// runs anew on the next start.
 func importLegacy(ctx context.Context, cfg config.Config, db *store.Store) error {
 	if done, err := db.Setting(ctx, importedKey); err != nil || done != "" {
 		return err
@@ -81,10 +83,15 @@ func importLegacy(ctx context.Context, cfg config.Config, db *store.Store) error
 		if title, err := os.ReadFile(filepath.Join(journal, s.ID+".title")); err == nil {
 			session.Title = strings.TrimSpace(string(title))
 		}
+		imported[s.ID] = true
+		if _, err := db.Session(ctx, s.ID); err == nil {
+			continue
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
 		if err := db.AddSession(ctx, session); err != nil {
 			return err
 		}
-		imported[s.ID] = true
 	}
 
 	for _, r := range chat.Replies {

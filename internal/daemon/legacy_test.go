@@ -48,6 +48,11 @@ func TestImportLegacy(t *testing.T) {
 	}
 	defer db.Close()
 	ctx := context.Background()
+	// An import that failed partway left a session behind, which the next
+	// one keeps.
+	if err := db.AddSession(ctx, store.Session{ID: "chat1", Kind: store.Chat, Title: "Plan my week"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := importLegacy(ctx, cfg, db); err != nil {
 		t.Fatal(err)
 	}
