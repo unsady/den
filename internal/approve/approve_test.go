@@ -77,6 +77,7 @@ func TestAsk(t *testing.T) {
 		t.Fatalf("denied: %v", err)
 	}
 
+	defer func(wait time.Duration) { Wait = wait }(Wait)
 	Wait = 50 * time.Millisecond
 	if err := ask(""); !errors.Is(err, ErrExpired) {
 		t.Fatalf("expired: %v", err)
@@ -148,6 +149,7 @@ func TestAsk(t *testing.T) {
 	}
 
 	// 1 hour allows the question's scope, and then den asks again.
+	defer func(hour time.Duration) { Hour = hour }(Hour)
 	Hour = 100 * time.Millisecond
 	scoped := Question{Text: "Post it?", What: "crm: POST /api/a", Scope: "fetch crm"}
 	go a.Ask(context.Background(), scoped)
@@ -167,7 +169,15 @@ func TestAsk(t *testing.T) {
 	default:
 	}
 	time.Sleep(150 * time.Millisecond)
-	go a.Ask(context.Background(), other)
+	// It expires unanswered; the test waits for it, so its edit never
+	// reaches the next run's server.
+	expired := make(chan error, 1)
+	go func() { expired <- a.Ask(context.Background(), other) }()
+	defer func() {
+		if err := <-expired; !errors.Is(err, ErrExpired) {
+			t.Errorf("after the hour: %v", err)
+		}
+	}()
 	if got := <-sent; !strings.HasPrefix(got, "Patch it?") {
 		t.Fatalf("after the hour: %q", got)
 	}
