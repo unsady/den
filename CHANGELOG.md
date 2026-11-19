@@ -18,6 +18,7 @@ release notes.
 - Sessions no longer wait for each other: a reply to a job's message, or a message after /new while the old session still works, runs at once on an agent of its own, and only a message for a session that is working gets 👀.
 - den reads how big a session is from fx's own log of it, so /status and compacting while you are away see that session's size even while a job or another session runs beside it.
 - What came of an action that waited for you, such as a git push, an email, a request to a service, or a den map run, goes to the session whose agent took it, a job's too, however many sessions run at once. den no longer guesses: it refuses such an action from an agent that names no session den has.
+- The agent is told, right when an action starts waiting for you, that you already see den's question, so a turn with nothing else to say ends without a reply that only repeats it.
 
 ### Fixed
 

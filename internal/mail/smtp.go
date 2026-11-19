@@ -166,7 +166,7 @@ func (s *Server) deliver(ctx context.Context, to []string, msg []byte, login str
 		log.Printf("mail: to %s: not sent: %v", strings.Join(to, ", "), err)
 		return "554 not sent: " + oneLine(err)
 	}
-	return "250 waiting for the user: den sends it once they allow it in Telegram, and tells you"
+	return "250 waiting for the user: den sends it once they allow it in Telegram, and tells you. " + approve.Quiet
 }
 
 // sendLater sends a message the user answered, and reports what came of it.

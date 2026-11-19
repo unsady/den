@@ -23,6 +23,11 @@ import (
 	"github.com/unsady/den/internal/notify"
 )
 
+// Quiet ends what den answers the agent about an action that waits for the
+// user. It comes right after the action, where the agent reads it, since a
+// reply that only repeats den's question is noise.
+const Quiet = "The user already sees den's question with its buttons, so do not mention it. If you have nothing else for them, end your turn with exactly SILENT."
+
 // Wait is how long a question waits for an answer before den gives up.
 var Wait = 15 * time.Minute
 

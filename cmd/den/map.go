@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/claude"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
@@ -106,7 +107,7 @@ func mapCommand(cfg config.Config, args []string) error {
 	}
 	switch {
 	case answer.Waiting:
-		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait. The user sees the question, so do not tell them you asked: go on, or end your turn.")
+		fmt.Println("den asked the user to allow this run in Telegram. Once they answer, den runs it and tells you what came of it in a new message, so you need not wait. " + approve.Quiet)
 		return nil
 	case answer.Started:
 		fmt.Println("den runs this in its background and shows the user how far it is. It tells you what came of it in a new message, so do not wait or check on it: go on, or end your turn.")

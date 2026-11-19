@@ -286,7 +286,7 @@ func (p *Proxy) hold(w http.ResponseWriter, r *http.Request, owner, repo, sessio
 	return true
 }
 
-var errWaiting = errors.New("waiting for the user in Telegram; den pushes it once they allow it and tells you, so do not push it again")
+var errWaiting = errors.New("waiting for the user in Telegram; den pushes it once they allow it and tells you, so do not push it again. " + approve.Quiet)
 
 // watched passes a response on and hands what it read to done once, up to
 // 1 MB, when it ends.

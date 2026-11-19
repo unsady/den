@@ -17,6 +17,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/client"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/daemon"
@@ -431,7 +432,7 @@ func fetchCommand(cfg config.Config, args []string) error {
 		return err
 	}
 	if resp.Waiting {
-		fmt.Fprintln(os.Stderr, "den asked the user to allow this request in Telegram. Once they answer, den sends it and tells you the service's answer in a new message, so you need not wait. The user sees the question, so do not tell them you asked: go on, or end your turn. Do not send it again.")
+		fmt.Fprintln(os.Stderr, "den asked the user to allow this request in Telegram. Once they answer, den sends it and tells you the service's answer in a new message, so you need not wait. Do not send it again. "+approve.Quiet)
 		return nil
 	}
 	if *include {
