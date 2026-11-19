@@ -550,6 +550,13 @@ func (m *Models) serveGrok(w http.ResponseWriter, r *http.Request, rest string) 
 			out.Out.Host = target.Host
 			out.Out.Header.Del("Cookie")
 			out.Out.Header.Set("Authorization", "Bearer "+access)
+			// The subscription's API takes the token with the headers that
+			// say it is one, which fx sends too; den's own requests, such
+			// as den map's, do not know them.
+			if base == m.grokAPI {
+				out.Out.Header.Set("X-XAI-Token-Auth", "xai-grok-cli")
+				out.Out.Header.Set("x-authenticateresponse", "authenticate-response")
+			}
 		},
 		FlushInterval: -1,
 		Transport:     m.transport,

@@ -21,36 +21,32 @@ func TestMapProvider(t *testing.T) {
 	}`), 0o600)
 
 	for model, want := range map[string]string{
-		"":                   "opencode-go deepseek http://127.0.0.1:4100/opencode-go/chat/completions",
-		"haiku":              "opencode-go haiku http://127.0.0.1:4100/opencode-go/chat/completions",
-		"zen/glm":            "zen glm http://127.0.0.1:4100/zen/chat/completions",
-		"zen/":               "zen kimi http://127.0.0.1:4100/zen/chat/completions",
-		"moonshotai/kimi-k3": "opencode-go moonshotai/kimi-k3 http://127.0.0.1:4100/opencode-go/chat/completions",
+		"":                   "opencode-go deepseek",
+		"haiku":              "opencode-go haiku",
+		"zen/glm":            "zen glm",
+		"zen/":               "zen kimi",
+		"moonshotai/kimi-k3": "opencode-go moonshotai/kimi-k3",
 	} {
 		got, err := mapProvider(path, model)
 		if err != nil {
 			t.Errorf("%q: %v", model, err)
 			continue
 		}
-		if s := got.name + " " + got.model + " " + got.url; s != want {
+		if s := got.name + " " + got.model; s != want {
 			t.Errorf("%q: got %s, want %s", model, s, want)
 		}
 	}
 
-	got, err := mapProvider(path, "codex/gpt-6-luna")
-	if err != nil || got.name != "codex" || got.model != "gpt-6-luna" || got.url != "http://127.0.0.1:4100/codex/responses" {
-		t.Errorf("codex: %+v, %v", got, err)
-	}
-	if _, err := mapProvider(path, "codex/"); err == nil {
-		t.Error("codex without a model was taken")
-	}
-
-	got, err = mapProvider(path, "claude/haiku")
-	if err != nil || got.name != "claude" || got.model != "haiku" || got.url != "http://127.0.0.1:4100/claude/chat/completions" {
-		t.Errorf("claude: %+v, %v", got, err)
-	}
-	if _, err := mapProvider(path, "claude/"); err == nil {
-		t.Error("claude without a model was taken")
+	// A subscription serves when named with its model.
+	for _, sub := range []string{"codex/gpt-6-luna", "grok/grok-4.5", "claude/haiku"} {
+		name, model, _ := strings.Cut(sub, "/")
+		got, err := mapProvider(path, sub)
+		if err != nil || got.name != name || got.model != model {
+			t.Errorf("%s: %+v, %v", sub, got, err)
+		}
+		if _, err := mapProvider(path, name+"/"); err == nil {
+			t.Errorf("%s without a model was taken", name)
+		}
 	}
 
 	if _, err := mapProvider(path, "anthropic/haiku"); err == nil || !strings.Contains(err.Error(), "opencode-go, zen") {

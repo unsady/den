@@ -417,6 +417,11 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 		if r.URL.Path != want[i] || r.Header.Get("Authorization") != "Bearer real" {
 			t.Fatalf("sent %s with %q", r.URL.Path, r.Header.Get("Authorization"))
 		}
+		// The subscription's API gets the headers that go with its token.
+		subscription := r.Header.Get("X-XAI-Token-Auth") == "xai-grok-cli" && r.Header.Get("x-authenticateresponse") == "authenticate-response"
+		if subscription != strings.HasPrefix(r.URL.Path, "/grok/") {
+			t.Fatalf("sent %s with headers %v", r.URL.Path, r.Header)
+		}
 	}
 
 	// den keeps the models' effort levels and windows from the list.

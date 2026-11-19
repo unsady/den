@@ -22,15 +22,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/unsady/den/internal/models"
 )
 
 // Options say where to send the items and what to ask.
 type Options struct {
-	// URL is the provider's chat completions endpoint, or with Responses
-	// set, a ChatGPT subscription's Codex responses endpoint.
-	URL       string
-	Responses bool
-	Model     string
+	// Provider is the name den's proxy serves the model under, such as
+	// codex, grok, claude, or a provider signed in with den login.
+	Provider string
+	Model    string
 	// Effort is the model's reasoning effort, such as none or low; empty
 	// leaves the provider's default, and low for Codex.
 	Effort string
@@ -152,7 +153,7 @@ func Run(ctx context.Context, opts Options, in io.Reader, out string) (Summary, 
 	var wg sync.WaitGroup
 	var failed error
 	for n := range max(1, opts.Workers) {
-		// Each worker keeps a Codex cache key of its own, so the requests
+		// Each worker keeps a cache key of its own, so the requests
 		// that follow one another share a cache.
 		worker := ask
 		worker.key = fmt.Sprintf("%s-%d", ask.session, n)
@@ -232,7 +233,7 @@ type asker struct {
 	opts    Options
 	system  string
 	session string
-	// key is the worker's Codex cache key.
+	// key is the worker's cache key, for Codex and Grok.
 	key string
 }
 
@@ -297,6 +298,37 @@ func (u usage) cost() float64 {
 	return u.OpenCode.ListCost
 }
 
+// Proxy is den's model proxy, which every request goes through; tests
+// point it elsewhere.
+var Proxy = "http://" + models.Proxy
+
+// The ChatGPT and Grok subscriptions take only the Responses API, each with
+// its own fields; den's proxy serves every other provider with OpenAI's
+// Chat Completions.
+const (
+	codex = "codex"
+	grok  = "grok"
+)
+
+// Effort is the reasoning effort a request to provider asks for when the
+// run names none: low for Codex, which needs one and suits one item with
+// it, and the provider's own default otherwise.
+func Effort(provider, effort string) string {
+	if effort == "" && provider == codex {
+		return "low"
+	}
+	return effort
+}
+
+// endpoint is where den's proxy takes the provider's requests.
+func (o Options) endpoint() string {
+	path := "chat/completions"
+	if o.Provider == codex || o.Provider == grok {
+		path = "responses"
+	}
+	return Proxy + "/" + o.Provider + "/" + path
+}
+
 // Ask asks the model one question, with opts.Instructions as the system
 // message, and returns its reply as it is.
 func Ask(ctx context.Context, opts Options, text string) (string, error) {
@@ -307,51 +339,77 @@ func Ask(ctx context.Context, opts Options, text string) (string, error) {
 }
 
 func (a asker) ask(ctx context.Context, item string) (text string, use usage, retry bool, err error) {
-	chat := map[string]any{
-		"model":       a.opts.Model,
-		"temperature": 0,
-		"messages": []map[string]any{
-			{"role": "system", "content": a.instructions()},
-			{"role": "user", "content": item},
-		},
-	}
-	if a.opts.Effort != "" {
-		chat["reasoning_effort"] = a.opts.Effort
-	}
-	body, _ := json.Marshal(chat)
-	if a.opts.Responses {
-		effort := a.opts.Effort
-		if effort == "" {
-			effort = "low"
-		}
+	effort := Effort(a.opts.Provider, a.opts.Effort)
+	var body []byte
+	switch a.opts.Provider {
+	case codex:
 		// Codex takes only streamed requests that it does not store, and
-		// chooses the output limit itself. Low effort suits one item. It
-		// reuses its cache of the instructions only for requests that share
-		// a prompt_cache_key, and only once they reach about 1,024 tokens.
+		// chooses the output limit itself. It reuses its cache of the
+		// instructions only for requests that share a prompt_cache_key,
+		// and only once they reach about 1,024 tokens.
 		body, _ = json.Marshal(map[string]any{
 			"model":            a.opts.Model,
 			"prompt_cache_key": a.key,
 			"store":            false,
 			"stream":           true,
 			"instructions":     a.system,
-			"input":            []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}},
+			"input":            input(item),
 			"reasoning":        map[string]string{"effort": effort},
 			"text":             map[string]string{"verbosity": "low"},
 		})
+	case grok:
+		// Grok takes the fields fx sends it, and a reasoning effort only
+		// from the models that have one.
+		req := map[string]any{
+			"model":        a.opts.Model,
+			"store":        false,
+			"stream":       true,
+			"instructions": a.system,
+			"input":        input(item),
+			"text":         map[string]string{"verbosity": "low"},
+		}
+		if effort != "" {
+			req["reasoning"] = map[string]string{"effort": effort}
+		}
+		body, _ = json.Marshal(req)
+	default:
+		chat := map[string]any{
+			"model":       a.opts.Model,
+			"temperature": 0,
+			"messages": []map[string]any{
+				{"role": "system", "content": a.instructions()},
+				{"role": "user", "content": item},
+			},
+		}
+		if effort != "" {
+			chat["reasoning_effort"] = effort
+		}
+		body, _ = json.Marshal(chat)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.opts.URL, bytes.NewReader(body))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.opts.endpoint(), bytes.NewReader(body))
 	if err != nil {
 		return "", use, false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// One name for every request lets the provider route them alike and
-	// reuse its cache of the instructions.
-	req.Header.Set("X-Opencode-Session", a.session)
-	if a.opts.Responses {
+	switch a.opts.Provider {
+	case codex:
 		req.Header.Set("Accept", "text/event-stream")
 		req.Header.Set("OpenAI-Beta", "responses=experimental")
 		req.Header.Set("originator", "den")
 		req.Header.Set("session-id", a.session)
+	case grok:
+		// den's proxy adds the subscription's own headers with its token;
+		// these say which model and conversation the request is for, as
+		// fx's do, so the requests that follow one another share a cache.
+		req.Header.Set("Accept", "text/event-stream")
+		req.Header.Set("x-grok-client-identifier", "den")
+		req.Header.Set("x-grok-model-override", a.opts.Model)
+		req.Header.Set("x-grok-conv-id", a.key)
+	default:
+		// One name for every request lets the provider route them alike
+		// and reuse its cache of the instructions.
+		req.Header.Set("X-Opencode-Session", a.session)
 	}
 
 	client := a.opts.Client
@@ -373,8 +431,8 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 		return "", use, retry, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 300)])))
 	}
 
-	if a.opts.Responses {
-		return events(data)
+	if a.opts.Provider == codex || a.opts.Provider == grok {
+		return events(a.opts.Provider, data)
 	}
 
 	var out struct {
@@ -391,9 +449,14 @@ func (a asker) ask(ctx context.Context, item string) (text string, use usage, re
 	return out.Choices[0].Message.Content, out.Usage, false, nil
 }
 
-// events reads a streamed Codex response: its text and usage, or why it
+// input is an item as the Responses API takes it.
+func input(item string) []map[string]any {
+	return []map[string]any{{"role": "user", "content": []map[string]string{{"type": "input_text", "text": item}}}}
+}
+
+// events reads a streamed Responses API answer: its text and usage, or why it
 // failed.
-func events(stream []byte) (text string, use usage, retry bool, err error) {
+func events(provider string, stream []byte) (text string, use usage, retry bool, err error) {
 	var deltas strings.Builder
 	for line := range bytes.SplitSeq(stream, []byte("\n")) {
 		data, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data: "))
@@ -434,7 +497,7 @@ func events(stream []byte) (text string, use usage, retry bool, err error) {
 			if e.Response.Error != nil {
 				msg = e.Response.Error.Message
 			}
-			return "", use, true, fmt.Errorf("codex: %s", msg)
+			return "", use, true, fmt.Errorf("%s: %s", provider, msg)
 		}
 	}
 	if text == "" {

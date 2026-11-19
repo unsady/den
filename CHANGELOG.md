@@ -20,6 +20,7 @@ release notes.
 - What came of an action that waited for you, such as a git push, an email, a request to a service, or a den map run, goes to the session whose agent took it, a job's too, however many sessions run at once. den no longer guesses: it refuses such an action from an agent that names no session den has.
 - The agent is told, right when an action starts waiting for you, that you already see den's question, so a turn with nothing else to say ends without a reply that only repeats it.
 - A question from a job, a /bg task, or another session than the chat's says which above it, as their replies do, and keeps saying it once you answer.
+- `den map` runs on a Grok subscription too, when you name its model, such as `--model grok/grok-4.5`, as on a ChatGPT or Claude one. Titles made with Grok's quick model go to it the way fx's requests do.
 
 ### Fixed
 
