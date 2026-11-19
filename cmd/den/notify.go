@@ -36,6 +36,22 @@ func notifyCommand(cfg config.Config, args []string) error {
 	return nil
 }
 
+func quietCommand(cfg config.Config, args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("quiet takes no arguments")
+	}
+	session := os.Getenv("DEN_SESSION")
+	if session == "" {
+		return fmt.Errorf("quiet needs DEN_SESSION, which den sets for the agent's commands")
+	}
+
+	if err := client.New(cfg).Do(http.MethodPost, "/quiet", daemon.QuietRequest{Session: session}, nil); err != nil {
+		return err
+	}
+	fmt.Println("quiet")
+	return nil
+}
+
 func sendCommand(cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	caption := fs.String("caption", "", "text under the file")

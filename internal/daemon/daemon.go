@@ -384,10 +384,12 @@ func (d *daemon) start(j jobs.Job) bool {
 			release()
 		}
 
-		run.Delivered = d.deliver(j, run)
+		// The mark is consumed once, for the delivery and the session below.
+		quiet := d.chat.Quieted(run.SessionID, run.Started) || runner.LegacySilent(run.Output, "job "+j.Name)
+		run.Delivered = d.deliver(j, run, quiet)
 		// A run that has nothing for the user leaves nothing to go on
 		// with, so its session goes. One den failed to send keeps it.
-		if silent(j, run) && run.SessionID != "" {
+		if silent(j, run, quiet) && run.SessionID != "" {
 			if _, err := d.deleteSession(d.ctx, run.SessionID); err != nil {
 				log.Printf("job %s: delete session: %v", j.Name, err)
 			}
@@ -478,8 +480,9 @@ func (d *daemon) Forget(id string) (approve.Rule, bool) { return d.ask.Forget(id
 
 func (d *daemon) Actions(since time.Time) []approve.Action { return d.ask.Actions(since) }
 
-// deliver sends a run's reply, or its failure, to the user.
-func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
+// deliver sends a run's reply, or its failure, to the user. quiet says the
+// run's agent had nothing to send.
+func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool) bool {
 	var text string
 	switch {
 	case run.Error != "":
@@ -489,7 +492,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
 			text += "\n" + last
 		}
-	case silent(j, run):
+	case silent(j, run, quiet):
 		return false
 	default:
 		text = heading(j)
@@ -515,9 +518,11 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 	return true
 }
 
-// silent says whether a run that did not fail has nothing for the user.
-func silent(j jobs.Job, run jobs.Run) bool {
-	return run.Error == "" && (j.Silent || run.Output == "" || run.Output == runner.Silent)
+// silent says whether a run that did not fail has nothing for the user:
+// its agent said so (quiet), or the job keeps its replies in its log, or the
+// reply is empty.
+func silent(j jobs.Job, run jobs.Run, quiet bool) bool {
+	return run.Error == "" && (quiet || j.Silent || run.Output == "")
 }
 
 // heading names the job above its reply, which would otherwise read like a
@@ -598,6 +603,12 @@ type NotifyRequest struct {
 	Text string `json:"text"`
 	// Session is the DEN_SESSION of the agent that sent it, if any.
 	Session string `json:"session,omitempty"`
+}
+
+// QuietRequest is the body of POST /quiet.
+type QuietRequest struct {
+	// Session is the DEN_SESSION of the agent that has nothing to send.
+	Session string `json:"session"`
 }
 
 // ProgressRequest is the body of POST /progress: what a running command
@@ -797,6 +808,21 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		reply(w, http.StatusOK, map[string]bool{"sent": true})
+	})
+
+	mux.HandleFunc("POST /quiet", func(w http.ResponseWriter, r *http.Request) {
+		var req QuietRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Session == "" {
+			fail(w, http.StatusBadRequest, errors.New("no session"))
+			return
+		}
+
+		d.chat.Quiet(req.Session)
+		reply(w, http.StatusOK, map[string]bool{"quiet": true})
 	})
 
 	mux.HandleFunc("POST /progress", func(w http.ResponseWriter, r *http.Request) {

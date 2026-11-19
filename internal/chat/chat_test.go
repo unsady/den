@@ -1089,6 +1089,60 @@ func TestSilentReport(t *testing.T) {
 	telegram.expect(t, "resume=s1 msg=and you? lines=1")
 }
 
+func TestQuieted(t *testing.T) {
+	c := &Chat{quiet: map[string]time.Time{}}
+	started := time.Now()
+
+	if c.Quieted("s1", started) {
+		t.Error("a turn without a mark was quiet")
+	}
+
+	c.Quiet("s1")
+	if !c.Quieted("s1", started) {
+		t.Error("a mark after the turn's start did not silence it")
+	}
+	if c.Quieted("s1", started) {
+		t.Error("the mark was not consumed")
+	}
+
+	// A mark left by an earlier turn does not silence the next one, and
+	// that turn consumes it.
+	c.Quiet("s1")
+	if c.Quieted("s1", time.Now().Add(time.Second)) {
+		t.Error("a mark from before the turn's start silenced it")
+	}
+	if c.Quieted("s1", started) {
+		t.Error("the stale mark was not consumed")
+	}
+
+	c.Quiet("s1")
+	if c.Quieted("s2", started) {
+		t.Error("a mark for another session silenced the turn")
+	}
+}
+
+func TestQuietTurn(t *testing.T) {
+	_, telegram, c := startChatWith(t, nil)
+	telegram.message(42, "hello")
+	telegram.expect(t, "resume=none msg=hello lines=1")
+	session := c.cursor(store.Telegram)
+
+	// The agent runs den quiet while its turn goes on, so its reply stays
+	// in the session.
+	telegram.message(42, "slow one")
+	time.Sleep(300 * time.Millisecond)
+	c.Quiet(session)
+	select {
+	case text := <-telegram.sent:
+		t.Fatalf("sent %q", text)
+	case <-time.After(2 * time.Second):
+	}
+
+	// The next turn is not silenced by the mark.
+	telegram.message(42, "and you?")
+	telegram.expect(t, "resume=s1 msg=and you? lines=1")
+}
+
 func TestGrid(t *testing.T) {
 	for n, want := range map[int]string{1: "1", 3: "3", 4: "2 2", 5: "3 2", 6: "3 3", 7: "3 2 2"} {
 		buttons := make([]notify.Button, n)

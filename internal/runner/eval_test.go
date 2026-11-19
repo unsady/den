@@ -58,8 +58,8 @@ func TestReplies(t *testing.T) {
 			reply := ask(t, c.prompt)
 			t.Logf("reply: %s", reply)
 
-			if c.silent != IsSilent(reply) {
-				t.Fatalf("silent = %v, want %v", IsSilent(reply), c.silent)
+			if got := LegacySilent(reply, c.name); c.silent != got {
+				t.Fatalf("silent = %v, want %v", got, c.silent)
 			}
 			if c.silent {
 				if reply != Silent {

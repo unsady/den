@@ -269,7 +269,8 @@ func (c *Chat) steeredTurn(text string, reply runner.Reply) {
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 		c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 	}
-	if reply.Error == "" && runner.IsSilent(reply.Output) {
+	quiet := c.Quieted(reply.SessionID, reply.Started)
+	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, reply.SessionID)) {
 		return
 	}
 	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})

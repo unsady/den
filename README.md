@@ -118,7 +118,7 @@ den job slot morning-brief second
 den job rm morning-brief
 ```
 
-Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the reply is `SILENT` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
+Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the run ends with `den quiet` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
 
 A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
 
@@ -255,7 +255,7 @@ Set these in `env` in `~/.config/den/config.json`.
 
 ### Building it yourself
 
-In a checkout, `go build -o ~/.local/bin/den ./cmd/den` builds `den`, and `den setup` run there builds the image from the checkout instead of pulling it; `den update` then rebuilds it, and the `den` command too when Go is installed. `scripts/release.sh` builds `den` for every system `install.sh` supports. Before a release that changes a prompt, `go test -tags eval -run TestReplies -v ./internal/runner` asks the model of the den that runs on your computer a few questions and checks its replies: short, in plain text, in your language, and `SILENT` when a job has nothing to send.
+In a checkout, `go build -o ~/.local/bin/den ./cmd/den` builds `den`, and `den setup` run there builds the image from the checkout instead of pulling it; `den update` then rebuilds it, and the `den` command too when Go is installed. `scripts/release.sh` builds `den` for every system `install.sh` supports. Before a release that changes a prompt, `go test -tags eval -run TestReplies -v ./internal/runner` asks the model of the den that runs on your computer a few questions and checks its replies: short, in plain text, in your language, and `den quiet` when a job has nothing to send.
 
 The image takes fx from a release of [a fork](https://github.com/unsady/fx) that carries the few changes den needs, and checks its digest. To try your own fx, build it in an fx checkout with `zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSafe` and copy `zig-out/bin/fx` to `build/fx` before `den update`.
 

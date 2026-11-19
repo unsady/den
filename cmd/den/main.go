@@ -25,6 +25,7 @@ Usage:
   den job run <id|name>
   den job log <id|name> [-n <count>]
   den notify <text>             Send a message to the user; reads stdin without text
+  den quiet                     Send nothing for this turn: end it with this command
   den send [--caption <text>] <file>
                                 Send the user a file; an image goes as a photo
   den fetch --secret <name> [-X <method>] [-H "<name>: <value>"]... [-d <body>|@<file>|@-] [-i] <url>
@@ -68,7 +69,7 @@ Schedules:
   0 9 * * 1-5 | @daily         repeatedly, by cron expression
 
 A job runs fx in a fresh session in the space. Its final reply is sent to
-the user unless it is SILENT or the job is --silent.
+the user unless the run ends with den quiet or the job is --silent.
 `
 
 func main() {
@@ -104,6 +105,8 @@ func run(args []string) error {
 		return jobCommand(cfg, args[1:])
 	case "notify":
 		return notifyCommand(cfg, args[1:])
+	case "quiet":
+		return quietCommand(cfg, args[1:])
 	case "send":
 		return sendCommand(cfg, args[1:])
 	case "fetch":

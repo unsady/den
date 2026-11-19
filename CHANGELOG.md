@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Changed
+
+- The agent stays quiet with `den quiet` instead of the word SILENT, so den no longer guesses from the reply's text whether to send it. A reply that is exactly SILENT still sends nothing until 2026-12-03, and den logs each one; the nightly tidy rewrites job prompts and skills in the space that still ask for the word.
+
 ## v0.11.0
 
 ### New
