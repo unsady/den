@@ -396,15 +396,27 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 	cfg := config.Config{State: root, Secrets: filepath.Join(root, "secrets"), Sessions: filepath.Join(root, "agent", ".fx", "sessions", "v2")}
 	os.MkdirAll(cfg.Secrets, 0o700)
 	os.WriteFile(filepath.Join(cfg.Secrets, "grok"), []byte(`{"access_token":"real","refresh_token":"r","expiry":"2100-01-01T00:00:00Z","account_id":"user-1"}`), 0o600)
+	releases := 0
+	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		releases++
+		w.Write([]byte("1.0.13\n"))
+	}))
+	defer release.Close()
+
 	m := New(cfg)
 	m.grokAPI = upstream.URL + "/grok/v1"
 	m.xaiAPI = upstream.URL + "/xai/v1"
+	m.grokRelease = release.URL
 	proxy := httptest.NewServer(m)
 	defer proxy.Close()
 
 	for _, path := range []string{"/grok/responses", "/grok/models", "/grok/language-models"} {
 		req, _ := http.NewRequest(http.MethodPost, proxy.URL+path, strings.NewReader(`{}`))
 		req.Header.Set("Authorization", "Bearer den")
+		// fx says which Grok CLI it is; den's own requests do not.
+		if path == "/grok/models" {
+			req.Header.Set("x-grok-client-version", "1.0.50")
+		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -422,6 +434,17 @@ func TestGrokGetsTheRealToken(t *testing.T) {
 		if subscription != strings.HasPrefix(r.URL.Path, "/grok/") {
 			t.Fatalf("sent %s with headers %v", r.URL.Path, r.Header)
 		}
+	}
+	// The subscription's API hears which Grok CLI sent each request: fx's
+	// own version, or the current one den learned once.
+	if v := got[0].Header.Get("x-grok-client-version"); v != "1.0.13" {
+		t.Fatalf("den's request said version %q", v)
+	}
+	if v := got[1].Header.Get("x-grok-client-version"); v != "1.0.50" {
+		t.Fatalf("fx's request said version %q", v)
+	}
+	if releases != 1 {
+		t.Fatalf("asked for the version %d times", releases)
 	}
 
 	// den keeps the models' effort levels and windows from the list.
