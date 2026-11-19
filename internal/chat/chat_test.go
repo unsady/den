@@ -310,7 +310,18 @@ func startChatWith(t *testing.T, den Daemon) (config.Config, *fakeTelegram, *Cha
 		cancel()
 		<-done
 	})
+	stops.Store(c, cancel)
 	return cfg, telegram, c
+}
+
+// stops holds what stops each test's chat, as den's stopping does.
+var stops sync.Map
+
+// stopChat stops c as den does once its wait for running turns is over.
+func stopChat(c *Chat) {
+	if cancel, ok := stops.Load(c); ok {
+		cancel.(context.CancelFunc)()
+	}
 }
 
 // countSessions names the new sessions s1, s2, and so on until the test ends.
@@ -1588,4 +1599,45 @@ func TestRunning(t *testing.T) {
 		_, running := setup.Running[session]
 		return !running
 	})
+}
+
+// TestDrain lets the running turn end and starts none for what comes
+// meanwhile, which waits for den's next start.
+func TestDrain(t *testing.T) {
+	cfg, telegram, c := startChatWith(t, nil)
+	telegram.message(42, "slow")
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+		return string(data) == "slow"
+	})
+
+	c.Drain()
+	if c.Idle() {
+		t.Fatal("idle while a turn runs")
+	}
+	telegram.expect(t, "resume=none msg=slow lines=1")
+	waitFor(t, c.Idle)
+
+	telegram.message(42, "later")
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("a turn started while den stops: %q", got)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if !c.waiting() {
+		t.Error("the message did not wait in the inbox")
+	}
+}
+
+// TestStopCutsTurn tells the user of a turn den stopped before it ended.
+func TestStopCutsTurn(t *testing.T) {
+	cfg, telegram, c := startChatWith(t, nil)
+	telegram.message(42, "slow")
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+		return string(data) == "slow"
+	})
+
+	stopChat(c)
+	telegram.expect(t, "den restarted before this turn ended. Write to go on.")
 }

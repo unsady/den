@@ -160,6 +160,12 @@ type Chat struct {
 	// busy counts the turns that run in each session, the chat's, a job's
 	// or a /bg task's, and compacting, whose messages wait until they end.
 	busy map[string]int
+	// stopping is set once den is stopping: no turn, /bg task or
+	// compacting starts, and messages wait in the inbox for the next start.
+	stopping bool
+	// life is Run's context, which ends when den stops; a /bg task runs
+	// under it whoever started it.
+	life context.Context
 	// ended says a turn on the chat's agent ended, from when the user's
 	// time away counts.
 	ended chan struct{}
@@ -215,6 +221,57 @@ func (c *Chat) Known(session string) bool {
 		log.Printf("chat: session %s: %v", session, err)
 	}
 	return err == nil
+}
+
+// Drain stops the chat from starting turns, /bg tasks and compacting, as
+// den does before it stops. Messages that come meanwhile wait in the inbox
+// for den's next start, and the turns that run go on.
+func (c *Chat) Drain() {
+	c.mu.Lock()
+	c.stopping = true
+	c.mu.Unlock()
+	c.poke()
+}
+
+// Idle says whether nothing runs: no turn, job, /bg task or compacting.
+func (c *Chat) Idle() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.busy) == 0 && c.stop == nil
+}
+
+// isStopping says whether Drain was called.
+func (c *Chat) isStopping() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stopping
+}
+
+// cutShort tells the user, in the app and unless app says the turn was the
+// app's alone in Telegram, that den stopped before session's turn ended.
+func (c *Chat) cutShort(session string, app bool) {
+	const text = "den restarted before this turn ended. Write to go on."
+	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: true})
+	if app {
+		return
+	}
+
+	telegram, err := notify.Load(c.cfg)
+	if err != nil {
+		return
+	}
+	call, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out := text
+	if label := c.Label(session); label != "" {
+		out = label + "\n\n" + out
+	}
+	ids, err := telegram.SendIDs(call, out)
+	if err != nil {
+		log.Printf("chat: send: %v", err)
+		return
+	}
+	c.Sent(ids, session)
 }
 
 // Occupy marks session busy while a turn runs in it, such as a job's, so
@@ -300,6 +357,9 @@ var newSession = store.NewID
 // Run reads the chat and runs its turns until ctx ends and the current turn
 // has stopped.
 func (c *Chat) Run(ctx context.Context) {
+	c.mu.Lock()
+	c.life = ctx
+	c.mu.Unlock()
 	var wg sync.WaitGroup
 	wg.Go(func() { c.work(ctx) })
 	// The worker starts turns, so it ends before den waits for them.

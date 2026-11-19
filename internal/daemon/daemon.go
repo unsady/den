@@ -60,9 +60,12 @@ const (
 )
 
 type daemon struct {
-	ctx   context.Context
-	cfg   config.Config
-	store *jobs.Store
+	// ctx ends when den stops what runs; stopping closes first, when den
+	// is told to stop and starts no new work.
+	ctx      context.Context
+	stopping <-chan struct{}
+	cfg      config.Config
+	store    *jobs.Store
 	// db keeps the sessions and the rest of den's own state.
 	db     *store.Store
 	usage  *usage.Store
@@ -90,8 +93,17 @@ type daemon struct {
 	slots chan struct{}
 }
 
+// DrainTime is how long den waits, once told to stop, for the turns and
+// jobs that run to end before it stops them. den's host command gives the
+// container a little longer to stop.
+const DrainTime = 5 * time.Minute
+
 func Serve(cfg config.Config) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// A signal stops new work; ctx ends once what runs ended, or after
+	// DrainTime, and stops the rest.
+	signaled, unsignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer unsignal()
+	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
 
 	if err := os.MkdirAll(cfg.State, 0o755); err != nil {
@@ -149,16 +161,17 @@ func Serve(cfg config.Config) error {
 	}
 
 	d := &daemon{
-		ctx:     ctx,
-		cfg:     cfg,
-		store:   jobStore,
-		db:      db,
-		usage:   usage.Open(cfg.State),
-		ask:     approve.New(cfg),
-		running: map[string]bool{},
-		grants:  map[string]MapRequest{},
-		maps:    map[string]*mapRun{},
-		slots:   make(chan struct{}, jobSlots(cfg)),
+		ctx:      ctx,
+		stopping: signaled.Done(),
+		cfg:      cfg,
+		store:    jobStore,
+		db:       db,
+		usage:    usage.Open(cfg.State),
+		ask:      approve.New(cfg),
+		running:  map[string]bool{},
+		grants:   map[string]MapRequest{},
+		maps:     map[string]*mapRun{},
+		slots:    make(chan struct{}, jobSlots(cfg)),
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
@@ -216,6 +229,14 @@ func Serve(cfg config.Config) error {
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
+	}()
+
+	go func() {
+		<-signaled.Done()
+		// A second signal stops den at once.
+		unsignal()
+		d.drain(DrainTime)
+		stop()
 	}()
 
 	go d.loop()
@@ -292,7 +313,39 @@ func (d *daemon) loop() {
 	}
 }
 
+// drain stops new turns and jobs, and waits up to limit for the ones that
+// run to end.
+func (d *daemon) drain(limit time.Duration) {
+	d.chat.Drain()
+	if d.idle() {
+		return
+	}
+
+	log.Printf("den is stopping: waiting up to %s for the turns and jobs that run", limit)
+	deadline := time.Now().Add(limit)
+	for !d.idle() && time.Now().Before(deadline) {
+		time.Sleep(time.Second)
+	}
+	if !d.idle() {
+		log.Printf("den is stopping: stopping what still runs")
+	}
+}
+
+// idle says whether no turn and no job runs or waits for a slot.
+func (d *daemon) idle() bool {
+	d.mu.Lock()
+	jobs := len(d.running)
+	d.mu.Unlock()
+	return jobs == 0 && d.chat.Idle()
+}
+
 func (d *daemon) runDue() {
+	select {
+	case <-d.stopping:
+		// Jobs due meanwhile run after den starts again.
+		return
+	default:
+	}
 	due, err := d.store.TakeDue(time.Now(), d.isRunning)
 	if err != nil {
 		log.Printf("scheduler: %v", err)
@@ -329,7 +382,8 @@ func (d *daemon) acquire(j jobs.Job) bool {
 	select {
 	case d.slots <- struct{}{}:
 		return true
-	case <-d.ctx.Done():
+	case <-d.stopping:
+		log.Printf("job %s: den stopped before a slot was free", j.Name)
 		return false
 	}
 }
@@ -375,6 +429,9 @@ func (d *daemon) start(j jobs.Job) bool {
 			release := d.chat.Occupy(session)
 			run = runner.Run(d.ctx, d.cfg, j, choice, session)
 			release()
+			if d.ctx.Err() != nil && run.Error != "" {
+				run.Error = "den restarted before the run ended"
+			}
 		}
 
 		// The mark is consumed once, for the delivery and the session below.
@@ -565,7 +622,8 @@ func (d *daemon) send(text string, quiet bool) ([]int64, error) {
 		log.Printf("notify (not sent): %s", text)
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
+	// A job den stopped still says so as den stops.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(d.ctx), 20*time.Second)
 	defer cancel()
 	if quiet {
 		return telegram.SendQuiet(ctx, text)

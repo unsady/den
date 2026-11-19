@@ -43,10 +43,26 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		}
 		return
 	}
+	if c.isStopping() {
+		const restarting = "den is restarting. Send /bg again in a minute."
+		if telegram == nil {
+			c.tell(ctx, nil, []string{restarting})
+		} else {
+			c.send(ctx, telegram, restarting)
+		}
+		return
+	}
 	app := telegram == nil
 	id := rand.Text()
 	asked := time.Now()
-	run, cancel := context.WithCancel(ctx)
+	// The app's request ends before the task, which ends with den.
+	c.mu.Lock()
+	life := c.life
+	c.mu.Unlock()
+	if life == nil {
+		life = ctx
+	}
+	run, cancel := context.WithCancel(life)
 
 	parent := c.cursor(store.Telegram)
 	if app {
@@ -125,7 +141,10 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		delete(c.bg, id)
 		c.mu.Unlock()
 		if run.Err() == context.Canceled {
-			// /stop already answered, or den is shutting down.
+			// /stop already answered; den stopping says so.
+			if life.Err() != nil {
+				c.cutShort(session, app)
+			}
 			return
 		}
 
