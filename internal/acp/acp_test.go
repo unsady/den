@@ -298,9 +298,9 @@ func TestPromptStreamsEvents(t *testing.T) {
 func TestSteer(t *testing.T) {
 	c, f := newPair(t)
 
-	type drop struct{ session, text string }
+	type drop struct{ session, key string }
 	dropped := make(chan drop, 2)
-	c.OnDropped = func(session, text string) { dropped <- drop{session, text} }
+	c.OnDropped = func(session, key string) { dropped <- drop{session, key} }
 
 	steered := make(chan struct{})
 	go func() {
@@ -337,10 +337,10 @@ func TestSteer(t *testing.T) {
 
 		// The steers are written after the turn's request, in this order.
 		time.Sleep(20 * time.Millisecond)
-		if err := c.Steer(ctx, "s1", "use tabs"); err != nil {
+		if err := c.Steer(ctx, "s1", "k1", "use tabs"); err != nil {
 			t.Error(err)
 		}
-		if err := c.Steer(ctx, "s1", "be brief"); err != nil {
+		if err := c.Steer(ctx, "s1", "k2", "be brief"); err != nil {
 			t.Error(err)
 		}
 
@@ -352,7 +352,7 @@ func TestSteer(t *testing.T) {
 
 		select {
 		case d := <-dropped:
-			if d.session != "s1" || d.text != "be brief" {
+			if d.session != "s1" || d.key != "k2" {
 				t.Errorf("dropped = %+v", d)
 			}
 		case <-time.After(2 * time.Second):
@@ -370,7 +370,7 @@ func TestSteerDroppedAfterCancel(t *testing.T) {
 	c, f := newPair(t)
 
 	dropped := make(chan string, 1)
-	c.OnDropped = func(_, text string) { dropped <- text }
+	c.OnDropped = func(_, key string) { dropped <- key }
 
 	go func() {
 		turn := f.expect("session/prompt")
@@ -387,11 +387,11 @@ func TestSteerDroppedAfterCancel(t *testing.T) {
 		}()
 
 		time.Sleep(20 * time.Millisecond)
-		c.Steer(context.Background(), "s1", "late")
+		c.Steer(context.Background(), "s1", "k1", "late")
 		<-finished
 
-		if text := <-dropped; text != "late" {
-			t.Errorf("dropped = %q", text)
+		if key := <-dropped; key != "k1" {
+			t.Errorf("dropped = %q", key)
 		}
 	})
 }
@@ -593,12 +593,12 @@ func TestSteerRunsAsOwnTurn(t *testing.T) {
 	c, f := newPair(t)
 
 	type turn struct {
-		session, text string
-		res           Result
+		session, key string
+		res          Result
 	}
 	turns := make(chan turn, 1)
-	c.OnTurn = func(session, text string, res Result) { turns <- turn{session, text, res} }
-	c.OnDropped = func(_, text string) { t.Errorf("dropped %q", text) }
+	c.OnTurn = func(session, key string, res Result) { turns <- turn{session, key, res} }
+	c.OnDropped = func(_, key string) { t.Errorf("dropped %q", key) }
 
 	go func() {
 		first := f.expect("session/prompt")
@@ -625,13 +625,13 @@ func TestSteerRunsAsOwnTurn(t *testing.T) {
 		if !c.Running("s1") {
 			t.Error("Running is false during a prompt")
 		}
-		if err := c.Steer(ctx, "s1", "also"); err != nil {
+		if err := c.Steer(ctx, "s1", "k1", "also"); err != nil {
 			t.Fatal(err)
 		}
 		<-finished
 
 		got := <-turns
-		if got.session != "s1" || got.text != "also" || got.res.Text != "reply" ||
+		if got.session != "s1" || got.key != "k1" || got.res.Text != "reply" ||
 			got.res.StopReason != "end_turn" || got.res.InputTokens != 5 || got.res.OutputTokens != 2 {
 			t.Errorf("turn = %+v", got)
 		}
@@ -664,7 +664,7 @@ func TestPromptBusyDuringSteeredTurn(t *testing.T) {
 		}()
 
 		time.Sleep(20 * time.Millisecond)
-		c.Steer(ctx, "s1", "also")
+		c.Steer(ctx, "s1", "k1", "also")
 		<-finished
 
 		deadline := time.Now().Add(2 * time.Second)
@@ -690,7 +690,7 @@ func TestPromptBusyDuringSteeredTurn(t *testing.T) {
 func TestSteerWhenIdle(t *testing.T) {
 	c, _ := newPair(t)
 
-	err := c.Steer(context.Background(), "s1", "hello")
+	err := c.Steer(context.Background(), "s1", "k1", "hello")
 	if !errors.Is(err, ErrIdle) {
 		t.Errorf("err = %v", err)
 	}
@@ -700,7 +700,7 @@ func TestSteerDroppedWhenServerExits(t *testing.T) {
 	c, f := newPair(t)
 
 	dropped := make(chan string, 1)
-	c.OnDropped = func(_, text string) { dropped <- text }
+	c.OnDropped = func(_, key string) { dropped <- key }
 
 	go func() {
 		f.expect("session/prompt")
@@ -712,13 +712,13 @@ func TestSteerDroppedWhenServerExits(t *testing.T) {
 		go c.Prompt(context.Background(), "s1", Prompt{Text: "go"}, nil)
 
 		time.Sleep(20 * time.Millisecond)
-		err := c.Steer(context.Background(), "s1", "lost")
+		err := c.Steer(context.Background(), "s1", "k1", "lost")
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if text := <-dropped; text != "lost" {
-			t.Errorf("dropped = %q", text)
+		if key := <-dropped; key != "k1" {
+			t.Errorf("dropped = %q", key)
 		}
 	})
 }

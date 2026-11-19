@@ -150,9 +150,9 @@ type Chat struct {
 	// join, and files and notes its commands send go with.
 	agent    *runner.Agent
 	steering string
-	// steered are the messages passed to the running turn, which come back
-	// as a turn of their own if fx did not deliver them, unless /stop
-	// dropped them.
+	// steered are the messages passed to the running turn, by the key
+	// passed with them, which come back as a turn of their own if fx did
+	// not deliver them, unless /stop dropped them.
 	steered map[string]steered
 	// steps holds the latest step of each session's running turn, empty
 	// until its first, so a client that reconnects reads what runs.
@@ -406,9 +406,10 @@ func sleep(ctx context.Context, d time.Duration) {
 	}
 }
 
-// steered is a message passed to the running turn: the session it went to,
-// and when.
+// steered is a message passed to the running turn: its text, the session
+// it went to, and when.
 type steered struct {
+	text    string
 	session string
 	at      time.Time
 }

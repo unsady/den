@@ -30,12 +30,14 @@ import (
 type Agent struct {
 	cfg config.Config
 
-	// OnDropped gets a message Steer passed that fx did not deliver, such as
-	// one that came as the turn was ending; the chat runs it as a turn.
-	OnDropped func(text string)
-	// OnTurn gets fx's reply to a message Steer passed that fx ran as a turn
-	// of its own, because the turn it was meant for had just ended.
-	OnTurn func(text string, reply Reply)
+	// OnDropped gets the key of a message Steer passed that fx did not
+	// deliver, such as one that came as the turn was ending; the chat runs
+	// it as a turn.
+	OnDropped func(key string)
+	// OnTurn gets the key of a message Steer passed that fx ran as a turn of
+	// its own, because the turn it was meant for had just ended, and fx's
+	// reply to it.
+	OnTurn func(key string, reply Reply)
 
 	mu      sync.Mutex
 	conn    *acp.Conn
@@ -134,16 +136,17 @@ func (a *Agent) Compact(ctx context.Context, req Request) (acp.Compaction, error
 	return out, nil
 }
 
-// Steer passes text to the turn that runs now. It returns acp.ErrIdle when
-// none runs, and the caller keeps text for the next turn.
-func (a *Agent) Steer(ctx context.Context, text string) error {
+// Steer passes text to the turn that runs now, under key, which OnDropped
+// and OnTurn get back. It returns acp.ErrIdle when none runs, and the caller
+// keeps text for the next turn.
+func (a *Agent) Steer(ctx context.Context, key, text string) error {
 	a.mu.Lock()
 	conn, session := a.conn, a.session
 	a.mu.Unlock()
 	if conn == nil {
 		return acp.ErrIdle
 	}
-	return conn.Steer(ctx, session, text)
+	return conn.Steer(ctx, session, key, text)
 }
 
 // Close stops fx. The next turn starts it again.
@@ -232,12 +235,12 @@ func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session 
 	if err != nil {
 		return nil, "", false, fmt.Errorf("fx acp: %w", err)
 	}
-	conn.OnDropped = func(_, text string) {
+	conn.OnDropped = func(_, key string) {
 		if a.OnDropped != nil {
-			a.OnDropped(text)
+			a.OnDropped(key)
 		}
 	}
-	conn.OnTurn = func(session, text string, res acp.Result) {
+	conn.OnTurn = func(session, key string, res acp.Result) {
 		if a.OnTurn == nil {
 			return
 		}
@@ -245,7 +248,7 @@ func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session 
 		if res.StopReason == "refused" {
 			reply.Error, reply.Output = reply.Output, ""
 		}
-		a.OnTurn(text, reply)
+		a.OnTurn(key, reply)
 	}
 
 	session = req.Resume

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log"
 	"strings"
@@ -230,12 +231,14 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 	}
 
 	text := strings.Join(texts, "\n\n")
+	// Two messages alike, such as "ok" twice, are told apart by the key.
+	key := rand.Text()
 	c.mu.Lock()
-	c.steered[text] = steered{session: session, at: time.Now()}
+	c.steered[key] = steered{text: text, session: session, at: time.Now()}
 	c.mu.Unlock()
-	if err := c.agent.Steer(ctx, text); err != nil {
+	if err := c.agent.Steer(ctx, key, text); err != nil {
 		c.mu.Lock()
-		delete(c.steered, text)
+		delete(c.steered, key)
 		c.mu.Unlock()
 		if !errors.Is(err, acp.ErrIdle) {
 			log.Printf("chat: steer: %v", err)
@@ -247,25 +250,25 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 
 // undelivered runs a message passed to a turn that fx did not deliver as a
 // turn of its own in its session, unless /stop dropped it meanwhile.
-func (c *Chat) undelivered(text string) {
+func (c *Chat) undelivered(key string) {
 	c.mu.Lock()
-	st, kept := c.steered[text]
-	delete(c.steered, text)
+	st, kept := c.steered[key]
+	delete(c.steered, key)
 	c.mu.Unlock()
 	if !kept {
 		return
 	}
-	if err := c.enqueue(entry{text: text, session: st.session}); err != nil {
+	if err := c.enqueue(entry{text: st.text, session: st.session}); err != nil {
 		log.Printf("chat: undelivered message: %v", err)
 	}
 }
 
 // steeredTurn sends the reply to a message passed to a turn that fx ran as a
 // turn of its own, since the turn it was meant for had just ended.
-func (c *Chat) steeredTurn(text string, reply runner.Reply) {
+func (c *Chat) steeredTurn(key string, reply runner.Reply) {
 	c.mu.Lock()
-	st := c.steered[text]
-	delete(c.steered, text)
+	st := c.steered[key]
+	delete(c.steered, key)
 	c.mu.Unlock()
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 		c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
