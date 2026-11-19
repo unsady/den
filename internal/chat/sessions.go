@@ -114,23 +114,18 @@ func (c *Chat) untitled(session string) bool {
 }
 
 // choiceOf returns the model a turn in session runs on: the chat's for a
-// chat session, the one that ran it for a job's or a /bg task's, and
-// whether the turn runs on the chat's agent. It returns store.ErrNotFound
-// for a session den does not keep, such as one deleted meanwhile.
-func (c *Chat) choiceOf(session string) (choice runner.Choice, agent bool, err error) {
+// chat session, and the one that ran a job's or a /bg task's, or the
+// chat's when it was fx's own.
+func (c *Chat) choiceOf(session string) (runner.Choice, error) {
 	s, err := c.store.Session(context.Background(), session)
 	if err != nil {
-		return runner.Choice{}, false, err
+		return runner.Choice{}, err
 	}
 
-	chat := c.mainModel()
-	switch {
-	case s.Kind == store.KindChat:
-		return chat, true, nil
-	case s.Choice.Provider == "" && s.Choice.Model == "":
-		return chat, false, nil
+	if s.Kind == store.KindChat || s.Choice.Provider == "" && s.Choice.Model == "" {
+		return c.mainModel(), nil
 	}
-	return runner.Choice{Provider: s.Choice.Provider, Model: s.Choice.Model, Effort: s.Choice.Effort}, false, nil
+	return runner.Choice(s.Choice), nil
 }
 
 // Sessions lists the sessions for the app, the latest used first.

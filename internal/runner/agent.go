@@ -45,9 +45,13 @@ type Agent struct {
 	choice  Choice
 }
 
-// NewAgent returns the chat's Agent. It starts fx at its first turn.
-func NewAgent(cfg config.Config) *Agent {
-	return &Agent{cfg: cfg, key: "acp-" + rand.Text()}
+// NewAgent returns an Agent whose commands get key as DEN_TURN, or a key
+// of its own when key is empty. It starts fx at its first turn.
+func NewAgent(cfg config.Config, key string) *Agent {
+	if key == "" {
+		key = "acp-" + rand.Text()
+	}
+	return &Agent{cfg: cfg, key: key}
 }
 
 // Key is what the commands the agent runs get as DEN_TURN.
@@ -55,8 +59,8 @@ func (a *Agent) Key() string { return a.key }
 
 // Ask runs req as a turn, as runner.Ask does, in req.Resume, which it starts
 // when fx has no session by that id, or in a new session.
-// Images, CompactPercent, and Turn are not for an Agent: the chat compacts
-// with Ask, and the turn is the Agent's Key.
+// CompactPercent and Turn are not for an Agent: the chat compacts with Ask,
+// and the turn is the Agent's Key.
 func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	reply = Reply{Started: time.Now()}
 	defer func() { reply.Duration = time.Since(reply.Started).Round(time.Second) }()

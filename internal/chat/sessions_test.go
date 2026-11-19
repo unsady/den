@@ -69,7 +69,7 @@ func TestNoLabelAfterAppMoves(t *testing.T) {
 
 func TestReplyToJobSession(t *testing.T) {
 	_, telegram, c := startChatWith(t, nil)
-	addSession(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
+	seed(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
 	c.Sent([]int64{900}, "job1")
 
 	// A reply goes to the job's session, on its model, and says so.
@@ -238,11 +238,11 @@ func TestForgetKeepsSessionWhenDropFails(t *testing.T) {
 		t.Fatalf("the session went with a failed drop: %v", err)
 	}
 
-	c.compacting = session
+	release := c.Occupy(session)
 	if err := c.Forget(session, nil); !errors.Is(err, ErrBusy) {
 		t.Fatalf("Forget while compacting: %v", err)
 	}
-	c.compacting = ""
+	release()
 	if err := c.Forget(session, nil); err != nil {
 		t.Fatal(err)
 	}

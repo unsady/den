@@ -72,10 +72,12 @@ type Choice struct {
 	Effort   string `json:"effort,omitempty"`
 }
 
-// Run runs j on the model choice names, as turn, which its commands get as
-// DEN_TURN.
-func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn string) jobs.Run {
-	reply := Ask(ctx, cfg, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Turn: turn})
+// Run runs j in session, which den named and fx starts, on the model choice
+// names, as turn, which its commands get as DEN_TURN.
+func Run(ctx context.Context, cfg config.Config, j jobs.Job, choice Choice, turn, session string) jobs.Run {
+	agent := NewAgent(cfg, turn)
+	defer agent.Close()
+	reply := agent.Ask(ctx, Request{Prompt: Prompt(j), Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Resume: session})
 	return jobs.Run{
 		Job:       j.Name,
 		Started:   reply.Started,

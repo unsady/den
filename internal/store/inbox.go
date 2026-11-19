@@ -61,11 +61,19 @@ func (s *Store) Inbox(ctx context.Context) ([]Message, error) {
 	return scanMessages(rows)
 }
 
-// NextTurn returns the session whose message waits longest, or "" when
-// none wait.
-func (s *Store) NextTurn(ctx context.Context) (string, error) {
+// NextTurn returns the session whose message waits longest, leaving out
+// the busy ones, or "" when none wait.
+func (s *Store) NextTurn(ctx context.Context, busy ...string) (string, error) {
+	query := `SELECT session_id FROM inbox`
+	args := make([]any, len(busy))
+	if len(busy) > 0 {
+		query += ` WHERE session_id NOT IN (?` + repeat(", ?", len(busy)-1) + `)`
+		for i, id := range busy {
+			args[i] = id
+		}
+	}
 	var session string
-	err := s.db.QueryRowContext(ctx, `SELECT session_id FROM inbox ORDER BY id LIMIT 1`).Scan(&session)
+	err := s.db.QueryRowContext(ctx, query+` ORDER BY id LIMIT 1`, args...).Scan(&session)
 	if isNoRows(err) {
 		return "", nil
 	}

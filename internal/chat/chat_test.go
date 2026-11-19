@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -901,25 +902,15 @@ func TestTell(t *testing.T) {
 	}
 }
 
-func TestNotify(t *testing.T) {
+func TestSession(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "bg1", bg: true}}
-	c.bg = map[string]context.CancelFunc{"bg1": func() {}}
+	c.turns = []turnRef{{id: "t1", session: "main"}, {id: "bg1", session: "task"}}
 
-	if s, held := c.Notify("", "hi"); s != "" || held {
-		t.Fatalf("no turn: %q, %v", s, held)
-	}
-	if s, held := c.Notify("job", "hi"); s != "" || held {
-		t.Fatalf("unknown turn: %q, %v", s, held)
-	}
-	if s, held := c.Notify("t1", "hi"); s != "main" || held {
-		t.Fatalf("known turn: %q, %v", s, held)
-	}
-
-	// A /bg turn has no session until it ends: its notice waits.
-	if s, held := c.Notify("bg1", "later"); s != "" || !held || !slices.Equal(c.turns[1].held, []string{"later"}) {
-		t.Fatalf("running /bg turn: %q, %v, %+v", s, held, c.turns[1])
+	for turn, want := range map[string]string{"": "", "job": "", "t1": "main", "bg1": "task"} {
+		if got := c.Session(turn); got != want {
+			t.Errorf("Session(%q) = %q, want %q", turn, got, want)
+		}
 	}
 }
 
@@ -1022,7 +1013,7 @@ func TestSwitchDuringTurn(t *testing.T) {
 }
 
 func TestBackground(t *testing.T) {
-	cfg, telegram := startChat(t, nil)
+	_, telegram, c := startChatWith(t, nil)
 	names := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Model    string `json:"model"`
@@ -1055,8 +1046,9 @@ func TestBackground(t *testing.T) {
 	telegram.expect(t, "resume=none msg=hi lines=1")
 	telegram.expect(t, "⚙ Modèles comparés\n\nresume=none msg=slow: compare two models lines=2")
 	// Its session is kept as a /bg task's, titled.
-	if s, err := testStore(t, cfg).Session(context.Background(), "ask1"); err != nil || s.Kind != store.KindBackground || s.Title != "Modèles comparés" {
-		t.Fatalf("background session %+v, %v", s, err)
+	list, err := c.store.Sessions(context.Background(), store.Filter{Kinds: []store.Kind{store.KindBackground}})
+	if err != nil || len(list) != 1 || list[0].Title != "Modèles comparés" {
+		t.Fatalf("background sessions %+v, %v", list, err)
 	}
 
 	// Without a title from the model, the heading says only the kind.
@@ -1071,13 +1063,30 @@ func TestBackground(t *testing.T) {
 func TestBackgroundReports(t *testing.T) {
 	cfg := config.Config{State: t.TempDir()}
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.turns = []turnRef{{id: "b1", bg: true}}
-	c.bg["b1"] = func() {}
-
-	// While the turn runs its session is not known, so the report waits.
-	if !c.Tell("b1", "[den: done]", "done") || len(inbox(t, c)) != 0 || len(c.turns[0].pending) != 1 {
-		t.Fatalf("inbox %q, turns %+v", inbox(t, c), c.turns)
+	ctx := context.Background()
+	if err := c.store.AddSession(ctx, store.Session{ID: "task", Kind: store.KindBackground}); err != nil {
+		t.Fatal(err)
 	}
+	c.turns = []turnRef{{id: "b1", session: "task"}}
+	c.bg["b1"] = func() {}
+	release := c.Occupy("task")
+
+	// A report goes to the task's session, where it waits while the task
+	// runs.
+	if !c.Tell("b1", "[den: done]", "done") || !slices.Equal(inbox(t, c), []string{"[den: done]@task"}) {
+		t.Fatalf("inbox %q", inbox(t, c))
+	}
+	if next, _ := c.store.NextTurn(ctx, c.occupied()...); next != "" {
+		t.Fatalf("a turn would run in the busy session %q", next)
+	}
+	if err := c.Forget("task", nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Forget while the task runs: %v", err)
+	}
+	release()
+	if next, _ := c.store.NextTurn(ctx, c.occupied()...); next != "task" {
+		t.Fatalf("next turn in %q once the task ended", next)
+	}
+
 	if c.Current() != "b1" {
 		t.Fatalf("current %q with only a background turn running", c.Current())
 	}
@@ -1227,9 +1236,7 @@ func TestAppTurn(t *testing.T) {
 
 	// A reply to a job's run goes on in its session, on the job's model, and
 	// only in the app.
-	if err := c.store.AddSession(context.Background(), store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}}); err != nil {
-		t.Fatal(err)
-	}
+	seed(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
 	c.Post(context.Background(), "more", "job1", nil)
 	if e := next(events.Message); e.Session != "job1" {
 		t.Fatalf("message %+v", e)

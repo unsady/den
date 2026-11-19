@@ -53,10 +53,22 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		parent = c.cursor(appClient)
 	}
 	m := c.mainModel()
-	provider, model, effort := m.Provider, m.Model, m.Effort
+	// The task's session is in the store before it runs, so what its
+	// commands report and the replies to its messages wait there until it
+	// ends.
+	session := newSession()
+	err := c.store.AddSession(context.Background(), store.Session{ID: session, Kind: store.KindBackground, Parent: parent, Choice: store.Choice(m)})
+	if err != nil {
+		cancel()
+		log.Printf("chat: background session: %v", err)
+		c.tell(ctx, telegram, []string{"den could not start the task: " + err.Error()})
+		return
+	}
+	release := c.Occupy(session)
+
 	c.mu.Lock()
 	c.bg[id] = cancel
-	c.turns = append(c.turns, turnRef{id: id, bg: true, app: app})
+	c.turns = append(c.turns, turnRef{id: id, session: session, app: app})
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
@@ -65,116 +77,84 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 	var started int64
 	if !app {
 		call, done := context.WithTimeout(ctx, time.Minute)
-		var err error
 		started, err = telegram.Post(call, "⚙ Background task started."+after)
 		done()
 		if err != nil {
 			log.Printf("chat: send: %v", err)
+		} else {
+			c.Sent([]int64{started}, session)
 		}
 	}
 
 	// A model titles the task while it runs, and the message says the
 	// title once it has it.
-	titled := make(chan string, 1)
+	titled := make(chan struct{})
 	c.background.Go(func() {
+		defer close(titled)
 		title := c.makeTitle(run, task)
-		titled <- title
-		if started != 0 && title != "" {
+		if title == "" {
+			return
+		}
+		if _, err := c.store.SetTitle(context.Background(), session, title); err != nil {
+			log.Printf("chat: background title: %v", err)
+			return
+		}
+		c.Events.Publish(events.Event{Type: events.Titled, Session: session, Title: title})
+		if started != 0 {
 			c.editPlain(ctx, telegram, started, icons[store.KindBackground]+" "+title+" runs in the background."+after)
 		}
 	})
 
 	c.background.Go(func() {
 		defer cancel()
-		reply := runner.Ask(run, c.cfg, runner.Request{
+		defer release()
+		agent := runner.NewAgent(c.cfg, id)
+		reply := agent.Ask(run, runner.Request{
 			Prompt:   task,
-			Provider: provider,
-			Model:    model,
-			Effort:   effort,
-			Turn:     id,
+			Provider: m.Provider,
+			Model:    m.Model,
+			Effort:   m.Effort,
+			Resume:   session,
 		})
+		agent.Close()
 		log.Printf("chat: background turn in %s", reply.Duration)
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 			c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 		}
-
-		// The task's session is known now.
-		title := <-titled
-		if reply.SessionID != "" {
-			err := c.store.AddSession(context.Background(), store.Session{
-				ID: reply.SessionID, Kind: store.KindBackground, Parent: parent, Title: title, Created: asked,
-				Choice: store.Choice{Provider: provider, Model: model, Effort: effort},
-			})
-			if err != nil {
-				log.Printf("chat: background session: %v", err)
-			}
+		if err := c.store.Touch(context.Background(), session); err != nil {
+			log.Printf("chat: touch %s: %v", session, err)
 		}
 
-		// Reports that came while the turn ran go to its session, or to the
-		// user when there is none.
 		c.mu.Lock()
 		delete(c.bg, id)
-		var pending []entry
-		var held []string
-		for i := range c.turns {
-			if c.turns[i].id == id {
-				c.turns[i].session = reply.SessionID
-				pending, c.turns[i].pending = c.turns[i].pending, nil
-				held, c.turns[i].held = c.turns[i].held, nil
-			}
-		}
 		c.mu.Unlock()
-		var notices []string
-		for _, e := range pending {
-			if reply.SessionID == "" {
-				if e.notice != "" {
-					notices = append(notices, e.notice)
-				}
-				continue
-			}
-			e.session = reply.SessionID
-			if err := c.enqueue(e); err != nil {
-				log.Printf("chat: background report: %v", err)
-			}
-		}
-
 		if run.Err() == context.Canceled {
 			// /stop already answered, or den is shutting down.
-			c.publishHeld(reply.SessionID, held)
 			return
 		}
-		if reply.SessionID != "" {
-			c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: reply.SessionID, Title: title, Text: task})
+
+		<-titled
+		s, err := c.store.Session(context.Background(), session)
+		if err != nil {
+			log.Printf("chat: background session: %v", err)
+			return
 		}
-		// The notices came while the task ran: after it, before its answer.
-		c.publishHeld(reply.SessionID, held)
-		if reply.SessionID != "" {
-			c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Title: title, Text: answer(reply, false), Failed: reply.Error != ""})
-		}
+		c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: session, Title: s.Title, Text: task})
+		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Text: answer(reply, false), Failed: reply.Error != ""})
 		if app {
-			c.tell(ctx, nil, notices)
 			return
 		}
 		telegram, err := notify.Load(c.cfg)
 		if err != nil {
 			return
 		}
-		c.tell(ctx, telegram, notices)
 		call, done := context.WithTimeout(ctx, time.Minute)
-		heading := icons[store.KindBackground] + " " + titleOf(store.Session{Kind: store.KindBackground, Title: title})
+		heading := icons[store.KindBackground] + " " + titleOf(s)
 		ids, err := telegram.SendIDs(call, heading+"\n\n"+answer(reply, false))
 		done()
 		if err != nil {
 			log.Printf("chat: send: %v", err)
 		}
-		c.Sent(ids, reply.SessionID)
+		c.Sent(ids, session)
 	})
-}
-
-// publishHeld gives the app the notices a /bg turn held, in session, or in
-// none when the turn left no session.
-func (c *Chat) publishHeld(session string, held []string) {
-	for _, text := range held {
-		c.Events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
-	}
 }

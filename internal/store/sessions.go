@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -45,6 +47,18 @@ type Session struct {
 	Compacted int
 	Created   time.Time
 	Updated   time.Time
+}
+
+// NewID names a new session as fx names one: 9 random bytes in URL-safe
+// base64, not starting with '-'.
+func NewID() string {
+	b := make([]byte, 9)
+	for {
+		rand.Read(b)
+		if id := base64.RawURLEncoding.EncodeToString(b); id[0] != '-' {
+			return id
+		}
+	}
 }
 
 // AddSession records a new session. Its Created and Updated default to now.

@@ -79,9 +79,8 @@ type daemon struct {
 
 	mu      sync.Mutex
 	running map[string]bool
-	// held are the notices of the job runs going on, by turn, which go to
-	// the app with the run's session once it ends.
-	held map[string][]string
+	// jobTurns are the sessions of the job runs going on, by turn.
+	jobTurns map[string]string
 	// grants are the den map runs the user allowed, by the grant den
 	// started each with.
 	grants map[string]MapRequest
@@ -160,17 +159,17 @@ func Serve(cfg config.Config) error {
 	}
 
 	d := &daemon{
-		ctx:     ctx,
-		cfg:     cfg,
-		store:   jobStore,
-		db:      db,
-		usage:   usage.Open(cfg.State),
-		ask:     approve.New(cfg),
-		running: map[string]bool{},
-		held:    map[string][]string{},
-		grants:  map[string]MapRequest{},
-		maps:    map[string]*mapRun{},
-		slots:   make(chan struct{}, jobSlots(cfg)),
+		ctx:      ctx,
+		cfg:      cfg,
+		store:    jobStore,
+		db:       db,
+		usage:    usage.Open(cfg.State),
+		ask:      approve.New(cfg),
+		running:  map[string]bool{},
+		jobTurns: map[string]string{},
+		grants:   map[string]MapRequest{},
+		maps:     map[string]*mapRun{},
+		slots:    make(chan struct{}, jobSlots(cfg)),
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
 	// to the chat's agent, so the chat exists before either starts.
@@ -408,34 +407,37 @@ func (d *daemon) start(j jobs.Job) bool {
 		log.Printf("job %s: started", j.Name)
 		choice := d.chat.Choice(d.ctx, j.Slot)
 		turn := "job-" + rand.Text()[:12]
+		// The run's session is in the store before it runs, so what its
+		// commands report goes there, and it is not deleted meanwhile.
+		session := store.NewID()
+		err := d.db.AddSession(d.ctx, store.Session{
+			ID: session, Kind: store.KindJob, Job: j.Name, Title: j.Title,
+			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
+		})
+		if err != nil {
+			log.Printf("job %s: session: %v", j.Name, err)
+			return
+		}
+		release := d.chat.Occupy(session)
 		d.mu.Lock()
-		d.held[turn] = nil
+		d.jobTurns[turn] = session
 		d.mu.Unlock()
 
-		run := runner.Run(d.ctx, d.cfg, j, choice, turn)
+		run := runner.Run(d.ctx, d.cfg, j, choice, turn, session)
 
-		// A silent run's session goes, so its notices go without one.
-		session := run.SessionID
-		if silent(j, run) {
-			session = ""
-		}
 		d.mu.Lock()
-		held := d.held[turn]
-		delete(d.held, turn)
+		delete(d.jobTurns, turn)
 		d.mu.Unlock()
-		for _, text := range held {
-			d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
-		}
+		release()
 
-		run.Delivered = d.deliver(j, run, choice)
-		// A silent run leaves nothing to go on with, so its session goes
-		// now instead of with the run's record.
-		if silent(j, run) && run.SessionID != "" {
-			if err := d.deleteJobSession(run.SessionID); err != nil {
+		run.Delivered = d.deliver(j, run)
+		// A run that wrote nothing to the user leaves nothing to go on
+		// with, so its session goes.
+		if !run.Delivered {
+			if _, err := d.deleteSession(d.ctx, session); err != nil {
 				log.Printf("job %s: delete session: %v", j.Name, err)
-			} else {
-				run.SessionID = ""
 			}
+			run.SessionID = ""
 		}
 		if run.InputTokens > 0 || run.OutputTokens > 0 {
 			d.usage.Add("jobs", time.Now(), run.InputTokens, run.OutputTokens)
@@ -512,7 +514,7 @@ func (d *daemon) Forget(id string) (approve.Rule, bool) { return d.ask.Forget(id
 func (d *daemon) Actions(since time.Time) []approve.Action { return d.ask.Actions(since) }
 
 // deliver sends a run's reply, or its failure, to the user.
-func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
+func (d *daemon) deliver(j jobs.Job, run jobs.Run) bool {
 	var text string
 	switch {
 	case run.Error != "":
@@ -536,17 +538,6 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	if run.Error != "" {
 		result = text
 	}
-	// A run that writes to the user keeps its session, named after the
-	// job, so a reply to its message goes on there on the same model.
-	if run.SessionID != "" {
-		err := d.db.AddSession(d.ctx, store.Session{
-			ID: run.SessionID, Kind: store.KindJob, Job: j.Name, Title: j.Title, Created: run.Started,
-			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
-		})
-		if err != nil {
-			log.Printf("job %s: session: %v", j.Name, err)
-		}
-	}
 	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
@@ -557,12 +548,6 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, choice runner.Choice) bool {
 	}
 	d.chat.Sent(ids, run.SessionID)
 	return true
-}
-
-func (d *daemon) deleteJobSession(id string) error {
-	ctx, cancel := context.WithTimeout(d.ctx, time.Minute)
-	defer cancel()
-	return runner.DeleteSession(ctx, d.cfg, id)
 }
 
 // silent says whether a run that did not fail has nothing for the user.
@@ -583,32 +568,19 @@ func heading(j jobs.Job) string {
 }
 
 // notify sends text to the user's Telegram at once, and to the app in the
-// session of turn, which a job run or a /bg turn knows only when it ends:
-// until then the app's notice waits. Text from no turn, or from one den
-// does not know, has no session.
+// session of turn: a job run's or the chat's. Text from no turn, or from
+// one den does not know, has no session.
 func (d *daemon) notify(turn, text string) error {
-	if !d.hold(turn, text) {
-		session, held := d.chat.Notify(turn, text)
-		if !held {
-			d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
-		}
+	d.mu.Lock()
+	session, ok := d.jobTurns[turn]
+	d.mu.Unlock()
+	if !ok {
+		session = d.chat.Session(turn)
 	}
+	d.events.Publish(events.Event{Type: events.Notice, Session: session, Text: text})
 
 	_, err := d.send(text, false)
 	return err
-}
-
-// hold keeps text for the app until turn, a job run's, ends, and says
-// whether turn is one.
-func (d *daemon) hold(turn, text string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	held, ok := d.held[turn]
-	if ok {
-		d.held[turn] = append(held, text)
-	}
-	return ok
 }
 
 // quietly says whether a job's reply arrives without a sound: den's nightly

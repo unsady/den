@@ -14,10 +14,10 @@ package chat
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -174,8 +174,10 @@ type Chat struct {
 	// they went to, which come back as a turn of their own if fx did not
 	// deliver them, unless /stop dropped them.
 	steered map[string]string
-	// compacting is the session /compact or idle compaction works on.
-	compacting string
+	// busy counts the turns that run in each session besides the worker's,
+	// such as a job's, a /bg task's, or compacting, whose messages wait
+	// until they end.
+	busy map[string]int
 	// titled are the sessions den asked a title for since it started.
 	titled map[string]bool
 }
@@ -184,13 +186,6 @@ type turnRef struct {
 	id string
 	// session is the turn's.
 	session string
-	// bg marks a /bg turn, whose session is known only once it ends;
-	// reports for it wait in pending until then.
-	bg      bool
-	pending []entry
-	// held are the notices the turn sent the user while its session was
-	// unknown, which go to the app once it is.
-	held []string
 	// app marks a turn that answers only in the app.
 	app bool
 }
@@ -220,57 +215,59 @@ func (c *Chat) Current() string {
 // ended. It returns false when the chat does not know turn, such as a
 // job's, and the caller tells the user instead.
 func (c *Chat) Tell(turn, text, notice string) bool {
-	c.mu.Lock()
-	turn = c.resolve(turn)
-	var ready *entry
-	found := false
-	for i, t := range c.turns {
-		if t.id != turn {
-			continue
-		}
-		e := entry{text: text, report: true, notice: notice, session: t.session}
-		found = true
-		if t.bg && t.session == "" {
-			c.turns[i].pending = append(t.pending, e)
-		} else {
-			ready = &e
-		}
-		break
+	session := c.Session(turn)
+	if session == "" {
+		return false
 	}
-	c.mu.Unlock()
-	if ready != nil {
-		if err := c.enqueue(*ready); err != nil {
-			log.Printf("chat: report: %v", err)
-			return false
-		}
+	if err := c.enqueue(entry{text: text, report: true, notice: notice, session: session}); err != nil {
+		log.Printf("chat: report: %v", err)
+		return false
 	}
-	return found
+	return true
 }
 
-// Notify says which session a notice from turn, the agent's DEN_TURN,
-// belongs in. A /bg turn knows its session only when it ends, so the
-// notice waits until then, and held says so. A turn the chat does not
-// know gives no session.
-func (c *Chat) Notify(turn, text string) (session string, held bool) {
+// Session returns the session of turn, the agent's DEN_TURN, or "" for a
+// turn the chat does not know.
+func (c *Chat) Session(turn string) string {
 	if turn == "" {
-		return "", false
+		return ""
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	turn = c.resolve(turn)
-	for i, t := range c.turns {
-		if t.id != turn {
-			continue
+	for _, t := range c.turns {
+		if t.id == turn {
+			return t.session
 		}
-		if t.bg && c.bg[t.id] != nil {
-			c.turns[i].held = append(t.held, text)
-			return "", true
-		}
-		return t.session, false
 	}
-	return "", false
+	return ""
+}
+
+// Occupy marks session busy while a turn runs in it besides the worker's,
+// so its messages wait and it is not deleted, until release.
+func (c *Chat) Occupy(session string) (release func()) {
+	c.mu.Lock()
+	c.busy[session]++
+	c.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			c.mu.Lock()
+			if c.busy[session]--; c.busy[session] <= 0 {
+				delete(c.busy, session)
+			}
+			c.mu.Unlock()
+			c.poke()
+		})
+	}
+}
+
+// occupied lists the busy sessions. The caller holds c.mu.
+func (c *Chat) occupied() []string {
+	return slices.Collect(maps.Keys(c.busy))
 }
 
 // resolve returns the turn the agent's DEN_TURN stands for, its latest, and
@@ -300,7 +297,8 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		squeeze: make(chan struct{}, 1),
 		notes:   make(chan string, 1),
 		bg:      map[string]context.CancelFunc{},
-		agent:   runner.NewAgent(cfg),
+		agent:   runner.NewAgent(cfg, ""),
+		busy:    map[string]int{},
 		steered: map[string]string{},
 		titled:  map[string]bool{},
 		Events:  &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
@@ -314,17 +312,8 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 	return c
 }
 
-// newSession names a new session as fx names one: 9 random bytes in
-// URL-safe base64, not starting with '-'. Tests count instead.
-var newSession = func() string {
-	b := make([]byte, 9)
-	for {
-		rand.Read(b)
-		if id := base64.RawURLEncoding.EncodeToString(b); id[0] != '-' {
-			return id
-		}
-	}
-}
+// newSession names a new session. Tests count instead.
+var newSession = store.NewID
 
 // Run reads the chat and runs its turns until ctx ends and the current turn
 // has stopped.
@@ -522,10 +511,11 @@ func (c *Chat) switchTo(session string) {
 // Forget deletes session: drop deletes what fx keeps of it, then the chat
 // forgets it. Telegram's chat, or the app, starts a new one with its next
 // message when it was in it. It refuses while a turn runs in the session,
-// which the user can /stop, or den compacts it.
+// which the user can /stop, a job or a /bg task runs in it, or den compacts
+// it.
 func (c *Chat) Forget(session string, drop func() error) error {
 	c.mu.Lock()
-	running := c.compacting == session ||
+	running := c.busy[session] > 0 ||
 		c.stop != nil && slices.ContainsFunc(c.turns, func(t turnRef) bool { return t.id == c.turnID && t.session == session })
 	c.mu.Unlock()
 	if running {
@@ -720,14 +710,17 @@ func (c *Chat) turn(ctx context.Context) bool {
 	// Messages for another session, such as replies to a job's message,
 	// wait for a turn of their own. The session is read before its
 	// messages leave the inbox, so a failure leaves them for the next try.
-	session, err := c.store.NextTurn(context.Background())
+	c.mu.Lock()
+	busy := c.occupied()
+	c.mu.Unlock()
+	session, err := c.store.NextTurn(context.Background(), busy...)
 	if err != nil || session == "" {
 		if err != nil {
 			log.Printf("chat: inbox: %v", err)
 		}
 		return false
 	}
-	choice, agent, err := c.choiceOf(session)
+	choice, err := c.choiceOf(session)
 	if err != nil {
 		log.Printf("chat: session %s: %v", session, err)
 		return false
@@ -775,13 +768,9 @@ func (c *Chat) turn(ctx context.Context) bool {
 	c.turnID = current
 	c.attached = nil
 	c.turns = append(c.turns, turnRef{id: current, session: session, app: app})
-	// A turn in a chat session runs on the agent, which starts a session
-	// den named before its first turn; one in a job's or a /bg task's
-	// session runs once with fx ask, on the model that ran it.
-	if agent {
-		c.steering = session
-		c.agentTurn = current
-	}
+	// The agent starts a session den named before its first turn.
+	c.steering = session
+	c.agentTurn = current
 	if len(c.turns) > keptTurns {
 		c.turns = c.turns[len(c.turns)-keptTurns:]
 	}
@@ -823,12 +812,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 			}
 		},
 	}
-	var reply runner.Reply
-	if agent {
-		reply = c.agent.Ask(turn, req)
-	} else {
-		reply = runner.Ask(turn, c.cfg, req)
-	}
+	reply := c.agent.Ask(turn, req)
 	close(done)
 	<-shown
 
@@ -845,10 +829,7 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	// The agent's turns tell how big their session has grown, and the
 	// first reply after den compacted a session says so.
-	compacted := ""
-	if agent {
-		compacted = c.measure(session, started, reply.Error == "")
-	}
+	compacted := c.measure(session, started, reply.Error == "")
 
 	log.Printf("chat: turn in %s", reply.Duration)
 	if reply.InputTokens > 0 || reply.OutputTokens > 0 {
