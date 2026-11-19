@@ -26,19 +26,11 @@ var (
 	compactAbove = 60_000
 )
 
-// compactShare is the smallest share of the model's window, in percent, at
-// which den compacts a session while the user is away.
-const compactShare = 10
-
 // compact compacts the chat's session when the user has been away and it
 // is long enough to be worth it.
 func (c *Chat) compact(ctx context.Context) {
 	used := c.sizeOf(c.cursor(store.Telegram))
 	if c.waiting() || used < compactAbove {
-		return
-	}
-	// A model with a large window keeps the details a while longer.
-	if window := c.currentWindow(ctx); window == 0 || used*100/window < compactShare {
 		return
 	}
 	if _, err := c.squeezeSession(ctx, false); err != nil {
@@ -80,20 +72,6 @@ func (c *Chat) compacted(session string, used, after int, quiet bool) {
 	if err := c.store.SetCompacted(ctx, session, used); err != nil {
 		log.Printf("chat: compacted session %s: %v", session, err)
 	}
-}
-
-// currentWindow is the context window of the chat's model, 0 when unknown.
-func (c *Chat) currentWindow(ctx context.Context) int {
-	m := c.mainModel()
-	setup, err := runner.Status(ctx, c.cfg, m.Provider)
-	if err != nil {
-		return 0
-	}
-	model := m.Model
-	if model == "" {
-		model = setup.Model
-	}
-	return c.window(setup.Provider, model)
 }
 
 // sizeOf is session's size after its last turn, in tokens, 0 when unknown.
