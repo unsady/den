@@ -420,30 +420,38 @@ func (d *daemon) ListJobs() []jobs.Job { return d.store.List() }
 // ContextSize serves the chat's /status.
 func (d *daemon) ContextSize(since time.Time) int { return d.models.Peak(since) }
 
-// deleteSession deletes the fx session id and makes the chat forget it. On
-// an error it returns the HTTP status that suits it.
+// deleteSession deletes session id from fx and from den's store, fx first,
+// so a failure leaves it to delete again. On an error it returns the HTTP
+// status that suits it.
 func (d *daemon) deleteSession(ctx context.Context, id string) (int, error) {
-	if _, err := d.db.Session(ctx, id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return http.StatusNotFound, fmt.Errorf("no session %s", id)
-		}
-		return http.StatusInternalServerError, err
-	}
-	if err := d.chat.Forget(id); err != nil {
-		return http.StatusConflict, err
-	}
-
-	// fx saves a session with its first turn, so it may not have this one.
+	// fx saves a session with its first turn, so it may not have one den
+	// named, and den may not know one fx has.
 	list, err := sessions.List(d.cfg.Sessions, 1<<20)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
-	if !slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id }) {
-		return http.StatusOK, nil
+	inFX := slices.ContainsFunc(list, func(s sessions.Summary) bool { return s.ID == id })
+	_, err = d.db.Session(ctx, id)
+	inStore := err == nil
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return http.StatusInternalServerError, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	if err := runner.DeleteSession(ctx, d.cfg, id); err != nil {
+	if !inFX && !inStore {
+		return http.StatusNotFound, fmt.Errorf("no session %s", id)
+	}
+
+	drop := func() error {
+		if !inFX {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		return runner.DeleteSession(ctx, d.cfg, id)
+	}
+	if err := d.chat.Forget(id, drop); err != nil {
+		if errors.Is(err, chat.ErrBusy) {
+			return http.StatusConflict, err
+		}
 		return http.StatusInternalServerError, err
 	}
 	return http.StatusOK, nil

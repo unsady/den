@@ -973,7 +973,7 @@ func TestForget(t *testing.T) {
 	c.Sent([]int64{6}, "job1")
 
 	// A session the chat is not in goes, with its message links.
-	if err := c.Forget("old"); err != nil {
+	if err := c.Forget("old", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.store.Session(ctx, "old"); err == nil {
@@ -990,7 +990,7 @@ func TestForget(t *testing.T) {
 	c.stop = func() {}
 	c.turnID = "t1"
 	c.turns = []turnRef{{id: "t1", session: "main"}}
-	if err := c.Forget("main"); err == nil {
+	if err := c.Forget("main", nil); err == nil {
 		t.Fatal("forgot the session a turn runs in")
 	}
 	if c.cursor(store.Telegram) != "main" {
@@ -999,7 +999,7 @@ func TestForget(t *testing.T) {
 
 	// Once it ends, the cursor goes with the session.
 	c.stop, c.turnID = nil, ""
-	if err := c.Forget("main"); err != nil {
+	if err := c.Forget("main", nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := c.cursor(store.Telegram); got != "" {

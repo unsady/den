@@ -140,6 +140,7 @@ func (c *Chat) squeezeSession(ctx context.Context, quiet bool) (int, error) {
 	c.mu.Lock()
 	turn, stop := context.WithCancel(ctx)
 	c.stop = stop
+	c.compacting = session
 	c.mu.Unlock()
 	defer stop()
 	// fx ask compacts the session on disk, which the agent's fx would
@@ -163,6 +164,7 @@ func (c *Chat) squeezeSession(ctx context.Context, quiet bool) (int, error) {
 
 	c.mu.Lock()
 	c.stop = nil
+	c.compacting = ""
 	c.mu.Unlock()
 
 	if reply.Error == "" {

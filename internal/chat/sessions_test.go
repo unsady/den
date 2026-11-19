@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -208,7 +209,7 @@ func TestForgetCursorSession(t *testing.T) {
 		return err == nil
 	})
 
-	if err := c.Forget(first); err != nil {
+	if err := c.Forget(first, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := c.cursor(store.Telegram); got != "" {
@@ -219,5 +220,30 @@ func TestForgetCursorSession(t *testing.T) {
 	telegram.expect(t, "resume=none msg=again lines=1")
 	if second := c.cursor(store.Telegram); second == "" || second == first {
 		t.Fatalf("cursor %q, want a new session", second)
+	}
+}
+
+func TestForgetKeepsSessionWhenDropFails(t *testing.T) {
+	c := newChat(t)
+	ctx := context.Background()
+	session, err := c.joined(store.Telegram)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Forget(session, func() error { return errors.New("fx failed") }); err == nil {
+		t.Fatal("Forget ignored the failed drop")
+	}
+	if _, err := c.store.Session(ctx, session); err != nil {
+		t.Fatalf("the session went with a failed drop: %v", err)
+	}
+
+	c.compacting = session
+	if err := c.Forget(session, nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Forget while compacting: %v", err)
+	}
+	c.compacting = ""
+	if err := c.Forget(session, nil); err != nil {
+		t.Fatal(err)
 	}
 }

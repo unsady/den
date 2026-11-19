@@ -174,6 +174,8 @@ type Chat struct {
 	// they went to, which come back as a turn of their own if fx did not
 	// deliver them, unless /stop dropped them.
 	steered map[string]string
+	// compacting is the session /compact or idle compaction works on.
+	compacting string
 	// titled are the sessions den asked a title for since it started.
 	titled map[string]bool
 }
@@ -517,24 +519,33 @@ func (c *Chat) switchTo(session string) {
 	c.Events.Publish(events.Event{Type: events.Settings, Session: session})
 }
 
-// Forget drops a session that was deleted from what the chat remembers.
-// Telegram's chat, or the app, starts a new one with its next message when
-// it was in it. It refuses while a turn runs in the session, which the user
-// can /stop.
-func (c *Chat) Forget(session string) error {
+// Forget deletes session: drop deletes what fx keeps of it, then the chat
+// forgets it. Telegram's chat, or the app, starts a new one with its next
+// message when it was in it. It refuses while a turn runs in the session,
+// which the user can /stop, or den compacts it.
+func (c *Chat) Forget(session string, drop func() error) error {
 	c.mu.Lock()
-	running := c.stop != nil && slices.ContainsFunc(c.turns, func(t turnRef) bool { return t.id == c.turnID && t.session == session })
+	running := c.compacting == session ||
+		c.stop != nil && slices.ContainsFunc(c.turns, func(t turnRef) bool { return t.id == c.turnID && t.session == session })
 	c.mu.Unlock()
 	if running {
-		return fmt.Errorf("the chat is working in this session; send /stop first")
+		return fmt.Errorf("%w; send /stop first", ErrBusy)
 	}
 
+	if drop != nil {
+		if err := drop(); err != nil {
+			return err
+		}
+	}
 	if err := c.store.DeleteSession(context.Background(), session); err != nil {
 		return err
 	}
 	c.Events.Forget(session)
 	return nil
 }
+
+// ErrBusy is Forget's error while the chat works in the session.
+var ErrBusy = errors.New("the chat is working in this session")
 
 // tell sends the user den's reports their agent did not get.
 // Without telegram, as for the app, only the app hears them.
