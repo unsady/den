@@ -134,8 +134,17 @@ type Filter struct {
 	// Query keeps the titles that contain it, ignoring case.
 	Query string
 	// Job keeps the runs of the job of this name.
-	Job   string
-	Limit int
+	Job string
+	// Before keeps the sessions that come after it, the latest used first:
+	// the next page after the one it ended.
+	Before *Mark
+	Limit  int
+}
+
+// Mark is where a page of Sessions ended: its last session's use and id.
+type Mark struct {
+	Updated time.Time
+	ID      string
 }
 
 // Sessions lists sessions, the latest used first.
@@ -156,7 +165,13 @@ func (s *Store) Sessions(ctx context.Context, f Filter) ([]Session, error) {
 		query += ` AND job_id = ?`
 		args = append(args, f.Job)
 	}
-	query += ` ORDER BY updated DESC`
+	if f.Before != nil {
+		at := unix(f.Before.Updated)
+		query += ` AND (updated < ? OR updated = ? AND id < ?)`
+		args = append(args, at, at, f.Before.ID)
+	}
+	// The id orders sessions used at once, so a page ends at one place.
+	query += ` ORDER BY updated DESC, id DESC`
 	if f.Limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, f.Limit)

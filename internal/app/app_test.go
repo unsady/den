@@ -47,7 +47,9 @@ func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
 
-func (f *fakeChat) Sessions(context.Context, string) ([]store.Session, error) { return nil, nil }
+func (f *fakeChat) Sessions(context.Context, string, *store.Mark, int) ([]store.Session, error) {
+	return nil, nil
+}
 
 func (f *fakeChat) Setup(context.Context) (chat.Setup, error) {
 	f.mu.Lock()
@@ -194,6 +196,27 @@ func TestServer(t *testing.T) {
 	}
 	if status, body := call("GET", "/sessions/missing", token, ""); status != http.StatusOK || strings.TrimSpace(body) != "[]" {
 		t.Fatalf("missing session: %d %s", status, body)
+	}
+
+	// Asked for pages, a session gives its latest messages first, each page
+	// with where the one before it ends.
+	hub.Publish(events.Event{Type: events.Reply, Session: "s1", Text: "Two"})
+	hub.Publish(events.Event{Type: events.Reply, Session: "s1", Text: "Three"})
+	var page struct {
+		Messages []struct{ Text string }
+		Before   string
+	}
+	_, body := call("GET", "/sessions/s1?limit=2", token, "")
+	if err := json.Unmarshal([]byte(body), &page); err != nil || len(page.Messages) != 2 || page.Messages[0].Text != "Two" || page.Before != "1" {
+		t.Fatalf("latest page: %s", body)
+	}
+	page.Before = ""
+	_, body = call("GET", "/sessions/s1?limit=2&before=1", token, "")
+	if err := json.Unmarshal([]byte(body), &page); err != nil || len(page.Messages) != 1 || page.Messages[0].Text != "Hi" || page.Before != "" {
+		t.Fatalf("first page: %s", body)
+	}
+	if status, _ := call("GET", "/sessions/s1?limit=x", token, ""); status != http.StatusBadRequest {
+		t.Fatalf("bad limit: %d", status)
 	}
 
 	// Results wait for an app that was away.

@@ -100,6 +100,14 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 	if ids := idsOf(list); ids != "job" {
 		t.Fatalf("job %q", ids)
 	}
+
+	// A page starts after the end of the one before.
+	list, _ = s.Sessions(ctx, Filter{Limit: 2})
+	last := list[len(list)-1]
+	list, _ = s.Sessions(ctx, Filter{Before: &Mark{Updated: last.Updated, ID: last.ID}, Limit: 2})
+	if ids := idsOf(list); ids != "bg" {
+		t.Fatalf("next page %q", ids)
+	}
 }
 
 func TestCursorsAndMessages(t *testing.T) {
