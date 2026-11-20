@@ -52,7 +52,7 @@ type Chat interface {
 	ChooseEffort(ctx context.Context, level string) error
 	ChooseSecond(ctx context.Context, provider, model string) error
 	ChooseSecondEffort(ctx context.Context, level string) error
-	Sessions(ctx context.Context) ([]store.Session, error)
+	Sessions(ctx context.Context, job string) ([]store.Session, error)
 }
 
 // Asker is what the app does with the questions den asks.
@@ -229,7 +229,8 @@ func (s *Server) Handler() http.Handler {
 	}))
 
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		list, err := s.chat.Sessions(r.Context())
+		// ?job= keeps the runs of one job, older ones too.
+		list, err := s.chat.Sessions(r.Context(), r.URL.Query().Get("job"))
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return

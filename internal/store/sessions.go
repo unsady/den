@@ -133,6 +133,8 @@ type Filter struct {
 	Kinds []Kind
 	// Query keeps the titles that contain it, ignoring case.
 	Query string
+	// Job keeps the runs of the job of this name.
+	Job   string
 	Limit int
 }
 
@@ -149,6 +151,10 @@ func (s *Store) Sessions(ctx context.Context, f Filter) ([]Session, error) {
 	if f.Query != "" {
 		query += ` AND title LIKE ? ESCAPE '\'`
 		args = append(args, "%"+escapeLike(f.Query)+"%")
+	}
+	if f.Job != "" {
+		query += ` AND job_id = ?`
+		args = append(args, f.Job)
 	}
 	query += ` ORDER BY updated DESC`
 	if f.Limit > 0 {

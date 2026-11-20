@@ -95,6 +95,11 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 	if ids := idsOf(list); ids != "chat" {
 		t.Fatalf("query %q", ids)
 	}
+
+	list, _ = s.Sessions(ctx, Filter{Job: "j1"})
+	if ids := idsOf(list); ids != "job" {
+		t.Fatalf("job %q", ids)
+	}
 }
 
 func TestCursorsAndMessages(t *testing.T) {
