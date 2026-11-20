@@ -47,7 +47,7 @@ func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
 
-func (f *fakeChat) Sessions(context.Context) ([]store.Session, error) { return nil, nil }
+func (f *fakeChat) Sessions(context.Context, string) ([]store.Session, error) { return nil, nil }
 
 func (f *fakeChat) Setup(context.Context) (chat.Setup, error) {
 	f.mu.Lock()

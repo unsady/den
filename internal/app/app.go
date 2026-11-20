@@ -52,7 +52,7 @@ type Chat interface {
 	ChooseEffort(ctx context.Context, level string) error
 	ChooseSecond(ctx context.Context, provider, model string) error
 	ChooseSecondEffort(ctx context.Context, level string) error
-	Sessions(ctx context.Context) ([]store.Session, error)
+	Sessions(ctx context.Context, job string) ([]store.Session, error)
 }
 
 // Asker is what the app does with the questions den asks.
@@ -229,14 +229,15 @@ func (s *Server) Handler() http.Handler {
 	}))
 
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		list, err := s.chat.Sessions(r.Context())
+		// ?job= keeps the runs of one job, older ones too.
+		list, err := s.chat.Sessions(r.Context(), r.URL.Query().Get("job"))
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Title: l.Title, Updated: l.Updated})
+			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Updated: l.Updated})
 		}
 		reply(w, out)
 	})
@@ -426,6 +427,9 @@ type session struct {
 	Kind string `json:"kind"`
 	// Parent is the session it was started from, if any.
 	Parent string `json:"parent,omitempty"`
+	// Job names the job a job run's session is of, such as
+	// nightly-reflect for den's own nightly review.
+	Job string `json:"job,omitempty"`
 	// Title is empty until den names the session.
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated"`
