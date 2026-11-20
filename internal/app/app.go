@@ -287,6 +287,7 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
+
 		end := len(journal)
 		if b := query.Get("before"); b != "" {
 			n, err := strconv.Atoi(b)
@@ -296,6 +297,7 @@ func (s *Server) Handler() http.Handler {
 			}
 			end = min(n, end)
 		}
+
 		start := 0
 		if paged {
 			start = max(0, end-limit)
