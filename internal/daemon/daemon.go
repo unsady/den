@@ -556,7 +556,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool) bool {
 	if run.Error != "" {
 		result = text
 	}
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Model: run.Model, Text: result, Failed: run.Error != ""})
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != ""})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quietly(j, time.Now()))

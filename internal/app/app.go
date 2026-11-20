@@ -236,7 +236,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Title: l.Title, Updated: l.Updated})
+			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Updated: l.Updated})
 		}
 		reply(w, out)
 	})
@@ -426,6 +426,9 @@ type session struct {
 	Kind string `json:"kind"`
 	// Parent is the session it was started from, if any.
 	Parent string `json:"parent,omitempty"`
+	// Job names the job a job run's session is of, such as
+	// nightly-reflect for den's own nightly review.
+	Job string `json:"job,omitempty"`
 	// Title is empty until den names the session.
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated"`
