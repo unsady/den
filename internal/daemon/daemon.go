@@ -649,13 +649,6 @@ type SlotRequest struct {
 	Slot string `json:"slot"`
 }
 
-// NotifyRequest is the body of POST /notify.
-type NotifyRequest struct {
-	Text string `json:"text"`
-	// Session is the DEN_SESSION of the agent that sent it, if any.
-	Session string `json:"session,omitempty"`
-}
-
 // QuietRequest is the body of POST /quiet.
 type QuietRequest struct {
 	// Session is the DEN_SESSION of the agent that has nothing to send.
@@ -842,23 +835,6 @@ func (d *daemon) routes() http.Handler {
 			return
 		}
 		reply(w, http.StatusOK, map[string]string{"id": id})
-	})
-
-	mux.HandleFunc("POST /notify", func(w http.ResponseWriter, r *http.Request) {
-		var req NotifyRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			fail(w, http.StatusBadRequest, err)
-			return
-		}
-		if strings.TrimSpace(req.Text) == "" {
-			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
-			return
-		}
-		if err := d.notify(req.Session, req.Text); err != nil {
-			fail(w, http.StatusServiceUnavailable, err)
-			return
-		}
-		reply(w, http.StatusOK, map[string]bool{"sent": true})
 	})
 
 	mux.HandleFunc("POST /quiet", func(w http.ResponseWriter, r *http.Request) {

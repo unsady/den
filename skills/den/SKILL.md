@@ -1,19 +1,11 @@
 ---
 name: den
-description: Schedule jobs and reminders, send the user a notification or a file, call GitHub, Google, or an API the user added with a token den holds, or look up an earlier conversation, with the den CLI.
+description: Schedule jobs and reminders, send the user a file, call GitHub, Google, or an API the user added with a token den holds, or look up an earlier conversation, with the den CLI.
 ---
 
 # den
 
 `den` reaches beyond the current conversation. Run `den help` for the full usage.
-
-## Notify the user
-
-```bash
-den notify "The flight to Lisbon moved to 14:20"
-```
-
-The message goes to the user's Telegram. Send one only when the user asked for it or a job needs to report something. If it fails because Telegram is not configured, tell the user; do not retry.
 
 ## Send the user a file
 

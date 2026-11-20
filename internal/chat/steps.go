@@ -150,8 +150,6 @@ func shellStep(cmd string) string {
 			return "Calling " + service(cmd, fields[2:])
 		case "send":
 			return "Sending you a file"
-		case "notify":
-			return "Sending you a message"
 		case "job":
 			return "Managing jobs"
 		case "sessions":
