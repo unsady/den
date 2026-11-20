@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,7 +53,7 @@ type Chat interface {
 	ChooseEffort(ctx context.Context, level string) error
 	ChooseSecond(ctx context.Context, provider, model string) error
 	ChooseSecondEffort(ctx context.Context, level string) error
-	Sessions(ctx context.Context, job string) ([]store.Session, error)
+	Sessions(ctx context.Context, job string, before *store.Mark, limit int) ([]store.Session, error)
 }
 
 // Asker is what the app does with the questions den asks.
@@ -229,8 +230,22 @@ func (s *Server) Handler() http.Handler {
 	}))
 
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		// ?job= keeps the runs of one job, older ones too.
-		list, err := s.chat.Sessions(r.Context(), r.URL.Query().Get("job"))
+		// ?job= keeps the runs of one job, older ones too. With ?limit= the
+		// list comes in pages, each with where the next starts, which
+		// ?before= takes.
+		query := r.URL.Query()
+		limit, paged, err := pageLimit(query.Get("limit"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		before, err := sessionMark(query.Get("before"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+
+		list, err := s.chat.Sessions(r.Context(), query.Get("job"), before, limit)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
@@ -239,7 +254,17 @@ func (s *Server) Handler() http.Handler {
 		for _, l := range list {
 			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Updated: l.Updated})
 		}
-		reply(w, out)
+		if !paged {
+			reply(w, out)
+			return
+		}
+
+		page := sessionPage{Sessions: out}
+		if len(list) == limit {
+			last := list[len(list)-1]
+			page.Before = fmt.Sprintf("%d:%s", last.Updated.UnixMilli(), last.ID)
+		}
+		reply(w, page)
 	})
 
 	mux.HandleFunc("GET /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -254,11 +279,42 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
+		// With ?limit= the messages come in pages, the latest first, each
+		// with where the one before it ends, which ?before= takes.
+		query := r.URL.Query()
+		limit, paged, err := pageLimit(query.Get("limit"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		end := len(journal)
+		if b := query.Get("before"); b != "" {
+			n, err := strconv.Atoi(b)
+			if err != nil || n < 0 {
+				fail(w, http.StatusBadRequest, errors.New("bad before"))
+				return
+			}
+			end = min(n, end)
+		}
+		start := 0
+		if paged {
+			start = max(0, end-limit)
+		}
+
 		list := []message{}
-		for _, e := range journal {
+		for _, e := range journal[start:end] {
 			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files})
 		}
-		reply(w, list)
+		if !paged {
+			reply(w, list)
+			return
+		}
+
+		page := messagePage{Messages: list}
+		if start > 0 {
+			page.Before = strconv.Itoa(start)
+		}
+		reply(w, page)
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/files/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -465,6 +521,47 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		chat.Setup
 		API int `json:"api"`
 	}{setup, API})
+}
+
+// A page of sessions or messages, and where the next one starts, empty
+// after the last.
+type sessionPage struct {
+	Sessions []session `json:"sessions"`
+	Before   string    `json:"before,omitempty"`
+}
+
+type messagePage struct {
+	Messages []message `json:"messages"`
+	Before   string    `json:"before,omitempty"`
+}
+
+// maxPage is the most a page holds.
+const maxPage = 200
+
+// pageLimit reads ?limit=: how many a page holds, and whether one was asked.
+func pageLimit(s string) (int, bool, error) {
+	if s == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, false, errors.New("bad limit")
+	}
+	return min(n, maxPage), true, nil
+}
+
+// sessionMark reads ?before= of a page of sessions: the milliseconds and
+// the id where the page before ended.
+func sessionMark(s string) (*store.Mark, error) {
+	if s == "" {
+		return nil, nil
+	}
+	at, id, ok := strings.Cut(s, ":")
+	ms, err := strconv.ParseInt(at, 10, 64)
+	if !ok || err != nil || id == "" {
+		return nil, errors.New("bad before")
+	}
+	return &store.Mark{Updated: time.UnixMilli(ms), ID: id}, nil
 }
 
 func reply(w http.ResponseWriter, v any) {

@@ -11,6 +11,7 @@ release notes.
 - A chart's data may have `null` where there is no data, such as an hour with no calls. The app and the picture leave a gap there instead of drawing values that were not measured.
 - `den job log --json` prints a job's runs as JSON.
 - The app's session list and a job's result name the job, so the app can mark den's own nightly jobs, and `GET /sessions?job=` lists one job's runs, so the app can show them all.
+- `GET /sessions` and `GET /sessions/{id}` take `?limit=` and `?before=` and then answer a page with where the next one starts, so the app can load old sessions and long chats a page at a time. Without `?limit=` they answer as before.
 
 ### Changed
 

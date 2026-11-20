@@ -129,7 +129,11 @@ func (c *Chat) choiceOf(session string) (runner.Choice, error) {
 }
 
 // Sessions lists the sessions for the app, the latest used first: all, or
-// the runs of the job named `job`.
-func (c *Chat) Sessions(ctx context.Context, job string) ([]store.Session, error) {
-	return c.store.Sessions(ctx, store.Filter{Job: job, Limit: 100})
+// the runs of the job named `job`; at most `limit` of them, 100 when it is
+// 0, after `before`, the end of the page before, if any.
+func (c *Chat) Sessions(ctx context.Context, job string, before *store.Mark, limit int) ([]store.Session, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	return c.store.Sessions(ctx, store.Filter{Job: job, Before: before, Limit: limit})
 }
