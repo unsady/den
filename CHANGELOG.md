@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Changed
+
+- When one task asks you to allow several actions, den tells the agent what came of them together, once you answered the last, so you get one reply with the result. The agent no longer stays silent after an action you allowed.
+
 ## v0.13.0
 
 ### Removed
