@@ -159,6 +159,9 @@ type Conn struct {
 	steers  map[int64]*steer
 	prompts map[string]*turn
 	err     error
+	// answered closes when fx answers a steer, and a new one takes its
+	// place.
+	answered chan struct{}
 
 	done chan struct{}
 
@@ -199,11 +202,12 @@ func (c *Conn) runningLocked(session string) bool {
 // New runs a Conn over the server's output r and input w.
 func New(r io.Reader, w io.Writer) *Conn {
 	c := &Conn{
-		w:       w,
-		pending: map[int64]func(*message){},
-		steers:  map[int64]*steer{},
-		prompts: map[string]*turn{},
-		done:    make(chan struct{}),
+		w:        w,
+		pending:  map[int64]func(*message){},
+		steers:   map[int64]*steer{},
+		prompts:  map[string]*turn{},
+		answered: make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	go c.read(r)
 	return c
@@ -401,10 +405,40 @@ func (c *Conn) Steer(ctx context.Context, session, key, text string) error {
 	if err != nil {
 		c.mu.Lock()
 		delete(c.pending, id)
-		delete(c.steers, id)
+		c.forgetLocked(id)
 		c.mu.Unlock()
 	}
 	return err
+}
+
+// forgetLocked drops the steer id and wakes Settle. The caller holds c.mu.
+func (c *Conn) forgetLocked(id int64) {
+	delete(c.steers, id)
+	close(c.answered)
+	c.answered = make(chan struct{})
+}
+
+// Settle returns once fx has answered every steer, which for a steer that
+// fx runs as a turn of its own is when that turn ends, or when ctx ends or
+// the connection closes.
+func (c *Conn) Settle(ctx context.Context) {
+	for {
+		c.mu.Lock()
+		left := len(c.steers)
+		answered := c.answered
+		c.mu.Unlock()
+		if left == 0 {
+			return
+		}
+
+		select {
+		case <-answered:
+		case <-c.done:
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // steerAnswered handles the answer to the steer id. The caller holds c.mu
@@ -413,7 +447,7 @@ func (c *Conn) steerAnswered(id int64) func(*message) {
 	return func(m *message) {
 		c.mu.Lock()
 		st := c.steers[id]
-		delete(c.steers, id)
+		c.forgetLocked(id)
 		c.mu.Unlock()
 
 		if st == nil {

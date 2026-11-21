@@ -844,7 +844,7 @@ func TestSessionsList(t *testing.T) {
 func TestProgressNote(t *testing.T) {
 	cfg, telegram := startChat(t, nil)
 	c := New(cfg, nil, usage.Open(cfg.State), testStore(t, cfg))
-	c.steering = "s1"
+	c.steering["s1"] = c.agent
 
 	// A note from before the turn is not shown.
 	c.Note("s1", "stale")
@@ -1514,7 +1514,12 @@ func TestSend(t *testing.T) {
 		})
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		return c.steering
+		for session, agent := range c.steering {
+			if agent == c.agent {
+				return session
+			}
+		}
+		return ""
 	}
 	upload := func(name string) Upload {
 		return Upload{Upload: notify.Upload{Name: name, Data: []byte(name)}}
