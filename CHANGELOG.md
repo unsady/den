@@ -13,6 +13,7 @@ release notes.
 ### Changed
 
 - After an action you allowed went through, den tells the agent it needs no reply that only confirms it, so you get fewer "done" messages.
+- A job's notification asks the agent for the result only, without what it did to get it.
 
 ## v0.12.0
 
