@@ -1,6 +1,6 @@
 ---
 name: den
-description: Schedule jobs and reminders, send the user a file, call GitHub, Google, or an API the user added with a token den holds, or look up an earlier conversation, with the den CLI.
+description: Schedule jobs and reminders, send the user a file, call GitHub, Google, or an API the user added with a token den holds, help the user connect a service or set den up, or look up an earlier conversation, with the den CLI.
 ---
 
 # den
@@ -72,7 +72,28 @@ den fetch --secret news https://news.example.com/api/events
 den fetch --secret news -d @event.json https://news.example.com/api/events
 ```
 
-When the user asks for an API that is not listed, tell them to add it on their computer with `den service add <name> <https-address>`, which asks for the token. Never ask for the token in the chat. Keep what you learn about an API, such as its endpoints, in `notes/skills/den.md`.
+Keep what you learn about an API, such as its endpoints, in `notes/skills/den.md`.
+
+## Help the user connect something
+
+The user connects services and changes settings in a terminal on their computer, where den runs, never in the chat. When they ask what they can connect, or how, answer with the command to run, in a ``` block they can copy. Never ask for a token, password, or key in the chat: the command asks for it.
+
+| What | Command on their computer |
+|---|---|
+| Any mailbox, with an app password | `den connect mail` |
+| Gmail and Calendar | `den connect google`; they first need an OAuth client from their own Google Cloud project, as the guide says |
+| GitHub | a fine-grained token for the repositories you may use, then `den secret set github_token` |
+| Their own API | `den service add` |
+| Another model provider or a subscription | `den login <provider>`, or `den connect codex`, `grok`, `claude` |
+| Voice messages | `DEN_WHISPER_MODEL` in `env` in `~/.config/den/config.json`, then `den restart` |
+
+For their own API, find its docs, then write the whole command for them, with a short name, the API's https address, the header if it is not `Authorization: Bearer`, and an `--about` with what it does, its main endpoints, and its docs' address:
+
+```bash
+den service add --header X-Api-Key --about "Tasks API: GET /tasks, POST /tasks; docs at https://api.example.com/docs" tasks https://api.example.com
+```
+
+Say where they get the token. `--ask deletes`, `never`, or `always` changes which requests wait for them; the default asks before writes. den takes only an https API with a token in one header: an API that needs OAuth, a login and password, the token in the address, or plain http on their own network cannot be added this way, so say so rather than guess. The guides are at https://github.com/unsady/den/tree/main/docs.
 
 ## Local findings
 
