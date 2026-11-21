@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Changed
+
+- When one task asks you to allow several actions, den tells the agent what came of them together, once you answered the last, so you get one reply with the result. The agent no longer stays silent after an action you allowed.
+
 ### Fixed
 
 - A session you talk to only in the app no longer answers in Telegram when den wakes it, such as when a `den map` it started ends. Telegram gets a session's replies once you wrote to it there (a message, a reply to one of its messages, or `/bg`), whoever starts the turn; the app gets every session's.

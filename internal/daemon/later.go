@@ -66,7 +66,7 @@ func (d *daemon) serveMap(w http.ResponseWriter, r *http.Request) {
 	}
 	text += fmt.Sprintf("\n\n⚙︎ %s · %s\nProvider: %s\nThreads: %d", req.Model, effort, req.Provider, req.Workers)
 	q := approve.Question{Text: text, What: what, Source: "den map", Rule: "map " + model, Label: "den map with " + model, Session: req.Session}
-	waiting, err := d.ask.Later(d.ctx, q, func(err error) { d.mapLater(req, what, err) })
+	waiting, err := d.later(q, func(err error) { d.mapLater(req, what, err) })
 	switch {
 	case err != nil:
 		fail(w, http.StatusServiceUnavailable, err)
@@ -173,7 +173,18 @@ func tail(text string, n int) string {
 // A session comes from the agent, as DEN_SESSION or what den sets from it,
 // and the agent can name any, so a session only ever says where den's
 // answer goes: it must never allow an action or reach a secret.
+//
+// While session has other questions open, den holds the report and tells
+// it with theirs once the last is settled.
 func (d *daemon) report(session, agent, user string) {
+	if d.reports.keep(session, agent, user) {
+		return
+	}
+	d.tell(session, agent, user)
+}
+
+// tell tells session's agent, or the user, as report says.
+func (d *daemon) tell(session, agent, user string) {
 	if d.chat.Tell(session, agent, user) {
 		return
 	}

@@ -67,14 +67,17 @@ type daemon struct {
 	cfg      config.Config
 	store    *jobs.Store
 	// db keeps the sessions and the rest of den's own state.
-	db     *store.Store
-	usage  *usage.Store
-	ask    *approve.Asker
-	fetch  *fetch.Fetcher
-	search *search.Searcher
-	google *google.Google
-	models *models.Models
-	chat   *chat.Chat
+	db    *store.Store
+	usage *usage.Store
+	ask   *approve.Asker
+	// reports hold what came of a session's actions until all it asked
+	// about are settled.
+	reports reports
+	fetch   *fetch.Fetcher
+	search  *search.Searcher
+	google  *google.Google
+	models  *models.Models
+	chat    *chat.Chat
 	// events tell the app what happens.
 	events *events.Hub
 
@@ -171,6 +174,7 @@ func Serve(cfg config.Config) error {
 		running:  map[string]bool{},
 		grants:   map[string]MapRequest{},
 		maps:     map[string]*mapRun{},
+		reports:  reports{open: map[string]int{}, held: map[string][]report{}},
 		slots:    make(chan struct{}, jobSlots(cfg)),
 	}
 	// Jobs run on the chat's models, and what the user allowed later goes
@@ -180,7 +184,7 @@ func Serve(cfg config.Config) error {
 	d.ask.Events = d.events
 	d.ask.Label = d.chat.Label
 	d.google = google.New(cfg)
-	later := func(q approve.Question, then func(error)) (bool, error) { return d.ask.Later(ctx, q, then) }
+	later := d.later
 	d.fetch = fetch.New(cfg, later, d.google)
 	d.fetch.Note = d.ask.Note
 	d.fetch.Report = d.report
