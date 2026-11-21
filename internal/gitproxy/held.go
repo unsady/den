@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/unsady/den/internal/approve"
 )
 
 // A push that waits for the user goes to GitHub at once, under refs of
@@ -312,5 +314,5 @@ func (p *Proxy) moveLater(h *held, what, session string, answer error) {
 		return
 	}
 	log.Printf("git: %s: pushed, allowed by the user", what)
-	report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches.]", what), what+": pushed")
+	report(fmt.Sprintf("[den: the user allowed %s, and den pushed it. git fetch updates your copy of the remote branches. %s]", what, approve.Done), what+": pushed")
 }

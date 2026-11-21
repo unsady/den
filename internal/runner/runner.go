@@ -46,7 +46,7 @@ func LegacySilent(reply, who string) bool {
 }
 
 const deliveredNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
-	"Your final reply is sent to the user as a notification, so keep it short and self-contained. " +
+	"Your final reply is sent to the user as a notification: only the result, short and self-contained, not what you did to get it. " +
 	"When there is nothing worth sending, run den quiet as your last step."
 
 const silentNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
