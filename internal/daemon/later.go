@@ -119,7 +119,7 @@ func (d *daemon) mapLater(req MapRequest, what string, answer error) {
 	}
 	// The agent gets the run's summary alone: the progress lines only told
 	// the user how far it was.
-	text := fmt.Sprintf("[den: %s ran. Its output is quoted below.]\n%s", what, approve.Quote(summary))
+	text := fmt.Sprintf("[den: %s ran. Its output is quoted below; the user saw only how far it went. %s]\n%s", what, approve.Done, approve.Quote(summary))
 	user := "🗂 " + what + " ran"
 	if err != nil {
 		text = fmt.Sprintf("[den: %s failed: %v. Its output is quoted below.]\n%s", what, err, approve.Quote(withoutProgress(out)))
