@@ -70,9 +70,10 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 				return err
 			}
 
-			e := entry{text: "[The user sent a file, saved at " + path + "]", shown: "📎 " + f.Name}
+			file := &Upload{Upload: notify.Upload{Name: f.Name, Data: f.Data}}
+			e := entry{text: "[The user sent a file, saved at " + path + "]", file: file}
 			if slices.Contains(pictures, http.DetectContentType(f.Data)) {
-				e = entry{text: "[The user sent a picture, attached and saved at " + path + "]", image: path, shown: "📷 " + f.Name}
+				e = entry{text: "[The user sent a picture, attached and saved at " + path + "]", image: path, file: file}
 			}
 			entries = append(entries, e)
 		}
@@ -80,7 +81,7 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 		// them.
 		if caption := strings.TrimSpace(text); caption != "" {
 			entries[0].text = caption + "\n" + entries[0].text
-			entries[0].shown = caption + "\n" + entries[0].shown
+			entries[0].shown = caption
 		}
 	}
 
@@ -101,19 +102,40 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 	return c.enqueue(entries...)
 }
 
-// published tells the app of the user's messages among entries, as the
-// user wrote them.
+// published tells the app of the user's message in entries, as the user
+// wrote it: one message, though den gives the agent each file apart, with
+// the files kept for the app. A file den could not keep shows as its name.
 func (c *Chat) published(entries []entry) {
+	var lines []string
+	var files []events.Attachment
+	session := ""
 	for _, e := range entries {
 		if e.report || e.text == "" {
 			continue
 		}
+		session = e.session
+
 		text := e.text
-		if e.shown != "" {
+		if e.shown != "" || e.file != nil {
 			text = e.shown
 		}
-		c.Events.Publish(events.Event{Type: events.Message, Session: e.session, Text: text})
+		if text != "" {
+			lines = append(lines, text)
+		}
+		if e.file == nil {
+			continue
+		}
+		if kept := c.keep(session, []Upload{*e.file}); len(kept) > 0 {
+			files = append(files, kept...)
+		} else {
+			lines = append(lines, "📎 "+e.file.Name)
+		}
 	}
+	if len(lines) == 0 && len(files) == 0 {
+		return
+	}
+
+	c.Events.Publish(events.Event{Type: events.Message, Session: session, Text: strings.Join(lines, "\n"), Files: files})
 }
 
 // Stop stops what runs, as /stop does, and reports whether anything did.

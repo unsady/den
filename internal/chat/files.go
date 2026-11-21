@@ -35,15 +35,23 @@ func (c *Chat) receiveFile(ctx context.Context, telegram *notify.Telegram, m not
 	var e entry
 	switch {
 	case m.File.Photo:
-		e = entry{text: "[The user sent a photo, attached and saved at " + path + "]", image: path, shown: "📷 Photo"}
+		e = entry{text: "[The user sent a photo, attached and saved at " + path + "]", image: path, file: kept("photo.jpg", data)}
 	case m.File.Voice:
 		e = entry{text: c.voiceText(ctx, path, data), shown: "🎙 Voice message"}
 	default:
-		e = entry{text: "[The user sent a file, saved at " + path + "]", shown: "📎 " + filepath.Base(path)}
+		name := m.File.Name
+		if name == "" {
+			name = filepath.Base(path)
+		}
+		e = entry{text: "[The user sent a file, saved at " + path + "]", file: kept(name, data)}
 	}
 	if caption := strings.TrimSpace(m.Text); caption != "" {
 		e.text = caption + "\n" + e.text
-		e.shown = caption + "\n" + e.shown
+		if e.file != nil {
+			e.shown = caption
+		} else {
+			e.shown = caption + "\n" + e.shown
+		}
 	}
 	e.text = quoted(m, e.text)
 	if m.Group != "" {
@@ -51,6 +59,11 @@ func (c *Chat) receiveFile(ctx context.Context, telegram *notify.Telegram, m not
 		return
 	}
 	c.queue(ctx, telegram, m, e)
+}
+
+// kept is a file the user sent, for den to keep for the app.
+func kept(name string, data []byte) *Upload {
+	return &Upload{Upload: notify.Upload{Name: name, Data: data}}
 }
 
 // album is the files of one album saved so far, and the first message,

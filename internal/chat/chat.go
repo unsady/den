@@ -114,6 +114,9 @@ type entry struct {
 	// shown is the message as the user wrote it, when text adds den's
 	// notes for the agent, such as a file's path or the quoted message.
 	shown string
+	// file is the file the user sent, which den keeps for the app beside
+	// the agent's copy in the inbox; shown is then only its caption.
+	file *Upload
 }
 
 type Chat struct {
