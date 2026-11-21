@@ -28,9 +28,6 @@ import (
 // reply that only repeats den's question is noise.
 const Quiet = "The user already sees den's question with its buttons, so do not mention it. If you have nothing else for them, run den quiet and end your turn."
 
-// Wait is how long a question waits for an answer before den gives up.
-var Wait = 15 * time.Minute
-
 var (
 	ErrDenied  = errors.New("the user did not allow it")
 	ErrExpired = errors.New("the user did not answer in time")
@@ -103,6 +100,9 @@ type Asker struct {
 	// Label names a session above its question in Telegram, as the chat
 	// names it above its replies, or is empty for the chat's own session.
 	Label func(session string) string
+	// Wait is how long a question waits for an answer before den gives
+	// up, and Hour how long ForHour allows a question's scope.
+	Wait, Hour time.Duration
 
 	mu      sync.Mutex
 	pending map[string]*question
@@ -111,9 +111,6 @@ type Asker struct {
 	// later counts the questions asked with Later that still wait.
 	later sync.WaitGroup
 }
-
-// Hour is how long ForHour allows a question's scope.
-var Hour = time.Hour
 
 // before says how the user allowed q already, by a rule or for an hour, or
 // "" when den has to ask.
@@ -151,7 +148,7 @@ func (a *Asker) Pending() []events.Event {
 }
 
 func New(cfg config.Config) *Asker {
-	return &Asker{cfg: cfg, pending: map[string]*question{}, hours: map[string]time.Time{}}
+	return &Asker{cfg: cfg, Wait: 15 * time.Minute, Hour: time.Hour, pending: map[string]*question{}, hours: map[string]time.Time{}}
 }
 
 // Ask sends the question with Allow and Deny buttons, and Always when it
@@ -167,7 +164,7 @@ func (a *Asker) Ask(ctx context.Context, q Question) error {
 	if err != nil {
 		return err
 	}
-	return s.wait(ctx, Wait)
+	return s.wait(ctx, a.Wait)
 }
 
 // Later asks like Ask without waiting for the answer, for an action den can
@@ -343,7 +340,7 @@ func (a *Asker) Answer(id, outcome string) (string, bool) {
 			outcome = Allowed
 		} else {
 			a.mu.Lock()
-			a.hours[p.Scope] = time.Now().Add(Hour)
+			a.hours[p.Scope] = time.Now().Add(a.Hour)
 			a.mu.Unlock()
 		}
 	}
