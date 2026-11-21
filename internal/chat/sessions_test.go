@@ -248,3 +248,24 @@ func TestForgetKeepsSessionWhenDropFails(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestToTelegram checks where what comes of a session goes: a job's to
+// Telegram, an app's chat only once Telegram's chat is in it.
+func TestToTelegram(t *testing.T) {
+	c := newChat(t)
+	addSession(t, c, store.Session{ID: "app", Kind: store.KindChat})
+	addSession(t, c, store.Session{ID: "job", Kind: store.KindJob})
+
+	if c.ToTelegram("app") {
+		t.Fatal("the app's session went to Telegram")
+	}
+	if !c.ToTelegram("job") || !c.ToTelegram("") || !c.ToTelegram("gone") {
+		t.Fatal("a job's, no session's, or an unknown session's stayed out of Telegram")
+	}
+	if err := c.store.JoinTelegram(context.Background(), "app"); err != nil {
+		t.Fatal(err)
+	}
+	if !c.ToTelegram("app") {
+		t.Fatal("the session Telegram joined stayed out of it")
+	}
+}

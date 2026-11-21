@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -72,13 +73,16 @@ type Server struct {
 	// results are the latest job results and notices, for an app that was
 	// away when they came.
 	results []events.Event
+	// runs are the lines of the den map runs going on, by the session that
+	// started them.
+	runs map[string]string
 }
 
 // keptResults is how many results and notices the server keeps.
 const keptResults = 50
 
 func New(cfg config.Config, chat Chat, ask Asker, hub *events.Hub) *Server {
-	return &Server{cfg: cfg, chat: chat, ask: ask, events: hub}
+	return &Server{cfg: cfg, chat: chat, ask: ask, events: hub, runs: map[string]string{}}
 }
 
 // Serve listens on addr until ctx ends.
@@ -103,7 +107,8 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 	return nil
 }
 
-// keep holds on to the latest results and notices until ctx ends.
+// keep holds on to the latest results and notices, and the runs going on,
+// until ctx ends.
 func (s *Server) keep(ctx context.Context) {
 	list, stop := s.events.Listen()
 	defer stop()
@@ -112,13 +117,17 @@ func (s *Server) keep(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case e := <-list:
-			if e.Type != events.Result && e.Type != events.Notice {
-				continue
-			}
 			s.mu.Lock()
-			s.results = append(s.results, e)
-			if len(s.results) > keptResults {
-				s.results = s.results[len(s.results)-keptResults:]
+			switch {
+			case e.Type == events.Run && e.Text == "":
+				delete(s.runs, e.Session)
+			case e.Type == events.Run:
+				s.runs[e.Session] = e.Text
+			case e.Type == events.Result || e.Type == events.Notice:
+				s.results = append(s.results, e)
+				if len(s.results) > keptResults {
+					s.results = s.results[len(s.results)-keptResults:]
+				}
 			}
 			s.mu.Unlock()
 		}
@@ -519,10 +528,15 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.mu.Lock()
+	runs := maps.Clone(s.runs)
+	s.mu.Unlock()
 	reply(w, struct {
 		chat.Setup
-		API int `json:"api"`
-	}{setup, API})
+		// Runs are the lines of the den map runs going on, by session.
+		Runs map[string]string `json:"runs"`
+		API  int               `json:"api"`
+	}{setup, runs, API})
 }
 
 // A page of sessions or messages, and where the next one starts, empty

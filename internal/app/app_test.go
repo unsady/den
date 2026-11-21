@@ -232,6 +232,26 @@ func TestServer(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	// A run going on shows in the setup of an app that comes back, and is
+	// gone once it ends.
+	waitSetup := func(want string, has bool) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for {
+			if _, body := call("GET", "/setup", token, ""); strings.Contains(body, want) == has {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("setup has %q: %v", want, !has)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	hub.Publish(events.Event{Type: events.Run, Session: "s1", Text: "flash · 3 of 9"})
+	waitSetup(`"runs":{"s1":"flash · 3 of 9"}`, true)
+	hub.Publish(events.Event{Type: events.Run, Session: "s1"})
+	waitSetup(`"runs":{}`, true)
+
 	// Another device pairs beside the first, and unpairing shuts both out.
 	again, _ := Pair(cfg)
 	for _, device := range []string{token, again} {
