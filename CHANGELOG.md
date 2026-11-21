@@ -10,6 +10,10 @@ release notes.
 
 - `den notify` is gone. The agent answers in its reply, so a chat turn sends one message instead of a stray extra one.
 
+### Changed
+
+- After an action you allowed went through, den tells the agent it needs no reply that only confirms it, so you get fewer "done" messages.
+
 ## v0.12.0
 
 ### New

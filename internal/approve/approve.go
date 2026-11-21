@@ -398,6 +398,11 @@ func answered(q Question, outcome string) string {
 	return what
 }
 
+// Done ends what den tells the agent after an action the user allowed went
+// through: the user pressed the button, so a reply that only confirms it is
+// noise.
+const Done = "The user allowed it and needs no reply that only confirms it: when nothing is left to do, run den quiet as your last step."
+
 // Quote marks text from outside den, such as a service's answer, inside
 // what den tells the agent: between two lines with a tag the text cannot
 // know, so the text cannot pass itself off as den's own words.

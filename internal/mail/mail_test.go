@@ -192,7 +192,7 @@ func TestSMTPSendsWhatTheUserAllows(t *testing.T) {
 	if len(rules) != 2 || rules[1] != "mail to anya@example.com|mail to anya@example.com" {
 		t.Fatalf("one recipient: %q", rules)
 	}
-	want := "s1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it.]|s2 [den: Mail to Anya@Example.com was not sent: denied.]"
+	want := "s1 [den: the user allowed Mail to anya@example.com, boss@example.com, and den sent it. " + approve.Done + "]|s2 [den: Mail to Anya@Example.com was not sent: denied.]"
 	if got := strings.Join(reports, "|"); got != want {
 		t.Fatalf("reports %q", got)
 	}

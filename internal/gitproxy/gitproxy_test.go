@@ -148,7 +148,7 @@ func TestPush(t *testing.T) {
 	}
 	want := []string{
 		"s1 [den: Push to me/repo: main was not pushed: the user did not allow it.]",
-		"s1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches.]",
+		"s1 [den: the user allowed Push to me/repo: main, and den pushed it. git fetch updates your copy of the remote branches. " + approve.Done + "]",
 	}
 	if len(reports) != 3 || reports[0] != want[0] || reports[1] != want[1] || !strings.Contains(reports[2], "GitHub refused it: refs/heads/main") {
 		t.Fatalf("reports %q", reports)
