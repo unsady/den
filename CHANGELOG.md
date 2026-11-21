@@ -12,6 +12,7 @@ release notes.
 - `den connect` without arguments lists what you can connect. `den connect google` without the client JSON asks for its path and links the guide.
 - Ask the agent what you can connect, or how to connect an API, and it answers with the command to run on your computer, with the API's address, header, and a note on its endpoints filled in from its docs.
 - `/start` and `/help` in Telegram suggest a few first messages.
+- The README is short: install, first messages, and what to connect. The details moved to guides in `docs/`.
 - The end of `den setup` suggests a few first messages to the bot and how to connect more.
 
 - When one task asks you to allow several actions, den tells the agent what came of them together, once you answered the last, so you get one reply with the result. The agent no longer stays silent after an action you allowed.
