@@ -42,6 +42,7 @@ Usage:
   den login [--model <id>] [--base-url <url>] <provider>
                                 Add a model provider; asks for the key. --model
                                 also makes it den's default
+  den connect                   Choose what to connect, from the list below
   den connect google [<client JSON>]
                                 Connect Gmail and Calendar in this machine's browser
   den connect codex             Connect a ChatGPT subscription for Codex models
@@ -51,9 +52,10 @@ Usage:
   den disconnect google | codex | grok | claude | mail
   den secret set <name> | ls | rm <name>
                                 Keep a secret, such as github_token; asks for it
-  den service add [--header <name>] [--ask writes|never|always] [--about <text>] <name> <https-url>
-                                Let the agent call an API with your token, which
-                                it never sees; asks for the token
+  den service add               Let the agent call an API with your token, which it
+                                never sees; asks for the name, address, and token
+  den service add [--header <name>] [--ask writes|deletes|never|always] [--about <text>] <name> <https-url>
+                                The same without the questions, but the token
   den service ls | rm <name>
   den app pair [--address <ip>] Let the den app connect, on this machine's Tailscale
                                 address by default; prints what to paste in the app
@@ -187,13 +189,7 @@ func hostRun(args []string) error {
 	case "app":
 		return hostApp(c, args[1:])
 	case "service", "services":
-		if len(args) > 1 && args[1] == "add" {
-			token, err := ask("Token: ", true)
-			if err != nil {
-				return err
-			}
-			return inside(c, token, args...)
-		}
+		return hostService(c, args)
 	case "secret", "secrets":
 		if len(args) == 3 && args[1] == "set" {
 			value, err := ask("Value for "+args[2]+": ", true)

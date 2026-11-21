@@ -83,17 +83,25 @@ func setup(c hostConfig) error {
 	}
 
 	fmt.Println()
-	done("den is ready. Write to your bot in Telegram.")
+	done("den is ready. Write to your bot in Telegram, such as:")
 	fmt.Printf(`
-  den connect mail      read and send mail with an app password
-  den connect google    Gmail and Calendar through your own Google client
-  den status            what den runs and which secrets it has
-  den update            update den and restart it; notes and secrets stay
+  Every weekday at 9, send me the weather for the day.
+  What can you do, and what can I connect?
+  Help me connect my Todoist.
 
-Settings are in %s.
-`, configPath())
+When you want more, connect it here:
+
+  den connect           mail, Gmail and Calendar, or a subscription
+  den service add       your own API, with a token the agent never sees
+  den update            update den; notes and secrets stay
+
+Guides: %s
+`, docsURL)
 	return nil
 }
+
+// docsURL is where den's guides are, on GitHub.
+const docsURL = "https://github.com/unsady/den/blob/main/docs"
 
 // online checks that den's container reaches the internet, which a VPN
 // on this machine can block, before setup waits on Telegram or a model.

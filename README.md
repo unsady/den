@@ -2,262 +2,66 @@
 
 A personal AI agent you talk to in Telegram. It runs on your own computer, in a container, and does real work: reads and answers mail, keeps your calendar, runs jobs on a schedule, pushes to GitHub, calls your own APIs, searches the web, and remembers what it learns.
 
-den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent CLI, and adds what an assistant needs beyond coding:
-
-- **Small.** Idle, den is one small process waiting for your messages. Nothing stays loaded between messages: whisper, Python, and the browser start only when a task needs them.
-- **Safe with your accounts.** The agent never sees a password, token, or key. den holds them and adds them to the agent's requests itself, and anything that reaches other people or cannot be undone waits for your tap in Telegram.
-- **Works out of the box.** One command installs it; the setup asks for a Telegram bot and a model key, and the agent is ready.
-
-## What it does
-
-- **Chat** from Telegram: text, photos, files, and voice messages, with a short live line of what the agent is doing. The den [app](#app) joins the same chat.
-- **Jobs and reminders**: "every morning at 9, send me today's three most important items". A job runs on its own and sends you its reply.
-- **Mail and calendar** through Gmail and Google Calendar, or any mailbox with an app password.
-- **GitHub**: the agent clones, commits, and opens pull requests in the repositories you allow.
-- **Your own APIs**: give den a token for a service, and the agent can call it without seeing the token.
-- **Web search** that works without keys, and reading pages that need JavaScript.
-- **Files and charts**: the agent sends you documents, tables, and charts sized for a phone.
-- **Memory**: the agent keeps notes and writes skills for tasks it has worked out. A nightly review rereads the day's conversations and updates both, a nightly tidy keeps them free of logs, and every change is a git commit you can read or revert.
-- **Two models**: a main one for the chat and a second one, faster or stronger, for the jobs you pick.
+den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent CLI. Idle, it is one small process waiting for your messages, and the agent never sees a password, token, or key.
 
 ## Install
 
-You need a Telegram account, an API key for a model provider, and a tool that runs containers: Apple's [`container`](https://github.com/apple/container) or Docker on a Mac, Docker or Podman on Linux.
+You need a Telegram account, an account with a model provider or an AI subscription, and Apple's [`container`](https://github.com/apple/container) or Docker on a Mac, Docker or Podman on Linux.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unsady/den/main/install.sh | sh
 ```
 
-The script puts `den` in `~/.local/bin`, checks its digest, and runs `den setup`. The setup gets den's image, starts the container, and asks for two things:
+The setup asks for two things:
 
-- A Telegram bot's token, from @BotFather. You then send the bot any message, and den takes your chat from it. The bot answers only that chat.
-- The account that pays for the model: OpenCode Go, OpenRouter, DeepSeek, a ChatGPT Plus or Pro, SuperGrok, or Claude Pro or Max subscription, or any other provider on [models.dev](https://models.dev). den starts with a good model for it, which Enter keeps, and asks for its API key; a subscription signs in in the browser instead.
+- A Telegram bot's token, from [@BotFather](https://t.me/BotFather). You then send the bot any message, and it answers only your chat from then on.
+- The account that pays for the model: OpenRouter, DeepSeek, OpenCode Go, a ChatGPT, Grok, or Claude subscription, or any provider on [models.dev](https://models.dev).
 
-Then write to the bot. Run `den setup` again to finish a setup that stopped halfway; it skips what is done.
+Run `den setup` again to finish a setup that stopped halfway.
 
-## How it works, and why it is safe
+## Try it
 
-```
-  you, in Telegram
-        │  messages, and Allow / Deny on requests
-        ▼
-  ┌────────────────────────── container ──────────────────────────┐
-  │                                                               │
-  │   den (root)                            agent (uid 1000)      │
-  │   holds every secret                    fx with its tools     │
-  │                                                               │
-  │   model proxy :4100   ◀── model requests, no key ──────────── │
-  │   git proxy   :4300   ◀── clone and push, no token ────────── │
-  │   mail  :1143, :1025  ◀── IMAP and SMTP, no password ──────── │
-  │   den fetch, den job  ◀── the den command, on a socket ────── │
-  │        │                                                      │
-  └────────┼──────────────────────────────────────────────────────┘
-           │  den adds the key, only for the host it belongs to
-           ▼
-  model provider, GitHub, Google, your mail server, your APIs
-```
+Write to your bot:
 
-- **Two users.** den runs as root and the agent as an ordinary user. The agent reaches den only through the `den` command on a socket, so it can ask den to send a message or a request, but it cannot read den's files.
-- **Secrets stay with den.** You enter every secret in your terminal, never in the chat or on a command line. den keeps them in a volume only root can read, never in the environment, which every process could see.
-- **Keys go only where they belong.** The agent talks to the model provider, GitHub, and your mail through den's local proxies, and calls other services with `den fetch`. den adds the key to each request and sends it only to the host it was saved for, so a page or a mail that tricks the agent cannot carry a key anywhere else.
-- **Outward actions wait for you.** Sending mail, inviting people, pushing to a branch the agent did not create, deleting things, and writes to your own APIs show up in Telegram with Allow and Deny. A push that waits goes to GitHub under refs of den's own, so the question names its commits and files, and den moves the branch once you allow it and deletes those refs whatever you answer. Nothing is sent before Allow. The agent does not wait on the question: den keeps the action, takes it once you allow it, and tells the agent what came of it so it can carry on. A question nobody answers in a day expires. For a request you make often, such as a push to one branch or one kind of write to your API, **Always** allows that kind from then on. While the agent works through a task, **1 hour** allows every write to that API, or to that GitHub repository, but deletes and changes to its access, secrets, workflows, and branch rules, until the hour ends. Mail to one person offers the same two for that address; mail to several people and invitations are asked about every time.
-- **A log of what went out.** `/log` lists what the agent changed outside in the last day, and how: without a question, allowed by you, by your rule, denied, or expired. It names the repeating jobs added or removed, too. It also lists what you always allow, with a button to take each back.
-- **Only your chat.** The bot answers the one Telegram chat it was set up with.
+- Every weekday at 9, send me the weather for the day.
+- Remind me in 30 minutes to call the bank.
+- Find what happened in AI this week and sum it up in five lines.
+- What can you do, and what can I connect?
 
-What den does not stop: inside its container the agent works with full access, it can reach the internet, and it reads what you give it, such as your mail and notes. A prompt hidden in a page could make it send that content somewhere. Give it the accounts and repositories it needs, and no more. The model provider sees your conversations.
+Send photos, files, and voice messages too. `/help` lists the bot's commands.
 
-## Chat
+## Connect more
 
-Each message to the bot becomes a turn of the agent's current session, and the reply comes back to the chat. While a turn runs, one message shows its latest steps in short, such as `Searched “lightpanda 1.0”` or `→ Running grep…`, and goes away when the reply arrives. A message you send while the agent works joins that turn, marked ✍: the agent reads it after the step it is on, such as a command that is running, and can change course without starting over. A photo, or a reply to a job's message, waits and goes as the next turn, marked 👀.
+The agent knows how: ask it "help me connect my mail" or "connect Todoist", and it answers with the command to run on your computer. You enter the secret there, never in the chat.
 
-| Command | What it does |
+| What | Command |
 |---|---|
-| `/new` | Start a new session with the next message |
-| `/sessions` | Continue a recent session: the ones you used last come first, **Job runs** lists the jobs' sessions, and `/sessions taxes` finds one by title |
-| `/model` | Choose the model: the last ones chosen are one tap away, **All models** lists every provider's models, and `/model deep flash` finds one by name. **Second model** chooses the one for jobs set to it |
-| `/effort` | How hard the model thinks, such as `low` or `high`; higher is slower and costs more |
-| `/bg` | Run a task in the background, in a session of its own: `/bg <task>`. Its answer comes under the task's name, and a reply to it goes on in that session |
-| `/stop` | Stop the current turn |
-| `/compact` | Shrink the session to a summary now, when it fills at least 10% of the model's window |
-| `/jobs` | List the jobs; ask the agent to change, run, or remove one |
-| `/status` | The model, how full the session is, memory, and the next jobs |
-| `/log` | What the agent changed outside in the last day, and what you always allow |
-| `/usage` | Tokens used today and over the last 7 and 30 days |
-| `/bug` | Where to report a bug or suggest an idea: GitHub issues or den@bazutya.com |
-| `/help` | What the bot does |
+| Any mailbox | `den connect mail` |
+| Gmail and Calendar | `den connect google` |
+| GitHub | `den secret set github_token` |
+| Your own API | `den service add` |
+| Voice messages | [Voice](docs/voice.md) |
 
-When you reply to a message, the agent sees which one you mean. Photos, voice messages, and files you send are saved in the agent's `inbox/`; a photo also goes to a model that takes images, and a voice message comes with its transcript when [speech-to-text](#voice-messages) is set up. Telegram lets a bot download files up to 20 MB, and the agent sends files up to 50 MB.
+[Services](docs/services.md) has the details.
 
-After you have been away for 50 minutes, den compacts a long session while the provider still has it cached, so the next turns start small and cost less. The first reply after it says so: `🗜 While you were away, den compacted this session: 120k → 9k tokens.`
+## Safe with your accounts
 
-A chat session is an ordinary fx session: `den fx` opens the agent in your terminal, and `den fx session resume` continues a session there.
+- den holds every secret and adds it to the agent's requests itself, only for the host it belongs to.
+- Sending mail, pushing to `main`, deleting things, and writes to your APIs wait for your Allow in Telegram.
+- The bot answers only your chat.
 
-## App
+Inside its container the agent works with full access and reaches the internet, so give it only the accounts it needs. [Security](docs/security.md) says how it works and what it does not stop.
 
-The den app is another way into the same chat: the same session, models, and questions as Telegram. A message you write in the app is answered there; one you write in Telegram is answered in both, and job results and questions show in both. Answer a question in one, and it shrinks in the other.
+## More
 
-```bash
-den app pair
-```
+- [Chat, jobs, and models](docs/chat.md): the bot's commands, the app, jobs, models, memory
+- [Services](docs/services.md): your own APIs, GitHub, Google, mail, search
+- [Voice](docs/voice.md): transcribing voice messages
+- [Security](docs/security.md): how den keeps secrets and what waits for you
+- [Reference](docs/reference.md): commands, settings, the container's layout
+- [Development](docs/development.md): building den yourself
 
-`den app pair` publishes den's port, 4400, on this machine's Tailscale address only, so the app reaches den from anywhere in your tailnet and from nowhere else; `--address <ip>` picks another address of the machine instead. It prints a `den://` link with a new token to paste in the app's settings. den keeps only the token's hash, among its secrets, so the agent cannot read it, and every request without it is refused. Each link is for one device: run `den app pair` again for a phone and a laptop, and both stay in; `den app unpair` shuts every app out and closes the port.
-
-Tailscale encrypts the connection. On an address outside it, such as your home network, the token and the chat travel unencrypted, so use one only on a network you trust.
-
-## Jobs
-
-Ask the agent in the chat, or add a job yourself:
-
-```bash
-den job add --name call-the-bank --title "Call the bank" --schedule "in 30m" "Remind me to call the bank."
-den job add --name morning-brief --title "Morning brief" --schedule "0 9 * * 1-5" "Send me today's top three items from notes/todo.md."
-den job ls
-den job log morning-brief
-den job run morning-brief
-den job slot morning-brief second
-den job rm morning-brief
-```
-
-Schedules are `in 30m`, `2026-11-10 09:00`, `every 2h`, a cron expression, or `@daily`, in your time zone. A job runs in a fresh session and sends you its reply under a heading with its name and model, such as `⏰ morning · deepseek-v4.1-flash`, unless the run ends with `den quiet` or the job was added with `--silent`. A failed run is always reported. den adds two jobs of its own: `reflect`, the nightly review, at 04:00, and `tidy` at 05:00, which keeps the notes and skills easy to search. A job you remove stays removed.
-
-A job runs on the chat's main model or on the second one. Jobs name only which of the two, so changing the second model in `/model` changes every job on it; without a second model, those jobs run on the main one.
-
-## Models
-
-The setup adds one account, and `/model` in Telegram picks any of its models. `den login <provider>` adds another or changes its key, and its models appear in `/model`. `den connect codex` signs in to a ChatGPT subscription in your browser for its Codex models; `den connect grok` does the same for a Grok subscription. den keeps the tokens and refreshes them; the agent gets only a stand-in. `den connect claude` takes the token that `claude setup-token` from Claude Code prints, for a Claude Pro or Max subscription: den runs Anthropic's own `claude` command as the model and keeps the token from the agent. Each conversation runs a `claude` process of about 250 MB, so give den's container 2G when you use it.
-
-fx reaches every provider through den's proxy, which also measures each request. `den stats` shows how long each provider stayed silent before the first token, whether the answer stalled, how fast it wrote, and what failed, and the agent reads the same numbers when you ask it why it was slow today.
-
-## Services and approvals
-
-**GitHub.** Create a fine-grained token limited to the repositories the agent may use, with Contents, Issues, and Pull requests set to read and write, and run `den secret set github_token`. The agent clones and pushes with plain `git`, and calls GitHub's API with `den fetch`. Creating a branch and changing a branch the agent created go at once, and so do issues and pull requests through the API. Changing any other branch, such as `main`, merging, deleting a branch, pushing a tag, writing to someone else's repository, changing who can access one, or creating a public one waits for your answer.
-
-A branch the agent pushes runs your repository's GitHub Actions that start on a push or a pull request, with the secrets those workflows get. So leave out of the token any repository whose workflows hold secrets the agent must not reach, and give the token no Workflows permission, so the agent cannot change workflows. Where tags publish something, such as a release, protect them with a tag ruleset in the repository's settings. Ask the agent to back up its workspace, and it pushes `space/` to an empty private repository of yours every night.
-
-**Your own APIs.** Any API that takes a token in a header:
-
-```bash
-den service add crm https://crm.example.com --about "Deals API: GET /api/deals, POST /api/deals; docs at https://crm.example.com/docs"
-```
-
-den asks for the token. The agent calls `den fetch --secret crm https://crm.example.com/api/deals`, and den adds `Authorization: Bearer <token>`, only for `crm.example.com`. `--header X-Api-Key` sends the token in another header. Reads go at once and writes wait for your answer; `--ask deletes` asks only before a delete, `--ask never` lets the agent write on its own, and `--ask always` asks about every request. The agent reads your `--about` text with `den service ls`. `den service rm crm` removes the service and its token.
-
-**Gmail and Google Calendar.** den uses an OAuth client from your own Google Cloud project, so no one else holds access to your mail. In the project, enable the Gmail API and the Google Calendar API, add the scopes `gmail.modify` and `calendar.events` under Data Access, publish the app under Audience (in Testing, Google expires the access in 7 days), and create a client of type Desktop app. Then run `den connect google <the client JSON you downloaded>`. It opens Google's sign-in; Google warns that the app is unverified, and under Advanced you continue to it. If you sign in on another device, the last page fails to load: paste its address into the terminal. An app for personal use needs no verification from Google, and `den disconnect google` revokes the access.
-
-den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. Reading, labels, archiving, trash, drafts, and your own events need no answer.
-
-**Any mailbox.** `den connect mail` takes an address and an app password instead of Google sign-in, and checks the login. den knows the servers of Gmail, iCloud, Fastmail, Yahoo, AOL, Zoho, and GMX, and asks for others. The agent uses IMAP and SMTP on den's local ports, and den logs in to your server with the password the agent never sees. Each message sent waits for your Allow. An app password opens the whole mailbox; Google sign-in grants narrower access and covers the calendar.
-
-## Search
-
-`den search` works without setup, through the free endpoints of Exa, Keenable, and Parallel. A key gives higher limits: `den secret set exa_key`, or `deepseek_key`, `tavily_key`, or `brave_key`, and den asks that service first. A service that hits a limit rests for an hour, or a day when it runs out of quota, and den moves to the next. No service gets anything that names you.
-
-## Voice messages
-
-To transcribe in the container, add a [whisper.cpp model](https://huggingface.co/ggerganov/whisper.cpp) and your language to `env` in `~/.config/den/config.json`, then run `den restart`:
-
-```json
-"env": {
-  "TZ": "America/New_York",
-  "DEN_WHISPER_MODEL": "small-q8_0",
-  "DEN_WHISPER_LANGUAGE": "en"
-}
-```
-
-den downloads the model once and starts `whisper-cli` for each voice message, so the model takes memory only while it works. On a five-second message on arm64:
-
-| Model | Cores | Time | Peak memory |
-|---|---|---|---|
-| `large-v3-turbo-q8_0` (874 MB) | 4 | 8 s | 1.1 GB |
-| `large-v3-turbo-q8_0` | 2 | 15 s | 1.1 GB |
-| `small-q8_0` (264 MB) | 2 | 4 s | 0.5 GB |
-
-`large-v3-turbo` handles speech that mixes languages better. `DEN_WHISPER_LANGUAGE=auto` detects the language but runs the model twice.
-
-A service with OpenAI's transcription API works instead: for Groq, set `DEN_TRANSCRIBE_URL=https://api.groq.com/openai/v1/audio/transcriptions` and `DEN_TRANSCRIBE_MODEL=whisper-large-v3-turbo` in `env`, and run `den secret set transcribe_key`.
-
-## Skills and memory
-
-The agent's workspace, `space/`, is a git repository with its `AGENTS.md`, its notes, and the skills it writes under `.fx/skills/`. den adds built-in skills it can use but not change:
-
-- `den`: jobs, messages, files, services, and past sessions.
-- `reflect`: the nightly review.
-- `tidy`: folding logs and reports into topic notes, and keeping skills short.
-- `web`: reading pages, with [Lightpanda](https://lightpanda.io) for pages that need JavaScript.
-- `media`: details, subtitles, and transcripts of videos and audio with yt-dlp and whisper.
-- `python`: scripts and data work with uv, which fetches Python on first use.
-- `charts`: dark, minimal charts sized for a phone.
-- `data`: records that change, such as job openings with a status, in SQLite.
-- `map`: classifying or extracting from many similar items with `den map`, which asks a cheap model about each item in its own short request.
-- `social`: reading X and Reddit without an API key.
-- `model-stats`: how the model providers did, by hour.
-- `github`, `google`, `mail`: the services above.
-
-What the agent learns about a built-in skill goes to `notes/skills/<name>.md`, which the skill tells it to read.
-
-## Reference
-
-### Commands on your computer
-
-| Command | What it does |
-|---|---|
-| `den setup` | Sets den up, or finishes a setup |
-| `den update` | Updates the `den` command and its image from the latest release, and recreates the container; notes, sessions, and secrets stay |
-| `den start`, `den stop`, `den restart` | The container |
-| `den status`, `den logs [-f]` | The container and the secrets den has; den's log |
-| `den login <provider>` | Adds a model provider or changes its key |
-| `den connect google`, `mail`, `codex`, `grok`, `claude` | Gmail and Calendar, a mailbox, a ChatGPT, Grok or Claude subscription |
-| `den service add`, `ls`, `rm` | Your own APIs |
-| `den secret set <name>`, `ls`, `rm` | Any other secret, such as `github_token`; asks for its value |
-| `den stats [--since 2h] [--json]` | How the model providers did |
-| `den fx`, `den shell` | fx or a shell as the agent |
-
-Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
-
-The agent's files live in that folder on your computer. den's state and secrets live in the volume `den`, which keeps file permissions and survives `den update`. A shared folder may not keep permissions inside the container, so never put secrets in it.
-
-### Inside the container
-
-```
-/usr/local/bin/{den,fx,lightpanda,whisper-cli}
-/usr/share/den/skills/   built-in skills, read-only
-/var/lib/den/            den's state: jobs, runs, chat, model calls   (volume)
-  secrets/               root only
-/run/den/den.sock        the socket the agent's den command talks to
-/home/agent/             the agent's home                             (your folder)
-  .fx/                   fx settings and sessions
-  .agents/skills/        links to the built-in skills
-  .local/bin/            tools the agent installs, such as yt-dlp
-  space/                 the agent's workspace, a git repository
-    AGENTS.md            memory: the user and the environment
-    .fx/skills/          the skills the agent writes
-    notes/               lasting results, one file per topic
-  archive/               past sessions as markdown
-  inbox/                 photos and files from the chat
-```
-
-The agent's home is a folder on your computer, and the agent writes everything in it. Read it, but do not run git or other tools that follow a repository's own config there, such as an editor's git integration or a shell prompt that shows git status: a repository's config can name a program to run, and it would run as you, outside the container.
-
-### Environment
-
-Set these in `env` in `~/.config/den/config.json`.
-
-| Variable | Default |
-|---|---|
-| `TZ` | your computer's time zone |
-| `DEN_WHISPER_MODEL` | none: no local transcription |
-| `DEN_WHISPER_LANGUAGE` | `auto` |
-| `DEN_TRANSCRIBE_URL` | none: no transcription service |
-| `DEN_TRANSCRIBE_MODEL` | none: the service picks |
-| `DEN_JOB_TIMEOUT` | `30m`, for a job or a chat turn |
-| `DEN_JOBS` | `2`: how many jobs run at once; the rest wait |
-| `DEN_CLAUDE_PROCESSES` | `2`: how many Claude processes (about 250 MB each) den keeps; it closes the least recently used idle one beyond that |
-
-### Building it yourself
-
-In a checkout, `go build -o ~/.local/bin/den ./cmd/den` builds `den`, and `den setup` run there builds the image from the checkout instead of pulling it; `den update` then rebuilds it, and the `den` command too when Go is installed. `scripts/release.sh` builds `den` for every system `install.sh` supports. Before a release that changes a prompt, `go test -tags eval -run TestReplies -v ./internal/runner` asks the model of the den that runs on your computer a few questions and checks its replies: short, in plain text, in your language, and `den quiet` when a job has nothing to send.
-
-The image takes fx from a release of [a fork](https://github.com/unsady/fx) that carries the few changes den needs, and checks its digest. To try your own fx, build it in an fx checkout with `zig build -Dtarget=aarch64-linux -Doptimize=ReleaseSafe` and copy `zig-out/bin/fx` to `build/fx` before `den update`.
+Report a bug or suggest an idea in [issues](https://github.com/unsady/den/issues) or at den@bazutya.com.
 
 ## License
 

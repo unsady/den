@@ -88,7 +88,10 @@ type Daemon interface {
 }
 
 func help() string {
-	text := "Write to talk to the agent. Messages sent while it works go together as the next turn.\n"
+	text := "Write to talk to the agent, such as:\n" +
+		"\n• Every weekday at 9, send me the weather for the day." +
+		"\n• What can you do, and what can I connect?" +
+		"\n• Help me connect my Todoist.\n"
 	for _, c := range commands {
 		text += "\n/" + c.Name + ": " + c.Description
 	}
