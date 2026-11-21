@@ -181,6 +181,22 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
 }
 
+// lastMessage is the user's latest message in session's journal.
+func lastMessage(t *testing.T, cfg config.Config, session string) events.Event {
+	t.Helper()
+	list, err := events.Journal(filepath.Join(cfg.State, "journal"), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(list) - 1; i >= 0; i-- {
+		if list[i].Type == events.Message {
+			return list[i]
+		}
+	}
+	t.Fatalf("no message in %s", session)
+	return events.Event{}
+}
+
 func (f *fakeTelegram) expect(t *testing.T, want string) {
 	t.Helper()
 	select {
@@ -335,7 +351,7 @@ func countSessions(t *testing.T) {
 }
 
 func TestChat(t *testing.T) {
-	cfg, telegram := startChat(t, nil)
+	cfg, telegram, c := startChatWith(t, nil)
 
 	telegram.message(7, "from a stranger")
 	telegram.message(42, "hello")
@@ -393,6 +409,12 @@ func TestChat(t *testing.T) {
 	photo := filepath.Join(day, fmt.Sprintf("%d-photo.jpg", id))
 	telegram.expect(t, "resume=s2 msg=what is this lines=2 images=1")
 	expectFile(t, photo, "content of large")
+	// The app gets the caption with the photo kept for it.
+	if e := lastMessage(t, cfg, "s2"); e.Text != "what is this" || len(e.Files) != 1 || e.Files[0].Name != "photo.jpg" {
+		t.Fatalf("message %+v", e)
+	} else {
+		expectFile(t, c.Events.FilePath("s2", e.Files[0].File), "content of large")
+	}
 
 	// A document keeps a safe form of its name and is not attached.
 	id = telegram.update(42, map[string]any{
@@ -401,6 +423,9 @@ func TestChat(t *testing.T) {
 	document := filepath.Join(day, fmt.Sprintf("%d-Report_v1.pdf", id))
 	telegram.expect(t, "resume=s2 msg=[The user sent a file, saved at "+document+"] lines=1")
 	expectFile(t, document, "content of doc")
+	if e := lastMessage(t, cfg, "s2"); e.Text != "" || len(e.Files) != 1 || e.Files[0].Name != "../.Report v1.pdf" {
+		t.Fatalf("message %+v", e)
+	}
 
 	// The files of an album reach the agent as one message.
 	first := telegram.update(42, map[string]any{
@@ -1336,9 +1361,12 @@ func TestAppTurn(t *testing.T) {
 	if err := c.Post(context.Background(), "look", "", files); err != nil {
 		t.Fatal(err)
 	}
-	if e := next(events.Message); e.Text != "look\n📷 shot.png" {
+	// The app gets one message with both files, kept in the session for it.
+	e := next(events.Message)
+	if e.Text != "look" || len(e.Files) != 2 || e.Files[0].Name != "shot.png" || e.Files[1].Name != "notes.txt" || e.Files[1].Size != 5 {
 		t.Fatalf("message %+v", e)
 	}
+	expectFile(t, c.Events.FilePath(e.Session, e.Files[0].File), png)
 	if e := next(events.Reply); !strings.Contains(e.Text, "msg=look") || !strings.HasSuffix(e.Text, "images=1") {
 		t.Fatalf("reply %+v", e)
 	}
