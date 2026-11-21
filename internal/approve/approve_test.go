@@ -77,9 +77,12 @@ func TestAsk(t *testing.T) {
 		t.Fatalf("denied: %v", err)
 	}
 
-	defer func(wait time.Duration) { Wait = wait }(Wait)
-	Wait = 50 * time.Millisecond
-	if err := ask(""); !errors.Is(err, ErrExpired) {
+	// Only this question expires: the ones after it wait while the test
+	// answers, and those left unanswered never edit the next run's server.
+	a.Wait = 50 * time.Millisecond
+	err := ask("")
+	a.Wait = 15 * time.Minute
+	if !errors.Is(err, ErrExpired) {
 		t.Fatalf("expired: %v", err)
 	}
 	if got := <-edited; got != "crm: POST /api/deals\n✗ Expired" {
@@ -149,8 +152,7 @@ func TestAsk(t *testing.T) {
 	}
 
 	// 1 hour allows the question's scope, and then den asks again.
-	defer func(hour time.Duration) { Hour = hour }(Hour)
-	Hour = 100 * time.Millisecond
+	a.Hour = 100 * time.Millisecond
 	scoped := Question{Text: "Post it?", What: "crm: POST /api/a", Scope: "fetch crm"}
 	go a.Ask(context.Background(), scoped)
 	got := <-sent
@@ -169,15 +171,7 @@ func TestAsk(t *testing.T) {
 	default:
 	}
 	time.Sleep(150 * time.Millisecond)
-	// It expires unanswered; the test waits for it, so its edit never
-	// reaches the next run's server.
-	expired := make(chan error, 1)
-	go func() { expired <- a.Ask(context.Background(), other) }()
-	defer func() {
-		if err := <-expired; !errors.Is(err, ErrExpired) {
-			t.Errorf("after the hour: %v", err)
-		}
-	}()
+	go a.Ask(context.Background(), other)
 	if got := <-sent; !strings.HasPrefix(got, "Patch it?") {
 		t.Fatalf("after the hour: %q", got)
 	}
