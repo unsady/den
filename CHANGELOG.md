@@ -12,6 +12,10 @@ release notes.
 - A message from the app takes up to 20 MB of files, as Telegram does, instead of 700 KB.
 - A message you send while a turn runs joins that turn in every session, not only in the one Telegram's chat is in: in a session from the app, a job's, or a /bg task's too. Before, it waited and got an answer of its own after the turn's.
 
+### Fixed
+
+- A turn on Grok no longer fails with `InvalidGrokSubscriptionAccount` when it takes a subagent's report after the turn that started it ran longer than about 30 seconds. den now uses fx 0.0.17-den.7.
+
 ## v0.14.0
 
 ### Changed
