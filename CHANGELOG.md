@@ -11,6 +11,10 @@ release notes.
 - Files and photos you send, from the app or Telegram, show in the app as files of your message that you can open and save, not as a line with their name. den keeps a copy for the app beside the agent's in its inbox.
 - A message from the app takes up to 20 MB of files, as Telegram does, instead of 700 KB.
 
+### Fixed
+
+- A turn on Grok no longer fails with `InvalidGrokSubscriptionAccount` when it takes a subagent's report after the turn that started it ran longer than about 30 seconds. den now uses fx 0.0.17-den.7.
+
 ## v0.14.0
 
 ### Changed
