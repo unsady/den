@@ -8,6 +8,10 @@ release notes.
 
 ### Changed
 
+- `den service add` without arguments asks for the API's name, address, header, which requests wait for you, a note for the agent, and the token, one at a time, so you need no flags.
+- `den connect` without arguments lists what you can connect. `den connect google` without the client JSON asks for its path and links the guide.
+- The end of `den setup` suggests a few first messages to the bot and how to connect more.
+
 - When one task asks you to allow several actions, den tells the agent what came of them together, once you answered the last, so you get one reply with the result. The agent no longer stays silent after an action you allowed.
 
 ### Fixed

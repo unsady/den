@@ -163,12 +163,24 @@ func login(c hostConfig, provider, model, baseURL string) error {
 
 func hostConnect(c hostConfig, args []string) error {
 	if len(args) == 0 {
-		return errors.New("connect google, codex, grok, claude, or mail")
+		service, err := chooseConnect()
+		if err != nil {
+			return err
+		}
+		args = []string{service}
 	}
 	switch args[0] {
 	case "mail":
 		return connectMail(c)
 	case "google":
+		if len(args) == 1 && terminal() && !secrets(c)[google.ClientFile] {
+			note("den needs an OAuth client from your own Google Cloud project: " + docsURL + "/services.md#gmail-and-google-calendar")
+			path, err := ask("Path to the client JSON you downloaded", false)
+			if err != nil {
+				return err
+			}
+			args = append(args, expand(path))
+		}
 		if len(args) > 1 {
 			client, err := os.ReadFile(args[1])
 			if err != nil {
