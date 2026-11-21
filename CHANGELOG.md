@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.14.0
+
 ### Changed
 
 - `den service add` without arguments asks for the API's name, address, header, which requests wait for you, a note for the agent, and the token, one at a time, so you need no flags.
