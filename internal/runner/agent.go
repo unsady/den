@@ -154,6 +154,22 @@ func (a *Agent) Steer(ctx context.Context, key, text string) error {
 	return conn.Steer(ctx, session, key, text)
 }
 
+// Settle waits until fx has answered every message Steer passed, so one
+// that fx runs as a turn of its own ends before the caller closes fx. It
+// waits no longer than a turn may run.
+func (a *Agent) Settle(ctx context.Context) {
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+	if conn == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, a.cfg.JobTimeout)
+	defer cancel()
+	conn.Settle(ctx)
+}
+
 // Close stops fx. The next turn starts it again.
 func (a *Agent) Close() {
 	a.mu.Lock()

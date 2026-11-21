@@ -179,8 +179,8 @@ func (c *Chat) tell(ctx context.Context, telegram *notify.Telegram, notices []st
 // queue keeps a message for the next turn in its session. While a turn
 // runs there, it marks the message with 👀, so the user sees it waits.
 //
-// A text for the chat's own session joins the running turn instead, when it
-// is one of the agent's, and is marked with ✍.
+// A text joins the turn that runs in its session instead, and is marked
+// with ✍.
 func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Message, entries ...entry) {
 	id := m.ID
 	session, err := c.target(m.ReplyTo)
@@ -213,20 +213,23 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 	}
 }
 
-// steer passes the texts of entries to the running turn, when it is the
-// agent's and they are for its session. It reports false when the caller
-// keeps them for the next turn instead.
+// steer passes the texts of entries to the turn that runs in their session.
+// It reports false when the caller keeps them for the next turn instead.
 func (c *Chat) steer(ctx context.Context, entries []entry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	session := entries[0].session
 	c.mu.Lock()
-	session := c.steering
-	ok := session != ""
+	agent := c.steering[session]
+	c.mu.Unlock()
+	ok := agent != nil
 	var texts []string
 	for _, e := range entries {
 		ok = ok && e.session == session && e.image == "" && !e.report
 		texts = append(texts, e.text)
 	}
-	c.mu.Unlock()
-	if !ok || len(texts) == 0 {
+	if !ok {
 		return false
 	}
 
@@ -236,7 +239,7 @@ func (c *Chat) steer(ctx context.Context, entries []entry) bool {
 	c.mu.Lock()
 	c.steered[key] = steered{text: text, session: session, at: time.Now()}
 	c.mu.Unlock()
-	if err := c.agent.Steer(ctx, key, text); err != nil {
+	if err := agent.Steer(ctx, key, text); err != nil {
 		c.mu.Lock()
 		delete(c.steered, key)
 		c.mu.Unlock()

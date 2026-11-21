@@ -38,7 +38,7 @@ func (c *Chat) showTyping(ctx context.Context, done <-chan struct{}) {
 // earlier note waits.
 func (c *Chat) Note(session, text string) {
 	c.mu.Lock()
-	running := session != "" && session == c.steering
+	running := session != "" && c.steering[session] == c.agent
 	c.mu.Unlock()
 	if !running {
 		return

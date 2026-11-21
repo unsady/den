@@ -72,8 +72,9 @@ func (c *Chat) agentBusy() bool {
 // turn running. It returns false when there were none.
 //
 // A turn in the session a client is in runs on the chat's agent when it is
-// free, so a message sent meanwhile can join it. Any other turn, such as a
-// reply to a job's message, runs on an agent of its own, as /bg does.
+// free. Any other turn, such as a reply to a job's message or one the app
+// asked for, runs on an agent of its own, as /bg does. A message sent to
+// the session meanwhile joins the turn either way.
 func (c *Chat) turn(ctx context.Context) bool {
 	// The session is read before its messages leave the inbox, so a
 	// failure leaves them for the next try.
@@ -127,12 +128,14 @@ func (c *Chat) turn(ctx context.Context) bool {
 	if t.own {
 		c.bg[t.id] = stop
 		t.agent = runner.NewAgent(c.cfg)
+		t.agent.OnDropped = c.undelivered
+		t.agent.OnTurn = c.steeredTurn
 	} else {
 		c.stop = stop
-		// The agent starts a session den named before its first turn.
-		c.steering = session
 		t.agent = c.agent
 	}
+	// The agent starts a session den named before its first turn.
+	c.steering[session] = t.agent
 	c.mu.Unlock()
 	if t.own {
 		// The chat's agent may hold the session as it was before this turn.
@@ -242,15 +245,20 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	c.mu.Lock()
 	files := c.attached[session]
 	delete(c.attached, session)
+	delete(c.steering, session)
 	if t.own {
 		delete(c.bg, t.id)
 	} else {
 		c.stop = nil
-		c.steering = ""
 	}
 	c.mu.Unlock()
 	if t.own {
-		t.agent.Close()
+		// A message fx runs as a turn of its own after this one ends
+		// before fx stops, and the session stays busy until then.
+		defer func() {
+			t.agent.Settle(turn)
+			t.agent.Close()
+		}()
 	} else {
 		// The user's time away counts from the end of the chat's turn.
 		select {

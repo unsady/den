@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"github.com/unsady/den/internal/store"
 	"os"
 	"path/filepath"
 	"slices"
@@ -260,6 +261,35 @@ func TestSteer(t *testing.T) {
 		defer telegram.mu.Unlock()
 		return strings.Contains(strings.Join(telegram.reacted, ","), fmt.Sprintf("%d ✍", id))
 	})
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("the steered message got a turn of its own: %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// TestSteerOwnTurn passes a message into a turn on an agent of its own, such
+// as one in a job's session, as into the chat agent's.
+func TestSteerOwnTurn(t *testing.T) {
+	cfg, telegram, c := startChatWith(t, nil)
+	seed(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})
+	c.Sent([]int64{900}, "job1")
+	reply := map[string]any{"message_id": 900}
+
+	telegram.update(42, map[string]any{"text": "slow", "reply_to_message": reply})
+	waitFor(t, func() bool {
+		data, _ := os.ReadFile(filepath.Join(cfg.Space, "last-prompt"))
+		return string(data) == "slow"
+	})
+	id := telegram.update(42, map[string]any{"text": "and this", "reply_to_message": reply})
+	telegram.expect(t, "⏰ news\n\nresume=job1 msg=slow lines=1 provider=p2 model=m steered=and this")
+
+	telegram.mu.Lock()
+	reacted := strings.Join(telegram.reacted, ",")
+	telegram.mu.Unlock()
+	if !strings.Contains(reacted, fmt.Sprintf("%d ✍", id)) {
+		t.Fatalf("reacted %q", reacted)
+	}
 	select {
 	case got := <-telegram.sent:
 		t.Fatalf("the steered message got a turn of its own: %q", got)

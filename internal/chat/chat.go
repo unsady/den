@@ -149,11 +149,11 @@ type Chat struct {
 	// albums hold the files of an album until the last one is saved.
 	albums map[string]*album
 
-	// agent runs the turns in the session a client is in. steering is the
-	// session of its running turn, which a message for that session can
-	// join, and files and notes its commands send go with.
+	// agent runs the turns in the session a client is in. steering holds
+	// the agent of each running turn, the chat's or one of its own, by its
+	// session, so a message for that session joins the turn.
 	agent    *runner.Agent
-	steering string
+	steering map[string]*runner.Agent
 	// steered are the messages passed to the running turn, by the key
 	// passed with them, which come back as a turn of their own if fx did
 	// not deliver them, unless /stop dropped them.
@@ -340,6 +340,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		attached: map[string][]Upload{},
 		agent:    runner.NewAgent(cfg),
 		busy:     map[string]int{},
+		steering: map[string]*runner.Agent{},
 		steered:  map[string]steered{},
 		titled:   map[string]bool{},
 		quiet:    map[string]time.Time{},
