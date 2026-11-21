@@ -94,3 +94,18 @@ func (s *Store) TelegramSession(ctx context.Context, message int64) (string, err
 	}
 	return id, err
 }
+
+// JoinTelegram puts Telegram's chat in session, which must be in the store,
+// so the session's replies come there from now on.
+func (s *Store) JoinTelegram(ctx context.Context, session string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO telegram_sessions (session_id) VALUES (?) ON CONFLICT DO NOTHING`, session)
+	return err
+}
+
+// InTelegram says whether Telegram's chat is in session.
+func (s *Store) InTelegram(ctx context.Context, session string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM telegram_sessions WHERE session_id = ?`, session).Scan(&n)
+	return n > 0, err
+}

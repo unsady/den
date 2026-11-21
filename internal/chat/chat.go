@@ -100,8 +100,6 @@ type entry struct {
 	text string
 	// image is the saved path of a photo to attach.
 	image string
-	// app marks a message from the app, whose turn answers only there.
-	app bool
 	// report marks den's report of what came of an action, and notice is
 	// what den tells the user instead when the agent does not get it, after
 	// /stop or a switch; nothing when it is empty.
@@ -247,12 +245,12 @@ func (c *Chat) isStopping() bool {
 	return c.stopping
 }
 
-// cutShort tells the user, in the app and unless app says the turn was the
-// app's alone in Telegram, that den stopped before session's turn ended.
-func (c *Chat) cutShort(session string, app bool) {
+// cutShort tells the user, in the app and in Telegram when its chat is in
+// session, that den stopped before session's turn ended.
+func (c *Chat) cutShort(session string) {
 	const text = "den restarted before this turn ended. Write to go on."
 	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: true})
-	if app {
+	if !c.inTelegram(session) {
 		return
 	}
 

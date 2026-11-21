@@ -19,8 +19,8 @@ import (
 )
 
 // What the app asks of the chat. The app and Telegram share the chat: its
-// session, its models, and its turns. A turn of the app's messages answers
-// only in the app, and one of Telegram's answers in both.
+// sessions, its models, and its turns. Every reply comes in the app, and in
+// Telegram when its chat is in the reply's session.
 
 // File is a file the app sends with a message.
 type File struct {
@@ -91,7 +91,6 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 		}
 	}
 	for i := range entries {
-		entries[i].app = true
 		entries[i].session = session
 	}
 

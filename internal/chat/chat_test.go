@@ -1270,6 +1270,31 @@ func TestAppTurn(t *testing.T) {
 	}
 	next(events.Idle)
 
+	// den's report in the app's session answers only in the app too, since
+	// Telegram's chat never went there.
+	if !c.Tell(first.Session, "[den: done]", "done") {
+		t.Fatal("the report was not kept")
+	}
+	if e := next(events.Reply); e.Session != first.Session || !strings.Contains(e.Text, "msg=[den: done]") {
+		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+	select {
+	case got := <-telegram.sent:
+		t.Fatalf("Telegram got %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// The app's message in Telegram's session answers in both.
+	own := c.cursor(store.Telegram)
+	c.Post(context.Background(), "also", own, nil)
+	want = "resume=" + own + " msg=also lines=1"
+	telegram.expect(t, want)
+	if e := next(events.Reply); e.Session != own || e.Text != want {
+		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+
 	// A reply to a job's run goes on in its session, on the job's model, and
 	// only in the app.
 	seed(t, c, store.Session{ID: "job1", Kind: store.KindJob, Title: "news", Choice: store.Choice{Provider: "p2", Model: "m"}})

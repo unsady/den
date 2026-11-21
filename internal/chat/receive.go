@@ -280,6 +280,9 @@ func (c *Chat) steeredTurn(key string, reply runner.Reply) {
 		return
 	}
 	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})
+	if !c.inTelegram(reply.SessionID) {
+		return
+	}
 
 	telegram, err := notify.Load(c.cfg)
 	if err != nil {

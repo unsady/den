@@ -13,8 +13,6 @@ type Message struct {
 	Text    string
 	// Image is the saved path of a photo to attach.
 	Image string
-	// App marks a message from the app, whose turn answers only there.
-	App bool
 	// Report marks den's report of what came of an action, and Notice is
 	// what den tells the user instead when the agent does not get it.
 	Report  bool
@@ -37,8 +35,8 @@ func (s *Store) Enqueue(ctx context.Context, messages ...Message) error {
 			m.Created = now
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO inbox (session_id, text, image, app, report, notice, created) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			m.Session, m.Text, m.Image, m.App, m.Report, m.Notice, unix(m.Created)); err != nil {
+			`INSERT INTO inbox (session_id, text, image, report, notice, created) VALUES (?, ?, ?, ?, ?, ?)`,
+			m.Session, m.Text, m.Image, m.Report, m.Notice, unix(m.Created)); err != nil {
 			return err
 		}
 	}
@@ -126,7 +124,7 @@ func (s *Store) ClearInbox(ctx context.Context) ([]Message, error) {
 	return list, tx.Commit()
 }
 
-const messageColumns = `id, session_id, text, image, app, report, notice, created`
+const messageColumns = `id, session_id, text, image, report, notice, created`
 
 func scanMessages(rows interface {
 	Next() bool
@@ -139,7 +137,7 @@ func scanMessages(rows interface {
 	for rows.Next() {
 		var m Message
 		var created int64
-		if err := rows.Scan(&m.ID, &m.Session, &m.Text, &m.Image, &m.App, &m.Report, &m.Notice, &created); err != nil {
+		if err := rows.Scan(&m.ID, &m.Session, &m.Text, &m.Image, &m.Report, &m.Notice, &created); err != nil {
 			return nil, err
 		}
 		m.Created = fromUnix(created)
