@@ -9,6 +9,7 @@ release notes.
 ### Changed
 
 - Files and photos you send, from the app or Telegram, show in the app as files of your message that you can open and save, not as a line with their name. den keeps a copy for the app beside the agent's in its inbox.
+- A message from the app takes up to 20 MB of files, as Telegram does, instead of 700 KB.
 
 ## v0.14.0
 

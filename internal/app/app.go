@@ -365,7 +365,7 @@ func (s *Server) Handler() http.Handler {
 			// Files are what the user attached, in base64.
 			Files []chat.File `json:"files"`
 		}
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMessage)).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
@@ -550,6 +550,11 @@ type messagePage struct {
 	Messages []message `json:"messages"`
 	Before   string    `json:"before,omitempty"`
 }
+
+// maxMessage is the most a message from the app may weigh: 20 MB of files,
+// as much as Telegram lets den download, in base64, which is a third
+// larger, with room for the text.
+const maxMessage = 32 << 20
 
 // maxPage is the most a page holds.
 const maxPage = 200
