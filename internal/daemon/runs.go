@@ -166,14 +166,14 @@ func sessionRuns(runs map[string]*mapRun) map[string]string {
 		if lines[r.session] != "" {
 			lines[r.session] += "; "
 		}
-		lines[r.session] += r.line()
+		lines[r.session] += "den map · " + r.line()
 	}
 	return lines
 }
 
 // runsText lists the runs, the oldest first.
 func runsText(runs map[string]*mapRun) string {
-	lines := []string{"🗂 Running"}
+	lines := []string{"🗂 den map"}
 	for _, r := range sorted(runs) {
 		lines = append(lines, r.line())
 	}
