@@ -59,6 +59,24 @@ func (c *Chat) inTelegram(session string) bool {
 	return in
 }
 
+// ToTelegram says whether what comes of session goes to Telegram: a
+// job's results always, a chat or /bg session's once Telegram's chat is in
+// it, and what comes of no session or one den does not have.
+func (c *Chat) ToTelegram(session string) bool {
+	if session == "" {
+		return true
+	}
+
+	s, err := c.store.Session(context.Background(), session)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Printf("chat: session %s: %v", session, err)
+		}
+		return true
+	}
+	return s.Kind == store.KindJob || c.inTelegram(session)
+}
+
 // joined returns the session client is in, and starts a chat session for
 // it when it is in none.
 func (c *Chat) joined(client string) (string, error) {

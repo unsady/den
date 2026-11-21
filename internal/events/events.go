@@ -33,9 +33,13 @@ const (
 	Idle = "idle"
 	// Result is a job's reply or failure.
 	Result = "result"
-	// Notice is a report of den's own, such as a den map run's progress, in
+	// Notice is a report of den's own, such as a den map run's result, in
 	// the session that started it, or in none.
 	Notice = "notice"
+	// Run is how far the den map runs a session started go in den's
+	// background, such as "deepseek-v4.1-flash · 38 of 54"; empty once none
+	// is left.
+	Run = "run"
 	// Ask is a question den asks before an action, and Answered says it no
 	// longer waits.
 	Ask      = "ask"

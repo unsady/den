@@ -13,6 +13,7 @@ release notes.
 ### Fixed
 
 - A session you talk to only in the app no longer answers in Telegram when den wakes it, such as when a `den map` it started ends. Telegram gets a session's replies once you wrote to it there (a message, a reply to one of its messages, or `/bg`), whoever starts the turn; the app gets every session's.
+- How far a `den map` run is shows in the app, under the session that started it, and in Telegram only when that session answers there. A run started from the app used to show its progress in Telegram alone, so the app looked as if the agent had stopped answering.
 
 ## v0.13.0
 
