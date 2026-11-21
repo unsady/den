@@ -110,22 +110,15 @@ func (c *Chat) turn(ctx context.Context) bool {
 	}
 	joined := session == c.cursor(store.Telegram) || session == c.cursor(appClient)
 
-	t := chatTurn{session: session, choice: choice, id: rand.Text(), untitled: c.untitled(session)}
-	// A turn of the app's messages alone answers only in the app; den's
-	// reports go with the messages around them.
+	t := chatTurn{session: session, choice: choice, id: rand.Text(), untitled: c.untitled(session), telegram: c.inTelegram(session)}
 	var texts []string
-	t.app = true
 	for _, m := range messages {
-		if !m.Report {
-			t.asked = true
-			t.app = t.app && m.App
-		}
+		t.asked = t.asked || !m.Report
 		texts = append(texts, m.Text)
 		if m.Image != "" {
 			t.images = append(t.images, m.Image)
 		}
 	}
-	t.app = t.app && t.asked
 	t.prompt = strings.Join(texts, "\n\n")
 	run, stop := context.WithCancel(ctx)
 	c.mu.Lock()
@@ -172,10 +165,10 @@ type chatTurn struct {
 	choice  runner.Choice
 	prompt  string
 	images  []string
-	// asked says the user wrote, and app that only the app's messages and
-	// den's reports came.
-	asked, app bool
-	untitled   bool
+	// asked says the user wrote, and telegram that Telegram's chat is in
+	// the session, so the turn answers there as well as in the app.
+	asked, telegram bool
+	untitled        bool
 	// own marks a turn on an agent of its own rather than the chat's.
 	own   bool
 	agent *runner.Agent
@@ -203,11 +196,11 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	done := make(chan struct{})
 	shown := make(chan struct{})
 	steps := make(chan progress, 64)
-	if !t.app {
+	if t.telegram {
 		go c.showTyping(turn, done)
 	}
 	go func() {
-		c.showProgress(ctx, steps, done, !t.app && !t.own)
+		c.showProgress(ctx, steps, done, t.telegram && !t.own)
 		close(shown)
 	}()
 	req := runner.Request{
@@ -282,7 +275,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	if turn.Err() == context.Canceled {
 		// /stop already answered; den stopping says so.
 		if ctx.Err() != nil {
-			c.cutShort(session, t.app)
+			c.cutShort(session)
 		}
 		return
 	}
@@ -309,7 +302,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		text = label + "\n\n" + text
 	}
 	text = compacted + text
-	if t.app {
+	if !t.telegram {
 		return
 	}
 

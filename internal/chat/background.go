@@ -32,7 +32,8 @@ func bgTask(text string) (string, bool) {
 // runBackground runs task in a new session of its own besides the chat's
 // turns. Its answer comes headed with the task's name, and a reply to it
 // goes on in its session. With no telegram, the task is the app's: nothing
-// is said in Telegram, and the answer comes only in the app.
+// is said in Telegram, and the answer comes only in the app. From Telegram,
+// its chat is in the task's session.
 func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, task string) {
 	if task == "" {
 		const hint = "Send /bg with a task, such as: /bg compare these two models"
@@ -79,6 +80,11 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		log.Printf("chat: background session: %v", err)
 		c.tell(ctx, telegram, []string{"den could not start the task: " + err.Error()})
 		return
+	}
+	if !app {
+		if err := c.store.JoinTelegram(context.Background(), session); err != nil {
+			log.Printf("chat: background session: %v", err)
+		}
 	}
 	release := c.Occupy(session)
 
@@ -143,7 +149,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if run.Err() == context.Canceled {
 			// /stop already answered; den stopping says so.
 			if life.Err() != nil {
-				c.cutShort(session, app)
+				c.cutShort(session)
 			}
 			return
 		}
@@ -156,7 +162,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		}
 		c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: task})
 		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: answer(reply, false), Failed: reply.Error != ""})
-		if app {
+		if !c.inTelegram(session) {
 			return
 		}
 		telegram, err := notify.Load(c.cfg)

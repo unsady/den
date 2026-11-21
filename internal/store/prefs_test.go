@@ -18,7 +18,7 @@ func TestInbox(t *testing.T) {
 		t.Fatal("a message for no session was kept")
 	}
 
-	if err := s.Enqueue(ctx, Message{Session: "a", Text: "1"}, Message{Session: "b", Text: "2", App: true}); err != nil {
+	if err := s.Enqueue(ctx, Message{Session: "a", Text: "1"}, Message{Session: "b", Text: "2"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Enqueue(ctx, Message{Session: "a", Text: "3", Report: true, Notice: "n"}); err != nil {
@@ -46,7 +46,7 @@ func TestInbox(t *testing.T) {
 		t.Fatalf("turn %q %+v", session, list)
 	}
 	session, list = take()
-	if session != "b" || len(list) != 1 || !list[0].App {
+	if session != "b" || len(list) != 1 || list[0].Text != "2" {
 		t.Fatalf("turn %q %+v", session, list)
 	}
 	if session, list := take(); session != "" || list != nil {

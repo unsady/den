@@ -89,7 +89,7 @@ func (c *Chat) enqueue(entries ...entry) error {
 	messages := make([]store.Message, 0, len(entries))
 	for _, e := range entries {
 		messages = append(messages, store.Message{
-			Session: e.session, Text: e.text, Image: e.image, App: e.app, Report: e.report, Notice: e.notice,
+			Session: e.session, Text: e.text, Image: e.image, Report: e.report, Notice: e.notice,
 		})
 	}
 	if err := c.store.Enqueue(context.Background(), messages...); err != nil {

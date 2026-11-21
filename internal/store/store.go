@@ -1,6 +1,7 @@
 // Package store keeps den's own state in one SQLite database: the sessions
-// and what they are, which session each client is in, and which session
-// wrote each of the bot's messages.
+// and what they are, which session each client is in, which sessions
+// Telegram's chat is in, and which session wrote each of the bot's
+// messages.
 //
 // fx keeps the sessions' transcripts in its own files; the store holds what
 // den knows about them, and is the only place it keeps it.
@@ -147,6 +148,13 @@ var migrations = []string{
 	CREATE INDEX job_runs_job ON job_runs(job, started);
 
 	ALTER TABLE sessions ADD COLUMN replied INTEGER NOT NULL DEFAULT 0;`,
+
+	`CREATE TABLE telegram_sessions (
+		session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE ON UPDATE CASCADE
+	);
+	INSERT INTO telegram_sessions (session_id) SELECT session_id FROM cursors WHERE client = 'telegram';
+
+	ALTER TABLE inbox DROP COLUMN app;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

@@ -4,6 +4,10 @@ package chat
 // the session its next message goes to, or none when that message starts a
 // new one. A turn belongs to the session its messages went to when they
 // came, whatever the cursor does meanwhile.
+//
+// The app shows every session. Telegram's chat is in each session it went
+// into or wrote to, and gets the replies of those, whoever started the turn.
+// It never leaves one, since a session speaks only when someone wakes it.
 
 import (
 	"context"
@@ -37,7 +41,22 @@ func (c *Chat) enter(client, session string) error {
 	if err := c.store.SetCursor(ctx, client, session); err != nil {
 		return err
 	}
+	if client == store.Telegram {
+		if err := c.store.JoinTelegram(ctx, session); err != nil {
+			return err
+		}
+	}
 	return c.store.Touch(ctx, session)
+}
+
+// inTelegram says whether Telegram's chat is in session, so its replies go
+// there as well as to the app.
+func (c *Chat) inTelegram(session string) bool {
+	in, err := c.store.InTelegram(context.Background(), session)
+	if err != nil {
+		log.Printf("chat: telegram's sessions: %v", err)
+	}
+	return in
 }
 
 // joined returns the session client is in, and starts a chat session for
@@ -55,12 +74,13 @@ func (c *Chat) joined(client string) (string, error) {
 }
 
 // target returns the session a Telegram message goes to: the one that wrote
-// the bot's message it replies to, or Telegram's own.
+// the bot's message it replies to, or Telegram's own. Telegram's chat is in
+// it from then on.
 func (c *Chat) target(replyTo int64) (string, error) {
 	if replyTo != 0 {
 		id, err := c.store.TelegramSession(context.Background(), replyTo)
 		if err == nil {
-			return id, nil
+			return id, c.store.JoinTelegram(context.Background(), id)
 		}
 		if !errors.Is(err, store.ErrNotFound) {
 			return "", err

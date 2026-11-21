@@ -137,6 +137,19 @@ func TestCursorsAndMessages(t *testing.T) {
 		t.Fatalf("message 11 in %q", got)
 	}
 
+	// Telegram's chat stays in every session it joined, twice is once.
+	for _, id := range []string{"a", "a"} {
+		if err := s.JoinTelegram(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if in, err := s.InTelegram(ctx, "a"); !in || err != nil {
+		t.Fatalf("a in Telegram: %v %v", in, err)
+	}
+	if in, _ := s.InTelegram(ctx, "b"); in {
+		t.Fatal("b in Telegram without joining")
+	}
+
 	// Deleting a session drops what points at it.
 	if err := s.DeleteSession(ctx, "b"); err != nil {
 		t.Fatal(err)
@@ -149,6 +162,9 @@ func TestCursorsAndMessages(t *testing.T) {
 	}
 	if _, err := s.TelegramSession(ctx, 10); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("message after delete: %v", err)
+	}
+	if in, _ := s.InTelegram(ctx, "a"); in {
+		t.Fatal("deleted a still in Telegram")
 	}
 }
 

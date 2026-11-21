@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- A session you talk to only in the app no longer answers in Telegram when den wakes it, such as when a `den map` it started ends. Telegram gets a session's replies once you wrote to it there (a message, a reply to one of its messages, or `/bg`), whoever starts the turn; the app gets every session's.
+
 ## v0.13.0
 
 ### Removed
