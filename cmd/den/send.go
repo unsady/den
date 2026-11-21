@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,26 +14,6 @@ import (
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/widget"
 )
-
-func notifyCommand(cfg config.Config, args []string) error {
-	text := strings.Join(args, " ")
-	if strings.TrimSpace(text) == "" {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return err
-		}
-		text = string(data)
-	}
-	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("notify needs text, as arguments or on stdin")
-	}
-
-	if err := client.New(cfg).Do(http.MethodPost, "/notify", daemon.NotifyRequest{Text: text, Session: os.Getenv("DEN_SESSION")}, nil); err != nil {
-		return err
-	}
-	fmt.Println("sent")
-	return nil
-}
 
 func quietCommand(cfg config.Config, args []string) error {
 	if len(args) > 0 {

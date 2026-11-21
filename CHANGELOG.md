@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Removed
+
+- `den notify` is gone. The agent answers in its reply, so a chat turn sends one message instead of a stray extra one.
+
 ## v0.12.0
 
 ### New

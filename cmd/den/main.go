@@ -24,7 +24,6 @@ Usage:
   den job rm <id|name>
   den job run <id|name>
   den job log <id|name> [-n <count>] [--json]
-  den notify <text>             Send a message to the user; reads stdin without text
   den quiet                     Send nothing for this turn: end it with this command
   den send [--caption <text>] <file>
                                 Send the user a file; an image goes as a photo
@@ -103,8 +102,6 @@ func run(args []string) error {
 	switch args[0] {
 	case "job", "jobs":
 		return jobCommand(cfg, args[1:])
-	case "notify":
-		return notifyCommand(cfg, args[1:])
 	case "quiet":
 		return quietCommand(cfg, args[1:])
 	case "send":

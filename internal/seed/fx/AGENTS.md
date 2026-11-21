@@ -33,6 +33,6 @@ The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every 
 - When a task you do again gave a wrong result, fix the rule or step that caused it instead of adding a step that checks it.
 - The built-in skills, the ones in `~/.agents/skills`, come with den and are read-only. Never create a skill with one of their names. When one of them lacks something or is wrong here, add the finding to `notes/skills/<name>.md`.
 - After you change memory, a skill, or a note, commit it with a short message.
-- Use the `den` CLI to act outside the conversation: schedule jobs and reminders, and send the user a notification. The `den` skill explains it.
+- Use the `den` CLI to act outside the conversation: schedule jobs and reminders, and send the user a file. The `den` skill explains it.
 - When the user refers to an earlier conversation, look it up in the session archive. The `den` skill explains how. Do not search the archive otherwise.
 - Never read or change `/var/lib/den`: it is den's.
