@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,7 +91,15 @@ func TestServer(t *testing.T) {
 	cfg := config.Config{Secrets: t.TempDir(), Sessions: t.TempDir()}
 	hub := &events.Hub{Dir: t.TempDir()}
 	c, a := &fakeChat{}, &fakeAsker{}
-	s := New(cfg, c, a, hub)
+	var dropped []string
+	drop := func(_ context.Context, id string) (int, error) {
+		if id != "s1" {
+			return http.StatusNotFound, errors.New("no session " + id)
+		}
+		dropped = append(dropped, id)
+		return http.StatusOK, nil
+	}
+	s := New(cfg, c, a, drop, hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.keep(ctx)
@@ -217,6 +226,13 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("GET", "/sessions/s1?limit=x", token, ""); status != http.StatusBadRequest {
 		t.Fatalf("bad limit: %d", status)
+	}
+
+	if status, _ := call("DELETE", "/sessions/s1", token, ""); status != http.StatusOK || strings.Join(dropped, "|") != "s1" {
+		t.Fatalf("delete: %d %v", status, dropped)
+	}
+	if status, _ := call("DELETE", "/sessions/missing", token, ""); status != http.StatusNotFound {
+		t.Fatalf("delete missing: %d", status)
 	}
 
 	// Results wait for an app that was away.
