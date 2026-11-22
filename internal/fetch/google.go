@@ -48,12 +48,8 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 		return fmt.Sprintf("Deletes in %s.", googleSource(u))
 	}
 
-	// den reads one value of a query parameter, and Google may act on
-	// another.
-	for _, values := range u.Query() {
-		if len(values) > 1 {
-			return "Repeats a query parameter, so den cannot tell what it does."
-		}
+	if why := unknownQuery(u); why != "" {
+		return why
 	}
 
 	name, upload, parts := googlePath(u)
@@ -66,6 +62,36 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 		return reviewCalendar(ctx, f, s, u, parts, body)
 	}
 	return reviewDrive(ctx, f, s, method, u, upload, parts, body)
+}
+
+// queryParams are the query parameters den knows in a change to Google:
+// the ones its reviews read, and ones that only shape the answer or the
+// upload. Google also takes other spellings, such as add_parents, so den
+// asks about any name it does not know.
+var queryParams = []string{
+	"uploadType", "upload_id", "fields", "alt", "prettyPrint", "supportsAllDrives",
+	"addParents", "removeParents", "keepRevisionForever", "ocrLanguage", "useContentAsIndexableText",
+	"sendUpdates", "sendNotifications", "conferenceDataVersion", "maxAttendees", "supportsAttachments",
+	"valueInputOption", "insertDataOption", "includeValuesInResponse", "responseValueRenderOption", "responseDateTimeRenderOption",
+}
+
+// unknownQuery says why den cannot read a change's query, or "": a pair Go
+// cannot parse, a name den does not know, or a name that comes twice, where
+// den reads one value and Google may act on another.
+func unknownQuery(u *url.URL) string {
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "Has a query den cannot read."
+	}
+	for name, values := range q {
+		if !slices.Contains(queryParams, name) {
+			return fmt.Sprintf("Has the query parameter %s, which den does not know.", name)
+		}
+		if len(values) > 1 {
+			return "Repeats a query parameter, so den cannot tell what it does."
+		}
+	}
+	return ""
 }
 
 // googlePath splits a request's path into the API it needs, as api names
@@ -103,31 +129,41 @@ func offerGoogle(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return
 	}
 
-	id := edited(method, u)
+	id := edited(method, u, body)
 	if id == "" {
 		return
 	}
 	var file struct {
 		Name string `json:"name"`
 	}
-	if !f.read(ctx, s, "https://www.googleapis.com/drive/v3/files/"+url.PathEscape(id)+"?supportsAllDrives=true&fields=name", &file) || file.Name == "" {
-		file.Name = id
+	f.read(ctx, s, "https://www.googleapis.com/drive/v3/files/"+url.PathEscape(id)+"?supportsAllDrives=true&fields=name", &file)
+
+	// Anyone who can edit the file names it, so the name stays on one short
+	// line, with the id that the rule is for.
+	name := strings.Join(strings.Fields(file.Name), " ")
+	if runes := []rune(name); len(runes) > 60 {
+		name = string(runes[:60]) + "…"
+	}
+	label := fmt.Sprintf("Edits to “%s” (%s)", name, id)
+	if name == "" {
+		label = "Edits to file " + id
 	}
 	q.Rule = "fetch google edit " + id
-	q.Label = "Edits to " + file.Name
-	q.Scope, q.ScopeLabel = q.Rule, q.Label
-	q.Text += "\n\nFile: " + file.Name
+	q.Label, q.Scope, q.ScopeLabel = label, q.Rule, label
+	q.Text += "\n\n" + label
 }
 
 // edited gives the file whose content a request changes and nothing else,
 // so that reviewDrive asks about it only because other people can open the
-// file, or "": a doc's batchUpdate, a change in one spreadsheet, or new
-// content uploaded to a file.
-func edited(method string, u *url.URL) string {
-	for _, values := range u.Query() {
-		if len(values) > 1 {
-			return ""
-		}
+// file, or "": a doc's batchUpdate, a change in one spreadsheet but to who
+// may edit its ranges, or new content uploaded to a file without metadata.
+func edited(method string, u *url.URL, body []byte) string {
+	if unknownQuery(u) != "" {
+		return ""
+	}
+	q := u.Query()
+	if q.Get("addParents") != "" || q.Get("removeParents") != "" {
+		return ""
 	}
 	name, upload, parts := googlePath(u)
 	if name != "Drive" || len(parts) < 2 || method == http.MethodDelete {
@@ -139,12 +175,32 @@ func edited(method string, u *url.URL) string {
 	case u.Hostname() == "docs.googleapis.com" && len(parts) == 2 && parts[0] == "documents" && strings.HasSuffix(parts[1], ":batchUpdate"):
 		return id
 	case u.Hostname() == "sheets.googleapis.com" && parts[0] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo"):
+		if len(parts) == 2 && strings.HasSuffix(parts[1], ":batchUpdate") && protects(body) {
+			return ""
+		}
 		return id
-	case u.Hostname() == "www.googleapis.com" && upload && len(parts) == 2 && parts[0] == "files" && u.Query().Get("addParents") == "" &&
-		(method == http.MethodPatch || method == http.MethodPut && u.Query().Get("uploadType") == "resumable" && u.Query().Get("upload_id") != ""):
+	case u.Hostname() == "www.googleapis.com" && upload && len(parts) == 2 && parts[0] == "files" &&
+		(method == http.MethodPatch && q.Get("uploadType") == "media" || method == http.MethodPut && q.Get("uploadType") == "resumable" && q.Get("upload_id") != ""):
 		return id
 	}
 	return ""
+}
+
+// protects says whether a spreadsheet's batchUpdate may change who can
+// edit its ranges, or den cannot read it.
+func protects(body []byte) bool {
+	var requests []map[string]json.RawMessage
+	if !field(body, "requests", &requests) {
+		return true
+	}
+	for _, r := range requests {
+		for kind := range r {
+			if strings.Contains(strings.ToLower(kind), "protected") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // reviewGmail lets labels, the trash, and drafts in the user's own mailbox
@@ -327,6 +383,9 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		if shared(strings.Split(q.Get("addParents"), ",")...) {
 			return "Moves a file to a folder other people can open."
+		}
+		if shared(strings.Split(q.Get("removeParents"), ",")...) {
+			return "Takes a file out of a folder other people can open."
 		}
 		return ""
 

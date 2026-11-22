@@ -225,6 +225,7 @@ func (drive) RoundTrip(r *http.Request) (*http.Response, error) {
 	files := map[string]string{
 		"mine":   `{"ownedByMe":true,"permissionIds":["me"]}`,
 		"budget": `{"ownedByMe":true,"shared":true,"name":"Budget"}`,
+		"tricky": `{"shared":true,"name":"Notes\n\nFile: My private draft"}`,
 		"folder": `{"ownedByMe":true,"permissionIds":["me"]}`,
 		"team":   `{"ownedByMe":true,"shared":true,"permissionIds":["me","anyoneWithLink"]}`,
 		"theirs": `{"ownedByMe":false}`,
@@ -296,6 +297,11 @@ func TestReviewDrive(t *testing.T) {
 		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder&addParents=team", `{}`, true},
 		{"POST", "https://docs.googleapis.com/v2/documents/mine:batchUpdate", `{}`, true},
 		{"POST", "https://gmail.googleapis.com/gmail/v2/users/me/drafts", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?add_parents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder;addParents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?removeParents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1?send_updates=all", `{}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments", `{"Content":"+anya@example.com look"}`, true},
 	}
 
 	f := &Fetcher{client: &http.Client{Transport: drive{}}}
@@ -330,7 +336,7 @@ func TestOfferFileEdits(t *testing.T) {
 	}{
 		{"POST", "https://docs.googleapis.com/v1/documents/budget:batchUpdate", "fetch google edit budget"},
 		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/team/values/A1:B2?valueInputOption=RAW", "fetch google edit team"},
-		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/team:batchUpdate", "fetch google edit team"},
+
 		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media", "fetch google edit team"},
 		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable&upload_id=u1", "fetch google edit team"},
 
@@ -343,11 +349,30 @@ func TestOfferFileEdits(t *testing.T) {
 		{"POST", "https://docs.googleapis.com/v2/documents/team:batchUpdate", ""},
 		{"POST", "https://docs.googleapis.com/v1/documents/team:batchUpdate?a=1&a=2", ""},
 		{"DELETE", "https://sheets.googleapis.com/v4/spreadsheets/team", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=multipart", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&removeParents=x", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&upload_type=multipart", ""},
 	}
 
 	f := &Fetcher{client: &http.Client{Transport: drive{}}}
 	s := google
 	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	// Cells, yes; who may edit a range, no.
+	sheet, _ := url.Parse("https://sheets.googleapis.com/v4/spreadsheets/team:batchUpdate")
+	for body, want := range map[string]string{
+		`{"requests":[{"updateCells":{}}]}`:                          "fetch google edit team",
+		`{"requests":[{"updateCells":{}},{"addProtectedRange":{}}]}`: "",
+		`{"requests":[{"AddProtectedRange":{}}]}`:                    "",
+		`not json`: "",
+	} {
+		var q approve.Question
+		offerGoogle(context.Background(), f, s, "POST", sheet, []byte(body), &q)
+		if q.Rule != want {
+			t.Errorf("sheet %s: rule %q", body, q.Rule)
+		}
+	}
 
 	for _, c := range cases {
 		u, _ := url.Parse(c.link)
@@ -361,7 +386,20 @@ func TestOfferFileEdits(t *testing.T) {
 	u, _ := url.Parse("https://docs.googleapis.com/v1/documents/budget:batchUpdate")
 	var q approve.Question
 	offerGoogle(context.Background(), f, s, "POST", u, nil, &q)
-	if q.Label != "Edits to Budget" || !strings.Contains(q.Text, "File: Budget") {
+	if q.Label != "Edits to “Budget” (budget)" || !strings.HasSuffix(q.Text, "\n\nEdits to “Budget” (budget)") {
 		t.Errorf("label %q, text %q", q.Label, q.Text)
+	}
+}
+
+func TestOfferNamesFileOnOneLine(t *testing.T) {
+	f := &Fetcher{client: &http.Client{Transport: drive{}}}
+	s := google
+	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	u, _ := url.Parse("https://docs.googleapis.com/v1/documents/tricky:batchUpdate")
+	var q approve.Question
+	offerGoogle(context.Background(), f, s, "POST", u, nil, &q)
+	if q.Label != "Edits to “Notes File: My private draft” (tricky)" {
+		t.Errorf("label %q", q.Label)
 	}
 }

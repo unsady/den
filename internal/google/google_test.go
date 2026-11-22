@@ -126,6 +126,20 @@ func TestSomePermissions(t *testing.T) {
 	if len(f.revokes) != 2 || f.revokes[1] != "r1" {
 		t.Fatalf("revoked %q", f.revokes)
 	}
+
+	// Granting nothing again keeps an account that works: Google would
+	// revoke its grant too.
+	f.granted = strings.Join(Scopes, " ")
+	if _, err := signIn(t, g, f); err != nil {
+		t.Fatal(err)
+	}
+	f.granted = "openid"
+	if _, err := signIn(t, g, f); err == nil {
+		t.Fatal("connected with nothing granted")
+	}
+	if len(f.revokes) != 2 || len(g.Granted()) != 3 {
+		t.Fatalf("revoked %q, granted %q", f.revokes, g.Granted())
+	}
 }
 
 func TestSignIn(t *testing.T) {
