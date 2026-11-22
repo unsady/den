@@ -38,6 +38,27 @@ func TestReviewGoogle(t *testing.T) {
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1?sendNotifications=true", `{"summary":"x"}`, true},
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events", `{"attendees":[{"email":"x@y.z"}],"Attendees":[]}`, true},
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/quickAdd?text=Lunch", ``, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/threads/t1/untrash", "", false},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify", `{"ids":["a"],"addLabelIds":["STARRED"]}`, false},
+		{"PUT", "https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1", `{"message":{"raw":"eA"}}`, false},
+		{"POST", "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media", "To: a", false},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/labels", `{"name":"Bills"}`, false},
+
+		// What den does not know, and deletes, ask.
+		{"DELETE", "https://gmail.googleapis.com/gmail/v1/users/me/labels/l1", "", true},
+		{"DELETE", "https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1", "", true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/import", `{"raw":"eA"}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/watch", `{"topicName":"projects/x/topics/y"}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/someone@example.com/drafts", `{}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/watch", `{"address":"https://example.com"}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/import", `{}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1/move?destination=team", ``, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/channels/stop", `{}`, true},
+		{"POST", "https://www.googleapis.com/oauth2/v2/anything", `{}`, true},
+
+		// Another calendar may be shared, so it asks even for an event alone.
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/team@group.calendar.google.com/events", `{"summary":"Gym"}`, true},
+
 		// den cannot read the event to see its guests, so it asks.
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1", `{"summary":"Gym"}`, true},
 	}
@@ -271,6 +292,18 @@ func TestReviewDrive(t *testing.T) {
 		why := reviewGoogle(context.Background(), f, s, c.method, u, []byte(c.body))
 		if (why != "") != c.ask {
 			t.Errorf("%s %s %s: %q", c.method, c.link, c.body, why)
+		}
+	}
+}
+
+func TestOwnCalendar(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, googleauth.TokenFile), []byte(`{"refresh_token":"r","email":"me@example.com"}`), 0o600)
+	f := &Fetcher{google: googleauth.New(config.Config{Secrets: dir})}
+
+	for id, want := range map[string]bool{"primary": true, "Me@Example.com": true, "team@group.calendar.google.com": false, "": false} {
+		if got := f.own(id); got != want {
+			t.Errorf("own(%q) = %v", id, got)
 		}
 	}
 }

@@ -15,7 +15,7 @@ When den answers that Google is not connected or not set up, tell the user to ru
 
 ## What waits for the user
 
-Reads, labels, archiving, trash, drafts, events with no other people on them, and changes to files only the user can open go at once. den asks the user in Telegram first before mail goes out (`messages/send`, `drafts/send`), before an event with other people on it is created or changed, before anyone is notified (`sendUpdates`, `sendNotifications`), before an event is cancelled or deleted, before any change to a file or folder other people can open or that belongs to someone else, before anything in Drive is deleted for good, before a comment with an `@` in it, since a mention emails that person, and before any change in Drive other than editing, creating, copying, moving, trashing, and commenting, such as sharing or publishing a file. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
+Reads go at once, and so do the changes den knows stay with the user: labels, archiving, the trash, and drafts in Gmail; events with no one else on them in the primary calendar, without notifications; and edits, new files, copies, moves, the trash, and comments without an `@` on files only the user can open. Everything else waits for the user in Telegram: mail going out (`messages/send`, `drafts/send`), events with other people on them or in another calendar, notifications (`sendUpdates`, `sendNotifications`), cancelling, any delete, files other people can open or that belong to someone else, a comment with an `@`, since a mention emails that person, and any change den does not know, such as sharing or publishing a file. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
 
 Prefer a draft when the user did not ask you to send: they can read and send it from Gmail themselves.
 
@@ -61,7 +61,7 @@ den fetch --secret google -X PATCH -d '{"summary":"…"}' "$c/events/<eventId>"
 ```
 
 - Use the user's time zone from `notes/` or ask once; write times with their offset.
-- Only the user's own calendars by id are reachable: `primary`, or an id the user gives, such as a shared calendar's address. Listing calendars (`calendarList`) is outside den's access.
+- Use `primary` for the user's calendar. Another calendar is reachable by an id the user gives, such as a shared calendar's address, but each change in it waits for the user. Listing calendars (`calendarList`) is outside den's access.
 - Inviting people: add `"attendees":[{"email":"…"}]` and `?sendUpdates=all`. den asks the user first.
 
 ## Drive, Docs, and Sheets

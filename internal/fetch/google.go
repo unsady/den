@@ -37,56 +37,101 @@ var google = service{
 	recipient: sentTo,
 }
 
-// reviewGoogle lets reads and changes to the user's own mail, calendar,
-// and files through, and asks before mail goes out, before other people get
-// an invitation or an update, before an event with other people on it
-// changes or any event is deleted, before a file is shared or deleted for
-// good, and before a comment mentions someone.
+// reviewGoogle lets reads through, and the changes den knows to stay with
+// the user, as each API's review lists them. Every other change waits for
+// the user, so a kind of request den does not know asks too.
 func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
 	if method == http.MethodGet || method == http.MethodHead {
 		return ""
 	}
-	path := u.Path
-
-	if api(u) == "Drive" {
+	if method == http.MethodDelete {
+		return "Deletes."
+	}
+	// The resource's path below the API's version, as users/me/messages/send
+	// for /upload/gmail/v1/users/me/messages/send.
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if parts[0] == "upload" {
+		parts = parts[1:]
+	}
+	switch api(u) {
+	case "Gmail":
+		return reviewGmail(parts[min(2, len(parts)):])
+	case "Calendar":
+		return reviewCalendar(ctx, f, s, method, u, parts[min(2, len(parts)):], body)
+	case "Drive":
 		return reviewDrive(ctx, f, s, method, u, body)
 	}
+	return "Makes a change in Google den does not know."
+}
 
+// reviewGmail lets labels, the trash, and drafts in the user's own mailbox
+// through, and asks before mail goes out.
+func reviewGmail(parts []string) string {
+	if len(parts) < 3 || parts[0] != "users" || parts[1] != "me" {
+		return "Makes a change in Gmail den does not know."
+	}
+	rest := parts[2:]
+	last := rest[len(rest)-1]
 	switch {
-	case strings.HasSuffix(path, "/messages/send"):
+	case last == "send" && rest[0] == "messages":
 		return "Sends an email."
-
-	case strings.HasSuffix(path, "/drafts/send"):
+	case last == "send" && rest[0] == "drafts":
 		return "Sends a draft."
+	// messages/<id>/modify, threads/<id>/trash, messages/batchModify
+	case (rest[0] == "messages" || rest[0] == "threads") && len(rest) == 3 && slices.Contains([]string{"modify", "trash", "untrash"}, last):
+		return ""
+	case rest[0] == "messages" && len(rest) == 2 && last == "batchModify":
+		return ""
+	// drafts, drafts/<id>, labels, labels/<id>
+	case (rest[0] == "drafts" || rest[0] == "labels") && len(rest) <= 2:
+		return ""
+	}
+	return "Makes a change in Gmail den does not know."
+}
 
-	case strings.HasPrefix(path, "/calendar/"):
-		if method == http.MethodDelete {
-			return "Deletes a calendar event."
-		}
-		q := u.Query()
-		if update := q.Get("sendUpdates"); update != "" && update != "none" || q.Get("sendNotifications") == "true" {
-			return "Sends other people an invitation or an update."
-		}
-		if strings.HasSuffix(path, "/quickAdd") || strings.HasSuffix(path, "/move") {
-			return "Adds or moves a calendar event."
-		}
-		var attendees []json.RawMessage
-		var status string
-		if !field(body, "attendees", &attendees) || !field(body, "status", &status) {
-			return "Changes a calendar event in a way den cannot read."
-		}
-		if len(attendees) > 0 {
-			return "Changes an event that has other people on it."
-		}
-		if status == "cancelled" {
-			return "Cancels a calendar event."
-		}
-		// A change to an event someone else is on reaches them too.
-		if method != http.MethodPost && f.guests(ctx, s, u) {
-			return "Changes an event that has other people on it."
-		}
+// reviewCalendar lets the user's own events in their own calendar through:
+// events with no one else on them, changed without notifications, not
+// cancelled. Another calendar may be someone else's, or shared with them.
+func reviewCalendar(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, parts []string, body []byte) string {
+	// calendars/<id>/events, calendars/<id>/events/<eventId>
+	if len(parts) < 3 || len(parts) > 4 || parts[0] != "calendars" || parts[2] != "events" {
+		return "Makes a change in Calendar den does not know."
+	}
+	if len(parts) == 4 && slices.Contains([]string{"quickAdd", "import", "watch"}, parts[3]) {
+		return "Makes a change in Calendar den does not know."
+	}
+	if !f.own(parts[1]) {
+		return "Changes a calendar other than your own, which other people may see."
+	}
+	q := u.Query()
+	if update := q.Get("sendUpdates"); update != "" && update != "none" || q.Get("sendNotifications") == "true" {
+		return "Sends other people an invitation or an update."
+	}
+	var attendees []json.RawMessage
+	var status string
+	if !field(body, "attendees", &attendees) || !field(body, "status", &status) {
+		return "Changes a calendar event in a way den cannot read."
+	}
+	if len(attendees) > 0 {
+		return "Changes an event that has other people on it."
+	}
+	if status == "cancelled" {
+		return "Cancels a calendar event."
+	}
+	// A change to an event someone else is on reaches them too.
+	if len(parts) == 4 && f.guests(ctx, s, u) {
+		return "Changes an event that has other people on it."
 	}
 	return ""
+}
+
+// own says whether a calendar id is the user's primary calendar, which
+// Google names by their address too.
+func (f *Fetcher) own(id string) bool {
+	if id == "primary" {
+		return true
+	}
+	return f.google != nil && strings.Contains(id, "@") && strings.EqualFold(id, f.google.Account())
 }
 
 // reviewDrive lets through the changes den knows to stay with the user:
@@ -95,9 +140,6 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 // user, so a kind of request den does not know, such as publishing a doc to
 // the web, asks too.
 func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
-	if method == http.MethodDelete {
-		return "Deletes for good."
-	}
 	shared := func(ids ...string) bool {
 		for _, id := range ids {
 			if f.shared(ctx, s, id) {

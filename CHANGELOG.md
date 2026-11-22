@@ -14,6 +14,7 @@ release notes.
 
 ### Changed
 
+- For Gmail and Calendar, den now lets through only the changes it knows stay with you, and asks about the rest, as it does for Drive and GitHub. An event in a calendar other than your primary one, even with no one else on it, now waits for your Allow, and so do deleting a draft or a label and requests den does not know, such as importing mail or watching for changes.
 - Files and photos you send, from the app or Telegram, show in the app as files of your message that you can open and save, not as a line with their name. den keeps a copy for the app beside the agent's in its inbox.
 - A message from the app takes up to 20 MB of files, as Telegram does, instead of 700 KB.
 - A message you send while a turn runs joins that turn in every session, not only in the one Telegram's chat is in: in a session from the app, a job's, or a /bg task's too. Before, it waited and got an answer of its own after the turn's.
