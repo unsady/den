@@ -45,15 +45,14 @@ A branch the agent pushes runs your repository's GitHub Actions that start on a 
 den reaches Gmail, Google Calendar, and Drive with its Docs and Sheets. It uses an OAuth client from your own Google Cloud project, so no one else holds access to your account. In the project:
 
 1. Enable the APIs you want den to use: Gmail API, Google Calendar API, and for files Google Drive API, Google Docs API, and Google Sheets API.
-2. Under Data Access, add their scopes: `gmail.modify`, `calendar.events`, `drive`.
-3. Under Audience, publish the app. In Testing, Google expires the access in 7 days.
-4. Create a client of type Desktop app and download its JSON.
+2. Under Audience, publish the app. In Testing, Google expires the access in 7 days.
+3. Create a client of type Desktop app and download its JSON.
 
 Then run `den connect google`, and give it the JSON's path. It opens Google's sign-in; Google warns that the app is unverified, and under Advanced you continue to it. If you sign in on another device, the last page fails to load: paste its address into the terminal. An app for personal use needs no verification from Google, and `den disconnect google` revokes the access.
 
 Google's page lists mail, calendar, and Drive, each with a checkbox: leave unchecked what den should not reach, and den uses only what you allowed. To add one later, run `den connect google` again.
 
-den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. In Drive, the agent edits, creates, copies, moves, trashes, and comments on files that only you can open without asking you; a file's version history keeps what an edit replaced. den asks before any change to a file or folder other people can open, before a file goes into such a folder, before anything is deleted for good, before a comment that may mention someone, and before any other change, such as sharing a file or publishing it to the web. Reading, labels, archiving, trash, drafts, and your own events need no answer.
+den lets through only the changes it knows stay with you, and asks about everything else. Without asking, the agent reads, and it labels, archives, trashes, and drafts mail; adds and changes events with no one else on them in your primary calendar, without notifications; and edits, creates, copies, moves, trashes, and comments on Drive files only you can open, whose version history keeps what an edit replaced. den asks before mail goes out, showing the recipients, subject, and text; before an event with other people on it, or in another calendar, is created or changed; before anyone gets a notification; before anything is cancelled or deleted; before any change to a Drive file or folder other people can open, where Always and 1 hour allow edits to that one file; before a comment that may mention someone; and before any change it does not know, such as sharing a file or publishing it to the web.
 
 ## Any mailbox
 

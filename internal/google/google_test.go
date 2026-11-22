@@ -25,11 +25,16 @@ type fake struct {
 	revoked   bool
 	// granted are the scopes the user allowed on Google's page.
 	granted string
+	// revokes are the refresh tokens den revoked.
+	revokes []string
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	switch r.URL.Path {
+	case "/revoke":
+		f.revokes = append(f.revokes, r.PostForm.Get("token"))
+
 	case "/token":
 		switch r.PostForm.Get("grant_type") {
 		case "authorization_code":
@@ -59,7 +64,7 @@ func setup(t *testing.T) (*Google, *fake) {
 	f := &fake{t: t, granted: strings.Join(Scopes, " ")}
 	server := httptest.NewServer(f)
 	t.Cleanup(server.Close)
-	tokenURL = server.URL + "/token"
+	tokenURL, revokeURL = server.URL+"/token", server.URL+"/revoke"
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ClientFile), []byte(`{"web":{"client_id":"id","client_secret":"shh"}}`), 0o600)
@@ -117,6 +122,23 @@ func TestSomePermissions(t *testing.T) {
 	}
 	if g.Granted() != nil {
 		t.Fatal("kept an account with nothing granted")
+	}
+	if len(f.revokes) != 2 || f.revokes[1] != "r1" {
+		t.Fatalf("revoked %q", f.revokes)
+	}
+
+	// Granting nothing again keeps an account that works: Google would
+	// revoke its grant too.
+	f.granted = strings.Join(Scopes, " ")
+	if _, err := signIn(t, g, f); err != nil {
+		t.Fatal(err)
+	}
+	f.granted = "openid"
+	if _, err := signIn(t, g, f); err == nil {
+		t.Fatal("connected with nothing granted")
+	}
+	if len(f.revokes) != 2 || len(g.Granted()) != 3 {
+		t.Fatalf("revoked %q, granted %q", f.revokes, g.Granted())
 	}
 }
 

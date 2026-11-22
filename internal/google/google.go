@@ -167,7 +167,13 @@ func (g *Google) Finish(ctx context.Context, s *Signin) (string, error) {
 	if t.Refresh == "" {
 		return "", errors.New("Google sent no refresh token")
 	}
+	// A grant of none still shows in the user's Google account until den
+	// revokes it. Google revokes the whole grant, so den keeps it while an
+	// earlier sign-in still uses it.
 	if len(t.granted()) == 0 {
+		if _, err := g.load(); err != nil {
+			g.revoke(ctx, t.Refresh)
+		}
 		return "", errors.New("no permission was granted: on Google's page, allow at least one of Gmail, Calendar, and Drive")
 	}
 
@@ -276,16 +282,23 @@ func (g *Google) Disconnect(ctx context.Context) error {
 	if err != nil {
 		return nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(url.Values{"token": {t.Refresh}}.Encode()))
+
+	g.revoke(ctx, t.Refresh)
+	// The tokens go even if Google did not answer: den no longer uses them.
+	return os.Remove(g.path(TokenFile))
+}
+
+// revoke asks Google to end the grant a refresh token belongs to.
+func (g *Google) revoke(ctx context.Context, refresh string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revokeURL, strings.NewReader(url.Values{"token": {refresh}}.Encode()))
 	if err != nil {
-		return err
+		return
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 	if resp, err := g.http.Do(req); err == nil {
 		resp.Body.Close()
 	}
-	// The tokens go even if Google did not answer: den no longer uses them.
-	return os.Remove(g.path(TokenFile))
 }
 
 type grantError struct {

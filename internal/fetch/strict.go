@@ -45,17 +45,19 @@ func object(body []byte) (map[string]json.RawMessage, error) {
 
 // field reads one field of a strict JSON object into v. It reports false
 // when the body is not such an object or the field does not decode; a
-// missing field leaves v as it is.
+// missing field leaves v as it is. It finds the field in any case, as a
+// service may, and object turns away a key that comes twice in any case.
 func field(body []byte, name string, v any) bool {
 	obj, err := object(body)
 	if err != nil {
 		return false
 	}
-	raw, ok := obj[name]
-	if !ok {
-		return true
+	for key, raw := range obj {
+		if strings.EqualFold(key, name) {
+			return json.Unmarshal(raw, v) == nil
+		}
 	}
-	return json.Unmarshal(raw, v) == nil
+	return true
 }
 
 // readOnly says whether a GraphQL document only reads: none of its

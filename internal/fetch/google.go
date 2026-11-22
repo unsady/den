@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/letter"
 )
 
@@ -33,71 +34,257 @@ var google = service{
 	refuse:  refuseGoogle,
 	preview: previewDraft,
 	show:    showMail,
-	// A draft's recipients are not in the request, so a draft always asks.
-	recipient: sentTo,
+	offer:   offerGoogle,
 }
 
-// reviewGoogle lets reads and changes to the user's own mail, calendar,
-// and files through, and asks before mail goes out, before other people get
-// an invitation or an update, before an event with other people on it
-// changes or any event is deleted, before a file is shared or deleted for
-// good, and before a comment mentions someone.
+// reviewGoogle lets reads through, and the changes den knows to stay with
+// the user, as each API's review lists them. Every other change waits for
+// the user, so a kind of request den does not know asks too.
 func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
 	if method == http.MethodGet || method == http.MethodHead {
 		return ""
 	}
-	path := u.Path
-
-	if api(u) == "Drive" {
-		return reviewDrive(ctx, f, s, method, u, body)
+	if method == http.MethodDelete {
+		return fmt.Sprintf("Deletes in %s.", googleSource(u))
 	}
 
-	switch {
-	case strings.HasSuffix(path, "/messages/send"):
-		return "Sends an email."
+	if why := unknownQuery(u); why != "" {
+		return why
+	}
 
-	case strings.HasSuffix(path, "/drafts/send"):
-		return "Sends a draft."
+	name, upload, parts := googlePath(u)
+	switch name {
+	case "":
+		return "Makes a change in Google den does not know."
+	case "Gmail":
+		return reviewGmail(parts)
+	case "Calendar":
+		return reviewCalendar(ctx, f, s, u, parts, body)
+	}
+	return reviewDrive(ctx, f, s, method, u, upload, parts, body)
+}
 
-	case strings.HasPrefix(path, "/calendar/"):
-		if method == http.MethodDelete {
-			return "Deletes a calendar event."
+// queryParams are the query parameters den knows in a change to Google:
+// the ones its reviews read, and ones that only shape the answer or the
+// upload. Google also takes other spellings, such as add_parents, so den
+// asks about any name it does not know.
+var queryParams = []string{
+	"uploadType", "upload_id", "fields", "alt", "prettyPrint", "supportsAllDrives",
+	"addParents", "removeParents", "keepRevisionForever", "ocrLanguage", "useContentAsIndexableText",
+	"sendUpdates", "sendNotifications", "conferenceDataVersion", "maxAttendees", "supportsAttachments",
+	"valueInputOption", "insertDataOption", "includeValuesInResponse", "responseValueRenderOption", "responseDateTimeRenderOption",
+}
+
+// unknownQuery says why den cannot read a change's query, or "": a pair Go
+// cannot parse, a name den does not know, or a name that comes twice, where
+// den reads one value and Google may act on another.
+func unknownQuery(u *url.URL) string {
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "Has a query den cannot read."
+	}
+	for name, values := range q {
+		if !slices.Contains(queryParams, name) {
+			return fmt.Sprintf("Has the query parameter %s, which den does not know.", name)
 		}
-		q := u.Query()
-		if update := q.Get("sendUpdates"); update != "" && update != "none" || q.Get("sendNotifications") == "true" {
-			return "Sends other people an invitation or an update."
-		}
-		if strings.HasSuffix(path, "/quickAdd") || strings.HasSuffix(path, "/move") {
-			return "Adds or moves a calendar event."
-		}
-		var attendees []json.RawMessage
-		var status string
-		if !field(body, "attendees", &attendees) || !field(body, "status", &status) {
-			return "Changes a calendar event in a way den cannot read."
-		}
-		if len(attendees) > 0 {
-			return "Changes an event that has other people on it."
-		}
-		if status == "cancelled" {
-			return "Cancels a calendar event."
-		}
-		// A change to an event someone else is on reaches them too.
-		if method != http.MethodPost && f.guests(ctx, s, u) {
-			return "Changes an event that has other people on it."
+		if len(values) > 1 {
+			return "Repeats a query parameter, so den cannot tell what it does."
 		}
 	}
 	return ""
 }
 
+// googlePath splits a request's path into the API it needs, as api names
+// it, whether it uploads content, and the path after the API's version, as
+// users/me/messages/send for /upload/gmail/v1/users/me/messages/send. The
+// API is "" for a version den does not know.
+func googlePath(u *url.URL) (name string, upload bool, parts []string) {
+	parts = strings.Split(strings.Trim(u.Path, "/"), "/")
+	upload = parts[0] == "upload"
+	if upload {
+		parts = parts[1:]
+	}
+
+	name = api(u)
+	version := map[string]string{"Gmail": "v1", "Calendar": "v3", "Drive": "v3"}[name]
+	switch u.Hostname() {
+	case "docs.googleapis.com":
+		parts = append([]string{"docs"}, parts...)
+		version = "v1"
+	case "sheets.googleapis.com":
+		parts = append([]string{"sheets"}, parts...)
+		version = "v4"
+	}
+	if version == "" || len(parts) < 2 || parts[1] != version {
+		return "", false, nil
+	}
+	return name, upload, parts[2:]
+}
+
+// offerGoogle lets the user allow mail to one address, or edits to one
+// file other people can open, for good or for an hour.
+func offerGoogle(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte, q *approve.Question) {
+	if to := sentTo(u, body); to != "" {
+		q.MailTo(to)
+		return
+	}
+
+	id := edited(method, u, body)
+	if id == "" {
+		return
+	}
+	var file struct {
+		Name string `json:"name"`
+	}
+	f.read(ctx, s, "https://www.googleapis.com/drive/v3/files/"+url.PathEscape(id)+"?supportsAllDrives=true&fields=name", &file)
+
+	// Anyone who can edit the file names it, so the name stays on one short
+	// line, with the id that the rule is for.
+	name := strings.Join(strings.Fields(file.Name), " ")
+	if runes := []rune(name); len(runes) > 60 {
+		name = string(runes[:60]) + "…"
+	}
+	label := fmt.Sprintf("Edits to “%s” (%s)", name, id)
+	if name == "" {
+		label = "Edits to file " + id
+	}
+	q.Rule = "fetch google edit " + id
+	q.Label, q.Scope, q.ScopeLabel = label, q.Rule, label
+	q.Text += "\n\n" + label
+}
+
+// edited gives the file whose content a request changes and nothing else,
+// so that reviewDrive asks about it only because other people can open the
+// file, or "": a doc's batchUpdate, a change in one spreadsheet but to who
+// may edit its ranges, or new content uploaded to a file without metadata.
+func edited(method string, u *url.URL, body []byte) string {
+	if unknownQuery(u) != "" {
+		return ""
+	}
+	q := u.Query()
+	if q.Get("addParents") != "" || q.Get("removeParents") != "" {
+		return ""
+	}
+	name, upload, parts := googlePath(u)
+	if name != "Drive" || len(parts) < 2 || method == http.MethodDelete {
+		return ""
+	}
+
+	id := strings.SplitN(parts[1], ":", 2)[0]
+	switch {
+	case u.Hostname() == "docs.googleapis.com" && len(parts) == 2 && parts[0] == "documents" && strings.HasSuffix(parts[1], ":batchUpdate"):
+		return id
+	case u.Hostname() == "sheets.googleapis.com" && parts[0] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo"):
+		if len(parts) == 2 && strings.HasSuffix(parts[1], ":batchUpdate") && protects(body) {
+			return ""
+		}
+		return id
+	case u.Hostname() == "www.googleapis.com" && upload && len(parts) == 2 && parts[0] == "files" &&
+		(method == http.MethodPatch && q.Get("uploadType") == "media" || method == http.MethodPut && q.Get("uploadType") == "resumable" && q.Get("upload_id") != ""):
+		return id
+	}
+	return ""
+}
+
+// protects says whether a spreadsheet's batchUpdate may change who can
+// edit its ranges, or den cannot read it.
+func protects(body []byte) bool {
+	var requests []map[string]json.RawMessage
+	if !field(body, "requests", &requests) {
+		return true
+	}
+	for _, r := range requests {
+		for kind := range r {
+			if strings.Contains(strings.ToLower(kind), "protected") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// reviewGmail lets labels, the trash, and drafts in the user's own mailbox
+// through, and asks before mail goes out.
+func reviewGmail(parts []string) string {
+	if len(parts) < 3 || parts[0] != "users" || parts[1] != "me" {
+		return "Makes a change in Gmail den does not know."
+	}
+
+	rest := parts[2:]
+	last := rest[len(rest)-1]
+	switch {
+	case last == "send" && rest[0] == "messages":
+		return "Sends an email."
+	case last == "send" && rest[0] == "drafts":
+		return "Sends a draft."
+	// messages/<id>/modify, threads/<id>/trash, messages/batchModify
+	case (rest[0] == "messages" || rest[0] == "threads") && len(rest) == 3 && slices.Contains([]string{"modify", "trash", "untrash"}, last):
+		return ""
+	case rest[0] == "messages" && len(rest) == 2 && last == "batchModify":
+		return ""
+	// drafts, drafts/<id>, labels, labels/<id>
+	case (rest[0] == "drafts" || rest[0] == "labels") && len(rest) <= 2:
+		return ""
+	}
+	return "Makes a change in Gmail den does not know."
+}
+
+// reviewCalendar lets the user's own events in their own calendar through:
+// events with no one else on them, changed without notifications, not
+// cancelled. Another calendar may be someone else's, or shared with them.
+func reviewCalendar(ctx context.Context, f *Fetcher, s service, u *url.URL, parts []string, body []byte) string {
+	// calendars/<id>/events, calendars/<id>/events/<eventId>
+	if len(parts) < 3 || len(parts) > 4 || parts[0] != "calendars" || parts[2] != "events" {
+		return "Makes a change in Calendar den does not know."
+	}
+	if len(parts) == 4 && slices.Contains([]string{"quickAdd", "import", "watch"}, parts[3]) {
+		return "Makes a change in Calendar den does not know."
+	}
+
+	if !f.own(parts[1]) {
+		return "Changes a calendar other than your own, which other people may see."
+	}
+
+	q := u.Query()
+	if update := q.Get("sendUpdates"); update != "" && update != "none" || q.Get("sendNotifications") == "true" {
+		return "Sends other people an invitation or an update."
+	}
+
+	var attendees []json.RawMessage
+	var status string
+	if !field(body, "attendees", &attendees) || !field(body, "status", &status) {
+		return "Changes a calendar event in a way den cannot read."
+	}
+	if len(attendees) > 0 {
+		return "Changes an event that has other people on it."
+	}
+	if status == "cancelled" {
+		return "Cancels a calendar event."
+	}
+
+	// A change to an event someone else is on reaches them too.
+	if len(parts) == 4 && f.guests(ctx, s, u) {
+		return "Changes an event that has other people on it."
+	}
+	return ""
+}
+
+// own says whether a calendar id is the user's primary calendar, which
+// Google names by their address too.
+func (f *Fetcher) own(id string) bool {
+	if id == "primary" {
+		return true
+	}
+	return f.google != nil && strings.Contains(id, "@") && strings.EqualFold(id, f.google.Account())
+}
+
 // reviewDrive lets through the changes den knows to stay with the user:
 // edits to files and comments no one else can open, and new files and
-// copies in folders no one else can open. Every other change waits for the
-// user, so a kind of request den does not know, such as publishing a doc to
-// the web, asks too.
-func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
-	if method == http.MethodDelete {
-		return "Deletes for good."
-	}
+// copies in folders no one else can open. parts is the path after the
+// API's version, with docs or sheets before it for those APIs. Every other
+// change waits for the user, so a kind of request den does not know, such
+// as publishing a doc to the web, asks too.
+func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, upload bool, parts []string, body []byte) string {
 	shared := func(ids ...string) bool {
 		for _, id := range ids {
 			if f.shared(ctx, s, id) {
@@ -106,11 +293,6 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return false
 	}
-	q := u.Query()
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if parts[0] == "upload" {
-		parts = parts[1:]
-	}
 	// A doc's or a sheet's id comes before a colon, as in d1:batchUpdate.
 	id := func(i int) string {
 		if len(parts) <= i {
@@ -118,15 +300,16 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return strings.SplitN(parts[i], ":", 2)[0]
 	}
+	q := u.Query()
 
 	switch u.Hostname() {
 	case "docs.googleapis.com":
-		// /v1/documents, /v1/documents/<id>:batchUpdate
-		if len(parts) == 2 && parts[1] == "documents" {
+		// documents, documents/<id>:batchUpdate
+		if len(parts) == 1 && parts[0] == "documents" {
 			return ""
 		}
-		if len(parts) == 3 && strings.HasSuffix(parts[2], ":batchUpdate") {
-			if shared(id(2)) {
+		if len(parts) == 2 && parts[0] == "documents" && strings.HasSuffix(parts[1], ":batchUpdate") {
+			if shared(id(1)) {
 				return "Changes a doc other people can open."
 			}
 			return ""
@@ -134,13 +317,13 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return "Makes a change in Docs den does not know."
 
 	case "sheets.googleapis.com":
-		// /v4/spreadsheets, /v4/spreadsheets/<id>..., but a sheet copied to
-		// another spreadsheet changes that one.
-		if len(parts) == 2 && parts[1] == "spreadsheets" {
+		// spreadsheets, spreadsheets/<id>..., but a sheet copied to another
+		// spreadsheet changes that one.
+		if len(parts) == 1 && parts[0] == "spreadsheets" {
 			return ""
 		}
-		if len(parts) >= 3 && parts[1] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo") {
-			if shared(id(2)) {
+		if len(parts) >= 2 && parts[0] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo") {
+			if shared(id(1)) {
 				return "Changes a spreadsheet other people can open."
 			}
 			return ""
@@ -148,8 +331,8 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return "Makes a change in Sheets den does not know."
 	}
 
-	// /drive/v3/files..., with /upload before it for a file's content.
-	if len(parts) < 3 || parts[0] != "drive" || parts[2] != "files" {
+	// files, files/<id>, files/<id>/copy, files/<id>/comments...
+	if len(parts) == 0 || parts[0] != "files" {
 		return "Makes a change in Drive den does not know."
 	}
 	var parents []string
@@ -159,7 +342,7 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 	switch {
 	// A new file: its metadata names its folder, and a plain upload
 	// goes to the top of My Drive. A multipart upload hides the metadata.
-	case len(parts) == 3 && method == http.MethodPost:
+	case len(parts) == 1 && method == http.MethodPost:
 		switch q.Get("uploadType") {
 		case "media":
 			return ""
@@ -174,14 +357,19 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return ""
 
-	// The rest of a resumable upload, whose start den looked at.
-	case method == http.MethodPut && q.Get("upload_id") != "":
+	// The rest of a resumable upload, whose start den looked at; to a file,
+	// its content changes too.
+	case upload && len(parts) <= 2 && method == http.MethodPut && q.Get("uploadType") == "resumable" && q.Get("upload_id") != "":
+		if shared(id(1)) {
+			return "Changes a file other people can open."
+		}
 		return ""
 
-	// A copy is new, and only its folder matters.
-	case len(parts) == 5 && parts[4] == "copy" && method == http.MethodPost:
-		if !readParents() {
-			return "Copies a file where den cannot read which folder it goes to."
+	// A copy without a folder goes to the folders of the file it copies, so
+	// den asks unless the body names one.
+	case len(parts) == 3 && parts[2] == "copy" && method == http.MethodPost:
+		if !readParents() || len(parents) == 0 {
+			return "Copies a file without naming its folder in parents, so it may land beside the original."
 		}
 		if shared(parents...) {
 			return "Puts a copy in a folder other people can open."
@@ -189,21 +377,25 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return ""
 
 	// A file's metadata or content, and the folders it moves to.
-	case len(parts) == 4 && method == http.MethodPatch:
-		if shared(id(3)) {
+	case len(parts) == 2 && method == http.MethodPatch:
+		if shared(id(1)) {
 			return "Changes a file other people can open."
 		}
 		if shared(strings.Split(q.Get("addParents"), ",")...) {
 			return "Moves a file to a folder other people can open."
 		}
+		if shared(strings.Split(q.Get("removeParents"), ",")...) {
+			return "Takes a file out of a folder other people can open."
+		}
 		return ""
 
 	// Comments and replies; a mention mails the person it names.
-	case len(parts) >= 5 && parts[4] == "comments" && (method == http.MethodPost || method == http.MethodPatch):
-		if shared(id(3)) {
+	case len(parts) >= 3 && parts[2] == "comments" && (method == http.MethodPost || method == http.MethodPatch):
+		if shared(id(1)) {
 			return "Comments on a file other people can open."
 		}
-		if bytes.Contains(body, []byte("@")) {
+		var content string
+		if !field(body, "content", &content) || strings.Contains(content, "@") {
 			return "Adds a comment that may mention someone, who then gets an email."
 		}
 		return ""

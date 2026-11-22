@@ -90,9 +90,9 @@ type service struct {
 	// show formats a body for the user to read, when the plain one would not
 	// say much.
 	show func(body []byte) string
-	// recipient gives the one address a request sends mail to, in lower
-	// case, or "". The user can allow mail to it for good or for an hour.
-	recipient func(u *url.URL, body []byte) string
+	// offer lets the user allow a kind of request for good or for an hour,
+	// where the service knows one, such as mail to one address.
+	offer func(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte, q *approve.Question)
 	// always lets the user allow a kind of request for good, where the
 	// method and the path say what it does.
 	always bool
@@ -226,12 +226,10 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 			q.Rule = "fetch " + req.Secret + " " + method + " " + pathPattern(u.Path)
 			q.Label = s.label + ": " + method + " " + pathPattern(u.Path)
 		}
-		// Mail to one person has its own rule and scope; other requests
-		// have the service's.
-		if s.recipient != nil {
-			if to := s.recipient(u, req.Body); to != "" {
-				q.MailTo(to)
-			}
+		// A service may know a narrower kind, such as mail to one person, with
+		// its own rule and scope; other requests have the service's.
+		if s.offer != nil {
+			s.offer(ctx, f, s, method, u, req.Body, &q)
 		}
 		// 1 hour allows more than the question shows, so the question says
 		// how much.

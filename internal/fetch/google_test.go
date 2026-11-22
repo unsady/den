@@ -38,6 +38,27 @@ func TestReviewGoogle(t *testing.T) {
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1?sendNotifications=true", `{"summary":"x"}`, true},
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events", `{"attendees":[{"email":"x@y.z"}],"Attendees":[]}`, true},
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/quickAdd?text=Lunch", ``, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/threads/t1/untrash", "", false},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify", `{"ids":["a"],"addLabelIds":["STARRED"]}`, false},
+		{"PUT", "https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1", `{"message":{"raw":"eA"}}`, false},
+		{"POST", "https://www.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media", "To: a", false},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/labels", `{"name":"Bills"}`, false},
+
+		// What den does not know, and deletes, ask.
+		{"DELETE", "https://gmail.googleapis.com/gmail/v1/users/me/labels/l1", "", true},
+		{"DELETE", "https://gmail.googleapis.com/gmail/v1/users/me/drafts/d1", "", true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/import", `{"raw":"eA"}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/me/watch", `{"topicName":"projects/x/topics/y"}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v1/users/someone@example.com/drafts", `{}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/watch", `{"address":"https://example.com"}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/import", `{}`, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1/move?destination=team", ``, true},
+		{"POST", "https://www.googleapis.com/calendar/v3/channels/stop", `{}`, true},
+		{"POST", "https://www.googleapis.com/oauth2/v2/anything", `{}`, true},
+
+		// Another calendar may be shared, so it asks even for an event alone.
+		{"POST", "https://www.googleapis.com/calendar/v3/calendars/team@group.calendar.google.com/events", `{"summary":"Gym"}`, true},
+
 		// den cannot read the event to see its guests, so it asks.
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1", `{"summary":"Gym"}`, true},
 	}
@@ -203,6 +224,8 @@ type drive struct{}
 func (drive) RoundTrip(r *http.Request) (*http.Response, error) {
 	files := map[string]string{
 		"mine":   `{"ownedByMe":true,"permissionIds":["me"]}`,
+		"budget": `{"ownedByMe":true,"shared":true,"name":"Budget"}`,
+		"tricky": `{"shared":true,"name":"Notes\n\nFile: My private draft"}`,
 		"folder": `{"ownedByMe":true,"permissionIds":["me"]}`,
 		"team":   `{"ownedByMe":true,"shared":true,"permissionIds":["me","anyoneWithLink"]}`,
 		"theirs": `{"ownedByMe":false}`,
@@ -233,7 +256,9 @@ func TestReviewDrive(t *testing.T) {
 		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=media", "text", false},
 		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", `{"name":"a.pdf"}`, false},
 		{"PUT", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=u1", "bytes", false},
-		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy"}`, false},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine/comments/c1/replies/r1", `{"action":"resolve"}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy","parents":["folder"]}`, false},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/mine?uploadType=resumable&upload_id=u2", "bytes", false},
 		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder", `{"trashed":true}`, false},
 		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/mine?uploadType=media", "text", false},
 		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments?fields=id", `{"content":"Typo here"}`, false},
@@ -260,6 +285,23 @@ func TestReviewDrive(t *testing.T) {
 		{"POST", "https://www.googleapis.com/drive/v3/files", `{"parents":"folder"}`, true},
 		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/mine/sheets/0:copyTo", `{"destinationSpreadsheetId":"team"}`, true},
 		{"POST", "https://www.googleapis.com/drive/v3/drives", `{"name":"Team"}`, true},
+
+		// Ways around the checks ask too.
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/copy", ``, true},
+		{"PATCH", "https://www.googleapis.com/drive/v2/files/mine", `{"parents":[{"id":"team"}]}`, true},
+		{"PUT", "https://www.googleapis.com/drive/v3/files/team?upload_id=x", `{}`, true},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable&upload_id=u2", "bytes", true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments", `{"content":"+anya\u0040example.com look"}`, true},
+		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=media&uploadType=multipart", "--b", true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder&addParents=team", `{}`, true},
+		{"POST", "https://docs.googleapis.com/v2/documents/mine:batchUpdate", `{}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v2/users/me/drafts", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?add_parents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder;addParents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?removeParents=team", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1?send_updates=all", `{}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments", `{"Content":"+anya@example.com look"}`, true},
 	}
 
 	f := &Fetcher{client: &http.Client{Transport: drive{}}}
@@ -272,5 +314,92 @@ func TestReviewDrive(t *testing.T) {
 		if (why != "") != c.ask {
 			t.Errorf("%s %s %s: %q", c.method, c.link, c.body, why)
 		}
+	}
+}
+
+func TestOwnCalendar(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, googleauth.TokenFile), []byte(`{"refresh_token":"r","email":"me@example.com"}`), 0o600)
+	f := &Fetcher{google: googleauth.New(config.Config{Secrets: dir})}
+
+	for id, want := range map[string]bool{"primary": true, "Me@Example.com": true, "team@group.calendar.google.com": false, "": false} {
+		if got := f.own(id); got != want {
+			t.Errorf("own(%q) = %v", id, got)
+		}
+	}
+}
+
+func TestOfferFileEdits(t *testing.T) {
+	cases := []struct {
+		method, link string
+		rule         string
+	}{
+		{"POST", "https://docs.googleapis.com/v1/documents/budget:batchUpdate", "fetch google edit budget"},
+		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/team/values/A1:B2?valueInputOption=RAW", "fetch google edit team"},
+
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media", "fetch google edit team"},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable&upload_id=u1", "fetch google edit team"},
+
+		// Metadata, moves, sharing, comments, and copies ask each time.
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/team", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&addParents=x", ""},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/permissions", ""},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/comments", ""},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/team/sheets/0:copyTo", ""},
+		{"POST", "https://docs.googleapis.com/v2/documents/team:batchUpdate", ""},
+		{"POST", "https://docs.googleapis.com/v1/documents/team:batchUpdate?a=1&a=2", ""},
+		{"DELETE", "https://sheets.googleapis.com/v4/spreadsheets/team", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=multipart", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&removeParents=x", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&upload_type=multipart", ""},
+	}
+
+	f := &Fetcher{client: &http.Client{Transport: drive{}}}
+	s := google
+	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	// Cells, yes; who may edit a range, no.
+	sheet, _ := url.Parse("https://sheets.googleapis.com/v4/spreadsheets/team:batchUpdate")
+	for body, want := range map[string]string{
+		`{"requests":[{"updateCells":{}}]}`:                          "fetch google edit team",
+		`{"requests":[{"updateCells":{}},{"addProtectedRange":{}}]}`: "",
+		`{"requests":[{"AddProtectedRange":{}}]}`:                    "",
+		`not json`: "",
+	} {
+		var q approve.Question
+		offerGoogle(context.Background(), f, s, "POST", sheet, []byte(body), &q)
+		if q.Rule != want {
+			t.Errorf("sheet %s: rule %q", body, q.Rule)
+		}
+	}
+
+	for _, c := range cases {
+		u, _ := url.Parse(c.link)
+		var q approve.Question
+		offerGoogle(context.Background(), f, s, c.method, u, nil, &q)
+		if q.Rule != c.rule || q.Scope != c.rule {
+			t.Errorf("%s %s: rule %q, scope %q", c.method, c.link, q.Rule, q.Scope)
+		}
+	}
+
+	u, _ := url.Parse("https://docs.googleapis.com/v1/documents/budget:batchUpdate")
+	var q approve.Question
+	offerGoogle(context.Background(), f, s, "POST", u, nil, &q)
+	if q.Label != "Edits to “Budget” (budget)" || !strings.HasSuffix(q.Text, "\n\nEdits to “Budget” (budget)") {
+		t.Errorf("label %q, text %q", q.Label, q.Text)
+	}
+}
+
+func TestOfferNamesFileOnOneLine(t *testing.T) {
+	f := &Fetcher{client: &http.Client{Transport: drive{}}}
+	s := google
+	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	u, _ := url.Parse("https://docs.googleapis.com/v1/documents/tricky:batchUpdate")
+	var q approve.Question
+	offerGoogle(context.Background(), f, s, "POST", u, nil, &q)
+	if q.Label != "Edits to “Notes File: My private draft” (tricky)" {
+		t.Errorf("label %q", q.Label)
 	}
 }

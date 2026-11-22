@@ -215,6 +215,9 @@ func connectGoogle(cfg config.Config) error {
 		if err != nil {
 			return "", err
 		}
+		if email == "" {
+			email = "Google"
+		}
 		return fmt.Sprintf("%s: %s", email, strings.Join(g.Granted(), ", ")), nil
 	}
 	return relay(s.URL, finish, g.Deliver, google.ErrNotSignin)
