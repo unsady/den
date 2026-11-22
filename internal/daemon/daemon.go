@@ -246,7 +246,7 @@ func Serve(cfg config.Config) error {
 	go d.loop()
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
-		a := app.New(cfg, d.chat, d.ask, d.events)
+		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.events)
 		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
 			log.Printf("app: %v", err)
 		}

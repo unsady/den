@@ -63,10 +63,14 @@ type Asker interface {
 	Answer(id, outcome string) (string, bool)
 }
 
+// Drop deletes a session and returns the HTTP status that suits its error.
+type Drop func(ctx context.Context, id string) (int, error)
+
 type Server struct {
 	cfg    config.Config
 	chat   Chat
 	ask    Asker
+	drop   Drop
 	events *events.Hub
 
 	mu sync.Mutex
@@ -81,8 +85,8 @@ type Server struct {
 // keptResults is how many results and notices the server keeps.
 const keptResults = 50
 
-func New(cfg config.Config, chat Chat, ask Asker, hub *events.Hub) *Server {
-	return &Server{cfg: cfg, chat: chat, ask: ask, events: hub, runs: map[string]string{}}
+func New(cfg config.Config, chat Chat, ask Asker, drop Drop, hub *events.Hub) *Server {
+	return &Server{cfg: cfg, chat: chat, ask: ask, drop: drop, events: hub, runs: map[string]string{}}
 }
 
 // Serve listens on addr until ctx ends.
@@ -335,6 +339,19 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		http.ServeFile(w, r, s.events.FilePath(id, file))
+	})
+
+	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if status, err := s.drop(r.Context(), id); err != nil {
+			fail(w, status, err)
+			return
+		}
+
+		// A client that was in the session is in none now, so the apps
+		// read the setup again.
+		s.events.Publish(events.Event{Type: events.Settings})
+		reply(w, map[string]string{"id": id})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/open", func(w http.ResponseWriter, r *http.Request) {
