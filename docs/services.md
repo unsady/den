@@ -45,9 +45,8 @@ A branch the agent pushes runs your repository's GitHub Actions that start on a 
 den reaches Gmail, Google Calendar, and Drive with its Docs and Sheets. It uses an OAuth client from your own Google Cloud project, so no one else holds access to your account. In the project:
 
 1. Enable the APIs you want den to use: Gmail API, Google Calendar API, and for files Google Drive API, Google Docs API, and Google Sheets API.
-2. Under Data Access, add their scopes: `gmail.modify`, `calendar.events`, `drive`.
-3. Under Audience, publish the app. In Testing, Google expires the access in 7 days.
-4. Create a client of type Desktop app and download its JSON.
+2. Under Audience, publish the app. In Testing, Google expires the access in 7 days.
+3. Create a client of type Desktop app and download its JSON.
 
 Then run `den connect google`, and give it the JSON's path. It opens Google's sign-in; Google warns that the app is unverified, and under Advanced you continue to it. If you sign in on another device, the last page fails to load: paste its address into the terminal. An app for personal use needs no verification from Google, and `den disconnect google` revokes the access.
 
