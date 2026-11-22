@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -10,17 +11,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/unsady/den/internal/letter"
 )
 
-// google reaches Gmail and Google Calendar with the account the user
-// connected with den connect google.
+// google reaches Gmail, Google Calendar, Drive, Docs, and Sheets with the
+// account the user connected with den connect google.
 var google = service{
 	label:  "Google",
 	source: googleSource,
-	hosts:  []string{"gmail.googleapis.com", "www.googleapis.com"},
+	hosts:  []string{"gmail.googleapis.com", "www.googleapis.com", "docs.googleapis.com", "sheets.googleapis.com"},
 	token: func(ctx context.Context, f *Fetcher) (string, error) {
 		return f.google.Token(ctx)
 	},
@@ -35,15 +37,20 @@ var google = service{
 	recipient: sentTo,
 }
 
-// reviewGoogle lets reads and changes to the user's own mail and calendar
-// through, and asks before mail goes out, before other people get an
-// invitation or an update, and before an event with other people on it
-// changes or any event is deleted.
+// reviewGoogle lets reads and changes to the user's own mail, calendar,
+// and files through, and asks before mail goes out, before other people get
+// an invitation or an update, before an event with other people on it
+// changes or any event is deleted, before a file is shared or deleted for
+// good, and before a comment mentions someone.
 func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
 	if method == http.MethodGet || method == http.MethodHead {
 		return ""
 	}
 	path := u.Path
+
+	if api(u) == "Drive" {
+		return reviewDrive(ctx, f, s, method, u, body)
+	}
 
 	switch {
 	case strings.HasSuffix(path, "/messages/send"):
@@ -82,49 +89,227 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 	return ""
 }
 
+// reviewDrive lets through the changes den knows to stay with the user:
+// edits to files and comments no one else can open, and new files and
+// copies in folders no one else can open. Every other change waits for the
+// user, so a kind of request den does not know, such as publishing a doc to
+// the web, asks too.
+func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
+	if method == http.MethodDelete {
+		return "Deletes for good."
+	}
+	shared := func(ids ...string) bool {
+		for _, id := range ids {
+			if f.shared(ctx, s, id) {
+				return true
+			}
+		}
+		return false
+	}
+	q := u.Query()
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if parts[0] == "upload" {
+		parts = parts[1:]
+	}
+	// A doc's or a sheet's id comes before a colon, as in d1:batchUpdate.
+	id := func(i int) string {
+		if len(parts) <= i {
+			return ""
+		}
+		return strings.SplitN(parts[i], ":", 2)[0]
+	}
+
+	switch u.Hostname() {
+	case "docs.googleapis.com":
+		// /v1/documents, /v1/documents/<id>:batchUpdate
+		if len(parts) == 2 && parts[1] == "documents" {
+			return ""
+		}
+		if len(parts) == 3 && strings.HasSuffix(parts[2], ":batchUpdate") {
+			if shared(id(2)) {
+				return "Changes a doc other people can open."
+			}
+			return ""
+		}
+		return "Makes a change in Docs den does not know."
+
+	case "sheets.googleapis.com":
+		// /v4/spreadsheets, /v4/spreadsheets/<id>..., but a sheet copied to
+		// another spreadsheet changes that one.
+		if len(parts) == 2 && parts[1] == "spreadsheets" {
+			return ""
+		}
+		if len(parts) >= 3 && parts[1] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo") {
+			if shared(id(2)) {
+				return "Changes a spreadsheet other people can open."
+			}
+			return ""
+		}
+		return "Makes a change in Sheets den does not know."
+	}
+
+	// /drive/v3/files..., with /upload before it for a file's content.
+	if len(parts) < 3 || parts[0] != "drive" || parts[2] != "files" {
+		return "Makes a change in Drive den does not know."
+	}
+	var parents []string
+	readParents := func() bool {
+		return len(bytes.TrimSpace(body)) == 0 || field(body, "parents", &parents)
+	}
+	switch {
+	// A new file: its metadata names its folder, and a plain upload
+	// goes to the top of My Drive. A multipart upload hides the metadata.
+	case len(parts) == 3 && method == http.MethodPost:
+		switch q.Get("uploadType") {
+		case "media":
+			return ""
+		case "multipart":
+			return "Uploads a file where den cannot read which folder it goes to; upload with uploadType=media or resumable."
+		}
+		if !readParents() {
+			return "Creates a file where den cannot read which folder it goes to."
+		}
+		if shared(parents...) {
+			return "Puts a new file in a folder other people can open."
+		}
+		return ""
+
+	// The rest of a resumable upload, whose start den looked at.
+	case method == http.MethodPut && q.Get("upload_id") != "":
+		return ""
+
+	// A copy is new, and only its folder matters.
+	case len(parts) == 5 && parts[4] == "copy" && method == http.MethodPost:
+		if !readParents() {
+			return "Copies a file where den cannot read which folder it goes to."
+		}
+		if shared(parents...) {
+			return "Puts a copy in a folder other people can open."
+		}
+		return ""
+
+	// A file's metadata or content, and the folders it moves to.
+	case len(parts) == 4 && method == http.MethodPatch:
+		if shared(id(3)) {
+			return "Changes a file other people can open."
+		}
+		if shared(strings.Split(q.Get("addParents"), ",")...) {
+			return "Moves a file to a folder other people can open."
+		}
+		return ""
+
+	// Comments and replies; a mention mails the person it names.
+	case len(parts) >= 5 && parts[4] == "comments" && (method == http.MethodPost || method == http.MethodPatch):
+		if shared(id(3)) {
+			return "Comments on a file other people can open."
+		}
+		if bytes.Contains(body, []byte("@")) {
+			return "Adds a comment that may mention someone, who then gets an email."
+		}
+		return ""
+	}
+	return "Makes a change in Drive den does not know."
+}
+
+// shared says whether other people can open the file or folder id: it is
+// shared, sits in a shared drive, or belongs to someone else. It says so
+// too when den cannot tell.
+func (f *Fetcher) shared(ctx context.Context, s service, id string) bool {
+	if id == "" {
+		return false
+	}
+	var file struct {
+		Shared      bool     `json:"shared"`
+		Drive       string   `json:"driveId"`
+		Mine        bool     `json:"ownedByMe"`
+		Permissions []string `json:"permissionIds"`
+	}
+	link := "https://www.googleapis.com/drive/v3/files/" + url.PathEscape(id) + "?supportsAllDrives=true&fields=shared,driveId,ownedByMe,permissionIds"
+	if !f.read(ctx, s, link, &file) {
+		return true
+	}
+	return file.Shared || file.Drive != "" || !file.Mine || len(file.Permissions) > 1
+}
+
 // guests says whether the event at u has other people on it, or den cannot
 // tell.
 func (f *Fetcher) guests(ctx context.Context, s service, u *url.URL) bool {
-	token, err := f.secret(ctx, s)
-	if err != nil {
-		return true
-	}
-	r, err := http.NewRequestWithContext(context.WithValue(ctx, serviceKey{}, s), http.MethodGet, "https://"+u.Host+u.EscapedPath(), nil)
-	if err != nil {
-		return true
-	}
-	s.authorize(r, token)
-	resp, err := f.client.Do(r)
-	if err != nil {
-		return true
-	}
-	defer resp.Body.Close()
 	var event struct {
 		Attendees []json.RawMessage `json:"attendees"`
 	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, MaxBody)).Decode(&event) != nil {
+	if !f.read(ctx, s, "https://"+u.Host+u.EscapedPath(), &event) {
 		return true
 	}
 	return len(event.Attendees) > 0
 }
 
-// refuseGoogle turns away what den cannot review: a batch request carries
-// other requests inside it, such as one that sends mail.
-// googleSource names the Google API a request goes to by the first part of
-// its path, such as Gmail for /gmail/v1/users/me/messages/send.
+// read gets link with the service's secret into v, and says whether it
+// could.
+func (f *Fetcher) read(ctx context.Context, s service, link string, v any) bool {
+	token, err := f.secret(ctx, s)
+	if err != nil {
+		return false
+	}
+	r, err := http.NewRequestWithContext(context.WithValue(ctx, serviceKey{}, s), http.MethodGet, link, nil)
+	if err != nil {
+		return false
+	}
+	s.authorize(r, token)
+	resp, err := f.client.Do(r)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK && json.NewDecoder(io.LimitReader(resp.Body, MaxBody)).Decode(v) == nil
+}
+
+// googleSource names the Google API a request goes to, such as Gmail for
+// /gmail/v1/users/me/messages/send.
 func googleSource(u *url.URL) string {
-	switch strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 2)[0] {
-	case "gmail":
-		return "Gmail"
-	case "calendar":
-		return "Calendar"
+	switch u.Hostname() {
+	case "docs.googleapis.com":
+		return "Docs"
+	case "sheets.googleapis.com":
+		return "Sheets"
+	}
+	if name := api(u); name != "" {
+		return name
 	}
 	return "Google"
 }
 
-func refuseGoogle(u *url.URL) string {
+// api names the part of the account a request needs the user to have
+// granted, as googleauth.APIs names it, or "" for none den knows.
+func api(u *url.URL) string {
+	switch u.Hostname() {
+	case "gmail.googleapis.com":
+		return "Gmail"
+	case "docs.googleapis.com", "sheets.googleapis.com":
+		return "Drive"
+	}
+	path := strings.TrimPrefix(strings.TrimPrefix(u.Path, "/"), "upload/")
+	switch strings.SplitN(path, "/", 2)[0] {
+	case "gmail":
+		return "Gmail"
+	case "calendar":
+		return "Calendar"
+	case "drive":
+		return "Drive"
+	}
+	return ""
+}
+
+// refuseGoogle turns away what den cannot review, as a batch request
+// carries other requests inside it, such as one that sends mail, and what
+// the user did not grant, so the agent learns why rather than from
+// Google's 403.
+func refuseGoogle(f *Fetcher, u *url.URL) string {
 	if strings.HasPrefix(u.Path, "/batch") {
 		return "den does not pass on batch requests; send each request on its own"
+	}
+	granted := f.google.Granted()
+	if name := api(u); name != "" && granted != nil && !slices.Contains(granted, name) {
+		return fmt.Sprintf("the user did not grant den %s; they add it by running den connect google on their computer and allowing it on Google's page", name)
 	}
 	return ""
 }

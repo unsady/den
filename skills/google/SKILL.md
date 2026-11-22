@@ -1,6 +1,6 @@
 ---
 name: google
-description: Read, sort, draft, and send the user's Gmail, and read and change their Google Calendar, through the Google APIs with den fetch. Use for any task on their mail or calendar.
+description: Read, sort, draft, and send the user's Gmail, read and change their Google Calendar, and find, read, and edit their Drive files, Google Docs, and Sheets, through the Google APIs with den fetch. Use for any task on their mail, calendar, or Google files.
 ---
 
 # google
@@ -11,11 +11,11 @@ den holds the user's Google tokens and adds them to each request. You never see 
 den fetch --secret google https://gmail.googleapis.com/gmail/v1/users/me/profile
 ```
 
-When den answers that Google is not connected or not set up, tell the user to run `den connect google` on their computer. When Google answers `403` with `SERVICE_DISABLED`, the user has to enable that API (Gmail API or Google Calendar API) in their Google Cloud project under APIs & Services → Library; reconnecting does not help. den can reach Gmail and Calendar only, not Drive or other services.
+When den answers that Google is not connected or not set up, tell the user to run `den connect google` on their computer. The user may have allowed only some of Gmail, Calendar, and Drive; den refuses a request to one they did not allow and says so, and they add it by running `den connect google` again. When Google answers `403` with `SERVICE_DISABLED`, the user has to enable that API (Gmail, Google Calendar, Google Drive, Google Docs, or Google Sheets API) in their Google Cloud project under APIs & Services → Library; reconnecting does not help. Google's other services are out of den's reach.
 
 ## What waits for the user
 
-Reads, labels, archiving, trash, drafts, and events with no other people on them go at once. den asks the user in Telegram first before mail goes out (`messages/send`, `drafts/send`), before an event with other people on it is created or changed, before anyone is notified (`sendUpdates`, `sendNotifications`), and before an event is cancelled or deleted. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
+Reads, labels, archiving, trash, drafts, events with no other people on them, and changes to files only the user can open go at once. den asks the user in Telegram first before mail goes out (`messages/send`, `drafts/send`), before an event with other people on it is created or changed, before anyone is notified (`sendUpdates`, `sendNotifications`), before an event is cancelled or deleted, before any change to a file or folder other people can open or that belongs to someone else, before anything in Drive is deleted for good, before a comment with an `@` in it, since a mention emails that person, and before any change in Drive other than editing, creating, copying, moving, trashing, and commenting, such as sharing or publishing a file. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
 
 Prefer a draft when the user did not ask you to send: they can read and send it from Gmail themselves.
 
@@ -63,6 +63,26 @@ den fetch --secret google -X PATCH -d '{"summary":"…"}' "$c/events/<eventId>"
 - Use the user's time zone from `notes/` or ask once; write times with their offset.
 - Only the user's own calendars by id are reachable: `primary`, or an id the user gives, such as a shared calendar's address. Listing calendars (`calendarList`) is outside den's access.
 - Inviting people: add `"attendees":[{"email":"…"}]` and `?sendUpdates=all`. den asks the user first.
+
+## Drive, Docs, and Sheets
+
+```bash
+d=https://www.googleapis.com/drive/v3
+den fetch --secret google "$d/files?q=name+contains+'budget'+and+trashed=false&fields=files(id,name,mimeType,modifiedTime)" | jq -r '.files[] | "\(.id)  \(.mimeType)  \(.name)"'
+den fetch --secret google "$d/files/<id>/export?mimeType=text/plain"
+den fetch --secret google https://docs.googleapis.com/v1/documents/<id> > doc.json
+den fetch --secret google -d '{"requests":[{"insertText":{"endOfSegmentLocation":{},"text":"\nNew line"}}]}' https://docs.googleapis.com/v1/documents/<id>:batchUpdate
+den fetch --secret google "https://sheets.googleapis.com/v4/spreadsheets/<id>/values/Sheet1!A1:D20"
+den fetch --secret google -X PUT -d '{"values":[["Rent",1200]]}' "https://sheets.googleapis.com/v4/spreadsheets/<id>/values/Sheet1!A2:B2?valueInputOption=USER_ENTERED"
+den fetch --secret google -d '{"values":[["Gym",40]]}' "https://sheets.googleapis.com/v4/spreadsheets/<id>/values/Sheet1!A:B:append?valueInputOption=USER_ENTERED"
+```
+
+- `q` takes Drive's search syntax: `name contains '…'`, `fullText contains '…'`, `mimeType='application/vnd.google-apps.document'` (Docs) or `…spreadsheet` (Sheets), `'<folderId>' in parents`, `modifiedTime > '2026-01-31T00:00:00'`. URL-encode it.
+- A doc's or sheet's id is in its link: `docs.google.com/document/d/<id>/…`.
+- For Docs, read the document first: `batchUpdate` places text by index (`.body.content[].endIndex`), and `replaceAllText` changes text without one. Send edits from the end of the doc backwards, so earlier indexes stay right.
+- A new doc or sheet: `POST https://docs.googleapis.com/v1/documents` with `{"title":"…"}`, or `POST https://sheets.googleapis.com/v4/spreadsheets` with `{"properties":{"title":"…"}}`. Send the user its link.
+- Move to the trash with `PATCH $d/files/<id>` and `{"trashed":true}`; the user can restore it.
+- Upload with `uploadType=media` or `resumable`, never `multipart`: den cannot read which folder a multipart upload goes to, so it asks the user.
 
 ## Local findings
 

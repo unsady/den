@@ -11,7 +11,7 @@
 | `den start`, `den stop`, `den restart` | The container |
 | `den status`, `den logs [-f]` | The container and the secrets den has; den's log |
 | `den login <provider>` | Adds a model provider or changes its key |
-| `den connect`, `den connect google`, `mail`, `codex`, `grok`, `claude` | Gmail and Calendar, a mailbox, a ChatGPT, Grok or Claude subscription; alone, a list to pick from |
+| `den connect`, `den connect google`, `mail`, `codex`, `grok`, `claude` | Gmail, Calendar, and Drive, a mailbox, a ChatGPT, Grok or Claude subscription; alone, a list to pick from |
 | `den service add`, `ls`, `rm` | Your own APIs; `add` alone asks for each detail |
 | `den secret set <name>`, `ls`, `rm` | Any other secret, such as `github_token`; asks for its value |
 | `den stats [--since 2h] [--json]` | How the model providers did |

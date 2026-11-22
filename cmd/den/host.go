@@ -44,7 +44,7 @@ Usage:
                                 also makes it den's default
   den connect                   Choose what to connect, from the list below
   den connect google [<client JSON>]
-                                Connect Gmail and Calendar in this machine's browser
+                                Connect Gmail, Calendar, and Drive in this machine's browser
   den connect codex             Connect a ChatGPT subscription for Codex models
   den connect grok              Connect a Grok subscription for Grok models
   den connect claude            Connect a Claude Pro or Max subscription

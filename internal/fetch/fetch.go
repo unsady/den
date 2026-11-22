@@ -86,7 +86,7 @@ type service struct {
 	// sends the request, and sends it only when nothing changed.
 	preview func(ctx context.Context, f *Fetcher, s service, u *url.URL, body []byte) (string, error)
 	// refuse says why den does not send a request at all, or "".
-	refuse func(u *url.URL) string
+	refuse func(f *Fetcher, u *url.URL) string
 	// show formats a body for the user to read, when the plain one would not
 	// say much.
 	show func(body []byte) string
@@ -172,7 +172,7 @@ func (f *Fetcher) Do(ctx context.Context, req Request) (Response, error) {
 		method = http.MethodGet
 	}
 	if s.refuse != nil {
-		if why := s.refuse(u); why != "" {
+		if why := s.refuse(f, u); why != "" {
 			return Response{}, fmt.Errorf("%w: %s", ErrRequest, why)
 		}
 	}

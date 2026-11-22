@@ -106,7 +106,7 @@ func askValid(title string, check func(string) error) (string, error) {
 // connectChoices are what den connect offers when it is run alone.
 var connectChoices = []choice{
 	{"mail", "any mailbox, with an app password", "mail"},
-	{"google", "Gmail and Calendar, with your own Google client", "google"},
+	{"google", "Gmail, Calendar, and Drive, with your own Google client", "google"},
 	{"codex", "a ChatGPT Plus or Pro subscription", "codex"},
 	{"grok", "a SuperGrok subscription", "grok"},
 	{"claude", "a Claude Pro or Max subscription", "claude"},

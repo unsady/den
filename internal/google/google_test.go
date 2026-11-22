@@ -17,12 +17,14 @@ import (
 	"github.com/unsady/den/internal/config"
 )
 
-// fake plays Google's token endpoint and Gmail.
+// fake plays Google's token endpoint.
 type fake struct {
 	t         *testing.T
 	challenge string
 	refreshes int
 	revoked   bool
+	// granted are the scopes the user allowed on Google's page.
+	granted string
 }
 
 func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +39,8 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"error":"invalid_grant"}`))
 				return
 			}
-			w.Write([]byte(`{"access_token":"a1","refresh_token":"r1","expires_in":3600,"scope":"` + strings.Join(Scopes, " ") + `"}`))
+			id := "x." + base64.RawURLEncoding.EncodeToString([]byte(`{"email":"me@example.com"}`)) + ".sig"
+			w.Write([]byte(`{"access_token":"a1","refresh_token":"r1","expires_in":3600,"scope":"` + f.granted + `","id_token":"` + id + `"}`))
 		case "refresh_token":
 			if f.revoked {
 				w.WriteHeader(http.StatusBadRequest)
@@ -47,28 +50,74 @@ func (f *fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.refreshes++
 			w.Write([]byte(`{"access_token":"a2","expires_in":3600}`))
 		}
-
-	case "/profile":
-		if r.Header.Get("Authorization") != "Bearer a1" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.Write([]byte(`{"emailAddress":"me@example.com"}`))
 	}
 }
 
 func setup(t *testing.T) (*Google, *fake) {
 	t.Helper()
 
-	f := &fake{t: t}
+	f := &fake{t: t, granted: strings.Join(Scopes, " ")}
 	server := httptest.NewServer(f)
 	t.Cleanup(server.Close)
-	tokenURL, profileURL = server.URL+"/token", server.URL+"/profile"
+	tokenURL = server.URL + "/token"
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ClientFile), []byte(`{"web":{"client_id":"id","client_secret":"shh"}}`), 0o600)
 
 	return New(config.Config{Secrets: dir}), f
+}
+
+// signIn signs in, with the user allowing what f grants.
+func signIn(t *testing.T, g *Google, f *fake) (string, error) {
+	t.Helper()
+
+	s, err := g.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.challenge = challenge(s.URL)
+	done := make(chan error, 1)
+	var email string
+	go func() {
+		var err error
+		email, err = g.Finish(context.Background(), s)
+		done <- err
+	}()
+	u, _ := url.Parse(s.URL)
+	link := Redirect + "?state=" + u.Query().Get("state") + "&code=4/code"
+	for g.Deliver(link) != nil {
+		time.Sleep(time.Millisecond)
+	}
+	err = <-done
+	return email, err
+}
+
+func challenge(link string) string {
+	u, _ := url.Parse(link)
+	return u.Query().Get("code_challenge")
+}
+
+func TestSomePermissions(t *testing.T) {
+	g, f := setup(t)
+
+	// The user allows Drive alone.
+	f.granted = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive"
+	if email, err := signIn(t, g, f); err != nil || email != "me@example.com" {
+		t.Fatalf("finish: %q %v", email, err)
+	}
+	if got := g.Granted(); len(got) != 1 || got[0] != "Drive" {
+		t.Fatalf("granted %q", got)
+	}
+
+	// The user allows none of the APIs.
+	g.Disconnect(context.Background())
+	f.granted = "openid https://www.googleapis.com/auth/userinfo.email"
+	if _, err := signIn(t, g, f); err == nil {
+		t.Fatal("connected with nothing granted")
+	}
+	if g.Granted() != nil {
+		t.Fatal("kept an account with nothing granted")
+	}
 }
 
 func TestSignIn(t *testing.T) {
