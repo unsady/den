@@ -6,7 +6,7 @@ You connect a service in a terminal on the computer where den runs, never in the
 |---|---|
 | [Your own API](#your-own-api) | `den service add` |
 | [GitHub](#github) | `den secret set github_token` |
-| [Gmail and Google Calendar](#gmail-and-google-calendar) | `den connect google` |
+| [Google: Gmail, Calendar, Drive](#google) | `den connect google` |
 | [Any mailbox](#any-mailbox) | `den connect mail` |
 | [Web search](#web-search) with higher limits | `den secret set exa_key` |
 
@@ -40,18 +40,20 @@ Create a fine-grained token limited to the repositories the agent may use, with 
 
 A branch the agent pushes runs your repository's GitHub Actions that start on a push or a pull request, with the secrets those workflows get. So leave out of the token any repository whose workflows hold secrets the agent must not reach, and give the token no Workflows permission, so the agent cannot change workflows. Where tags publish something, such as a release, protect them with a tag ruleset in the repository's settings. Ask the agent to back up its workspace, and it pushes `space/` to an empty private repository of yours every night.
 
-## Gmail and Google Calendar
+## Google
 
-den uses an OAuth client from your own Google Cloud project, so no one else holds access to your mail. In the project:
+den reaches Gmail, Google Calendar, and Drive with its Docs and Sheets. It uses an OAuth client from your own Google Cloud project, so no one else holds access to your account. In the project:
 
-1. Enable the Gmail API and the Google Calendar API.
-2. Under Data Access, add the scopes `gmail.modify` and `calendar.events`.
+1. Enable the APIs you want den to use: Gmail API, Google Calendar API, and for files Google Drive API, Google Docs API, and Google Sheets API.
+2. Under Data Access, add their scopes: `gmail.modify`, `calendar.events`, `drive`.
 3. Under Audience, publish the app. In Testing, Google expires the access in 7 days.
 4. Create a client of type Desktop app and download its JSON.
 
 Then run `den connect google`, and give it the JSON's path. It opens Google's sign-in; Google warns that the app is unverified, and under Advanced you continue to it. If you sign in on another device, the last page fails to load: paste its address into the terminal. An app for personal use needs no verification from Google, and `den disconnect google` revokes the access.
 
-den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. Reading, labels, archiving, trash, drafts, and your own events need no answer.
+Google's page lists mail, calendar, and Drive, each with a checkbox: leave unchecked what den should not reach, and den uses only what you allowed. To add one later, run `den connect google` again.
+
+den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. In Drive, it asks before a file is shared or its access changes, before anything is deleted for good, and before a comment that may mention someone, who then gets an email. Reading, labels, archiving, trash, drafts, your own events, and editing, creating, and copying files need no answer. People you already share a file with see the agent's edits; a file's version history keeps what an edit replaced.
 
 ## Any mailbox
 

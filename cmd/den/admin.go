@@ -209,7 +209,15 @@ func connectGoogle(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	return relay(s.URL, func() (string, error) { return g.Finish(context.Background(), s) }, g.Deliver, google.ErrNotSignin)
+	// The user may have allowed only some of the APIs on Google's page.
+	finish := func() (string, error) {
+		email, err := g.Finish(context.Background(), s)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s: %s", email, strings.Join(g.Granted(), ", ")), nil
+	}
+	return relay(s.URL, finish, g.Deliver, google.ErrNotSignin)
 }
 
 // relay signs in over stdio: it prints the sign-in address as "open <url>",

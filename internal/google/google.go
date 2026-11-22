@@ -11,6 +11,7 @@ package google
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,19 +42,34 @@ const (
 	Redirect = "http://127.0.0.1:8941/den"
 )
 
-// Scopes are mail without permanent deletion or settings, and calendar
-// events.
-var Scopes = []string{
-	"https://www.googleapis.com/auth/gmail.modify",
-	"https://www.googleapis.com/auth/calendar.events",
+// APIs are what den asks Google for: mail without permanent deletion or
+// settings, calendar events, and Drive with Docs and Sheets. Google's page
+// lets the user grant any of them, and den reaches only those granted.
+var APIs = []API{
+	{"Gmail", "https://www.googleapis.com/auth/gmail.modify"},
+	{"Calendar", "https://www.googleapis.com/auth/calendar.events"},
+	{"Drive", "https://www.googleapis.com/auth/drive"},
 }
+
+// API is one part of the account the user can grant den.
+type API struct {
+	Name  string
+	Scope string
+}
+
+// Scopes are what den asks for: the APIs, and the account's address.
+var Scopes = append([]string{"openid", "email"}, func() []string {
+	var scopes []string
+	for _, a := range APIs {
+		scopes = append(scopes, a.Scope)
+	}
+	return scopes
+}()...)
 
 var (
 	authURL   = "https://accounts.google.com/o/oauth2/v2/auth"
 	tokenURL  = "https://oauth2.googleapis.com/token"
 	revokeURL = "https://oauth2.googleapis.com/revoke"
-	// profileURL names the connected account.
-	profileURL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
 )
 
 // ErrClient means the user has not added the OAuth client yet.
@@ -151,13 +167,9 @@ func (g *Google) Finish(ctx context.Context, s *Signin) (string, error) {
 	if t.Refresh == "" {
 		return "", errors.New("Google sent no refresh token")
 	}
-	for _, scope := range Scopes {
-		if !strings.Contains(" "+t.Scope+" ", " "+scope+" ") {
-			return "", errors.New("not every permission was granted: allow mail and calendar on Google's page")
-		}
+	if len(t.granted()) == 0 {
+		return "", errors.New("no permission was granted: on Google's page, allow at least one of Gmail, Calendar, and Drive")
 	}
-
-	t.Email = g.email(ctx, t.Access)
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -210,6 +222,10 @@ func (g *Google) Token(ctx context.Context) (string, error) {
 	if fresh.Refresh != "" {
 		t.Refresh = fresh.Refresh
 	}
+	// The user can take back one permission in their Google account.
+	if fresh.Scope != "" {
+		t.Scope = fresh.Scope
+	}
 	return t.Access, g.save(t)
 }
 
@@ -226,6 +242,29 @@ func (g *Google) Account() string {
 		return "your account"
 	}
 	return t.Email
+}
+
+// Granted names the APIs the user granted, such as Gmail and Drive, or nil
+// when none is connected.
+func (g *Google) Granted() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	t, err := g.load()
+	if err != nil {
+		return nil
+	}
+	return t.granted()
+}
+
+func (t token) granted() []string {
+	var names []string
+	for _, a := range APIs {
+		if strings.Contains(" "+t.Scope+" ", " "+a.Scope+" ") {
+			names = append(names, a.Name)
+		}
+	}
+	return names
 }
 
 // Disconnect revokes den's access and forgets the account.
@@ -292,6 +331,7 @@ func (g *Google) request(ctx context.Context, form url.Values) (token, error) {
 		Refresh string `json:"refresh_token"`
 		Expires int    `json:"expires_in"`
 		Scope   string `json:"scope"`
+		ID      string `json:"id_token"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		return token{}, err
@@ -301,28 +341,26 @@ func (g *Google) request(ctx context.Context, form url.Values) (token, error) {
 		Refresh: got.Refresh,
 		Expiry:  time.Now().Add(time.Duration(got.Expires) * time.Second),
 		Scope:   got.Scope,
+		Email:   email(got.ID),
 	}, nil
 }
 
-// email asks Gmail which address the token belongs to.
-func (g *Google) email(ctx context.Context, access string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, profileURL, nil)
+// email reads the account's address from an ID token. den got it from
+// Google's token endpoint itself, so it needs no check of its signature.
+func email(id string) string {
+	parts := strings.Split(id, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("Authorization", "Bearer "+access)
-
-	resp, err := g.http.Do(req)
-	if err != nil {
-		return ""
+	var claims struct {
+		Email string `json:"email"`
 	}
-	defer resp.Body.Close()
-
-	var profile struct {
-		Email string `json:"emailAddress"`
-	}
-	json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&profile)
-	return profile.Email
+	json.Unmarshal(payload, &claims)
+	return claims.Email
 }
 
 // client reads the OAuth client JSON that Google Cloud's console downloads,

@@ -1,6 +1,6 @@
 # den
 
-A personal AI agent you talk to in Telegram. It runs on your own computer, in a container, and does real work: reads and answers mail, keeps your calendar, runs jobs on a schedule, pushes to GitHub, calls your own APIs, searches the web, and remembers what it learns.
+A personal AI agent you talk to in Telegram. It runs on your own computer, in a container, and does real work: reads and answers mail, keeps your calendar, edits your Google Docs and Sheets, runs jobs on a schedule, pushes to GitHub, calls your own APIs, searches the web, and remembers what it learns.
 
 den is built on [fx](https://github.com/vercel-labs/fx), a small and fast agent CLI. Idle, it is one small process waiting for your messages, and the agent never sees a password, token, or key.
 
@@ -37,7 +37,7 @@ The agent knows how: ask it "help me connect my mail" or "connect Todoist", and 
 | What | Command |
 |---|---|
 | Any mailbox | `den connect mail` |
-| Gmail and Calendar | `den connect google` |
+| Gmail, Calendar, and Drive | `den connect google` |
 | GitHub | `den secret set github_token` |
 | Your own API | `den service add` |
 | Voice messages | [Voice](docs/voice.md) |

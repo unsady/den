@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/config"
+	googleauth "github.com/unsady/den/internal/google"
 )
 
 func TestReviewGoogle(t *testing.T) {
@@ -37,6 +40,19 @@ func TestReviewGoogle(t *testing.T) {
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/quickAdd?text=Lunch", ``, true},
 		// den cannot read the event to see its guests, so it asks.
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1", `{"summary":"Gym"}`, true},
+
+		// Edits, copies, and the trash go; sharing and deleting for good ask.
+		{"POST", "https://docs.googleapis.com/v1/documents/d1:batchUpdate", `{"requests":[]}`, false},
+		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/s1/values/A1:B2?valueInputOption=RAW", `{"values":[[1,2]]}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/f1/copy", `{"name":"Copy"}`, false},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/f1", `{"trashed":true}`, false},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/f1?uploadType=media", "text", false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/f1/permissions", `{"role":"writer","type":"anyone"}`, true},
+		{"DELETE", "https://www.googleapis.com/drive/v3/files/f1/permissions/p1", "", true},
+		{"DELETE", "https://www.googleapis.com/drive/v3/files/f1", "", true},
+		{"DELETE", "https://www.googleapis.com/drive/v3/files/trash", "", true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/f1/comments?fields=id", `{"content":"Typo here"}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/f1/comments/c1/replies?fields=id", `{"content":"+anya@example.com look"}`, true},
 	}
 
 	// No account is connected, so a draft is not fetched to show it.
@@ -100,7 +116,7 @@ func TestDraftChangedAfterTheQuestion(t *testing.T) {
 		asked = append(asked, q.Text)
 		then = answer
 		return true, nil
-	}, nil)
+	}, googleauth.New(config.Config{Secrets: t.TempDir()}))
 	f.client.Transport = server.Client().Transport
 	f.Report = func(session, agent, user string) { reports = append(reports, agent) }
 	f.Known = func(session string) bool { return session == "s1" }
@@ -167,12 +183,28 @@ func TestGoogleSource(t *testing.T) {
 	cases := map[string]string{
 		"https://gmail.googleapis.com/gmail/v1/users/me/messages/send":    "Gmail",
 		"https://www.googleapis.com/calendar/v3/calendars/primary/events": "Calendar",
-		"https://www.googleapis.com/drive/v3/files":                       "Google",
+		"https://www.googleapis.com/drive/v3/files":                       "Drive",
+		"https://sheets.googleapis.com/v4/spreadsheets/s1":                "Sheets",
+		"https://www.googleapis.com/oauth2/v2/userinfo":                   "Google",
 	}
 	for link, want := range cases {
 		u, _ := url.Parse(link)
 		if got := googleSource(u); got != want {
 			t.Errorf("googleSource(%s) = %q, want %q", link, got, want)
 		}
+	}
+}
+
+func TestGoogleNotGranted(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, googleauth.TokenFile), []byte(`{"refresh_token":"r","scope":"openid https://www.googleapis.com/auth/drive"}`), 0o600)
+	f := New(config.Config{Secrets: dir}, nil, googleauth.New(config.Config{Secrets: dir}))
+
+	_, err := f.Do(context.Background(), Request{Secret: "google", URL: "https://gmail.googleapis.com/gmail/v1/users/me/messages"})
+	if !errors.Is(err, ErrRequest) || !strings.Contains(err.Error(), "did not grant den Gmail") {
+		t.Fatalf("gmail: %v", err)
+	}
+	if why := refuseGoogle(f, &url.URL{Host: "docs.googleapis.com", Path: "/v1/documents/d1"}); why != "" {
+		t.Fatalf("docs: %s", why)
 	}
 }

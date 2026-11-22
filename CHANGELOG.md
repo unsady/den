@@ -8,6 +8,8 @@ release notes.
 
 ### Added
 
+- The agent can read and edit your Google Drive, Docs, and Sheets. It asks before it shares a file, deletes one for good, or mentions someone in a comment. To add Drive, enable the Drive, Docs, and Sheets APIs and the `drive` scope in your Google Cloud project, as the [guide](docs/services.md#google) says, and run `den connect google` again.
+- On Google's sign-in page you can leave Gmail, Calendar, or Drive unchecked, and den uses only what you allowed. Before, den refused the connection unless you allowed both mail and calendar.
 - The apps can delete a session. One whose turn runs stays until the turn ends or you stop it.
 
 ### Changed

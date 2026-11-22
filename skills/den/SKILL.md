@@ -62,7 +62,7 @@ Search with word stems for inflected languages, such as `rg -i "rechnung|rechnun
 den fetch --secret github https://api.github.com/user
 ```
 
-den holds the user's tokens and adds them to requests, so you can use a service without seeing its key. A request that writes somewhere other people see, or cannot be undone, waits until the user allows it in Telegram. The skill for each service, `github` and `google` (Gmail and Calendar), says what it covers. Mail with an app password goes through den's local IMAP and SMTP instead; the `mail` skill covers it.
+den holds the user's tokens and adds them to requests, so you can use a service without seeing its key. A request that writes somewhere other people see, or cannot be undone, waits until the user allows it in Telegram. The skill for each service, `github` and `google` (Gmail, Calendar, Drive, Docs, Sheets), says what it covers. Mail with an app password goes through den's local IMAP and SMTP instead; the `mail` skill covers it.
 
 The user can also add their own APIs. `den service ls` lists them with their address, which requests wait for the user, and the user's note on what each API does. Call one by its name, only at its address:
 
@@ -81,7 +81,7 @@ The user connects services and changes settings in a terminal on their computer,
 | What | Command on their computer |
 |---|---|
 | Any mailbox, with an app password | `den connect mail` |
-| Gmail and Calendar | `den connect google`; they first need an OAuth client from their own Google Cloud project, as the guide says |
+| Gmail, Calendar, and Drive with Docs and Sheets | `den connect google`; they first need an OAuth client from their own Google Cloud project, as the guide says |
 | GitHub | a fine-grained token for the repositories you may use, then `den secret set github_token` |
 | Their own API | `den service add` |
 | Another model provider or a subscription | `den login <provider>`, or `den connect codex`, `grok`, `claude` |

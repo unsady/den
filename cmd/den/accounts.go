@@ -174,7 +174,7 @@ func hostConnect(c hostConfig, args []string) error {
 		return connectMail(c)
 	case "google":
 		if len(args) == 1 && terminal() && !secrets(c)[google.ClientFile] {
-			note("den needs an OAuth client from your own Google Cloud project: " + docsURL + "/services.md#gmail-and-google-calendar")
+			note("den needs an OAuth client from your own Google Cloud project: " + docsURL + "/services.md#google")
 			path, err := ask("Path to the client JSON you downloaded", false)
 			if err != nil {
 				return err

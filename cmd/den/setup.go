@@ -91,7 +91,7 @@ func setup(c hostConfig) error {
 
 When you want more, connect it here:
 
-  den connect           mail, Gmail and Calendar, or a subscription
+  den connect           mail, Google (Gmail, Calendar, Drive), or a subscription
   den service add       your own API, with a token the agent never sees
   den update            update den; notes and secrets stay
 
