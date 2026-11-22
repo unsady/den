@@ -49,9 +49,9 @@ RUN arch=$(uname -m); \
 # them, so den runs fx code that upstream released.
 # A Linux fx at build/fx, such as one built from an fx checkout, takes its
 # place.
-ARG FX_VERSION=v0.0.17-den.7
-ARG FX_SHA256_AARCH64=fef2bad4d3bf817d2bbf43c73a3a1a2311d950f67dca450de179ed992048e058
-ARG FX_SHA256_X86_64=7aa122291952887ea0e302b86848549247e07aab871a0e13f343d8b4188d6876
+ARG FX_VERSION=v0.0.17-den.8
+ARG FX_SHA256_AARCH64=fbd30533fe056803ab87388d6f0e178a2b8b5403e66a64563bb9ccd035a0ff95
+ARG FX_SHA256_X86_64=ad496b05060c024acbd6e489d49805f739aeef04646b61e93216897fe6bffe6a
 COPY build/ /tmp/build/
 RUN if [ -f /tmp/build/fx ]; then \
         cp /tmp/build/fx /fx; \

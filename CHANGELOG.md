@@ -15,6 +15,7 @@ release notes.
 ### Fixed
 
 - A turn on Grok no longer fails with `InvalidGrokSubscriptionAccount` when it takes a subagent's report after the turn that started it ran longer than about 30 seconds. den now uses fx 0.0.17-den.7.
+- The agent no longer reaches for a web search tool den does not have, and no longer holds back its pick when it lists options and you asked it to name one. den now uses fx 0.0.17-den.8.
 
 ## v0.14.0
 
