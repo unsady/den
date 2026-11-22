@@ -45,23 +45,47 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 		return ""
 	}
 	if method == http.MethodDelete {
-		return "Deletes."
+		return fmt.Sprintf("Deletes in %s.", googleSource(u))
 	}
-	// The resource's path below the API's version, as users/me/messages/send
-	// for /upload/gmail/v1/users/me/messages/send.
+
+	// den reads one value of a query parameter, and Google may act on
+	// another.
+	for _, values := range u.Query() {
+		if len(values) > 1 {
+			return "Repeats a query parameter, so den cannot tell what it does."
+		}
+	}
+
+	// The path after the API's version, as users/me/messages/send for
+	// /upload/gmail/v1/users/me/messages/send. Another version is a request
+	// den does not know.
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if parts[0] == "upload" {
+	upload := parts[0] == "upload"
+	if upload {
 		parts = parts[1:]
 	}
-	switch api(u) {
-	case "Gmail":
-		return reviewGmail(parts[min(2, len(parts)):])
-	case "Calendar":
-		return reviewCalendar(ctx, f, s, method, u, parts[min(2, len(parts)):], body)
-	case "Drive":
-		return reviewDrive(ctx, f, s, method, u, body)
+	name := api(u)
+	version := map[string]string{"Gmail": "v1", "Calendar": "v3", "Drive": "v3"}[name]
+	switch u.Hostname() {
+	case "docs.googleapis.com":
+		parts = append([]string{"docs"}, parts...)
+		version = "v1"
+	case "sheets.googleapis.com":
+		parts = append([]string{"sheets"}, parts...)
+		version = "v4"
 	}
-	return "Makes a change in Google den does not know."
+	if version == "" || len(parts) < 2 || parts[1] != version {
+		return "Makes a change in Google den does not know."
+	}
+	parts = parts[2:]
+
+	switch name {
+	case "Gmail":
+		return reviewGmail(parts)
+	case "Calendar":
+		return reviewCalendar(ctx, f, s, u, parts, body)
+	}
+	return reviewDrive(ctx, f, s, method, u, upload, parts, body)
 }
 
 // reviewGmail lets labels, the trash, and drafts in the user's own mailbox
@@ -70,6 +94,7 @@ func reviewGmail(parts []string) string {
 	if len(parts) < 3 || parts[0] != "users" || parts[1] != "me" {
 		return "Makes a change in Gmail den does not know."
 	}
+
 	rest := parts[2:]
 	last := rest[len(rest)-1]
 	switch {
@@ -92,7 +117,7 @@ func reviewGmail(parts []string) string {
 // reviewCalendar lets the user's own events in their own calendar through:
 // events with no one else on them, changed without notifications, not
 // cancelled. Another calendar may be someone else's, or shared with them.
-func reviewCalendar(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, parts []string, body []byte) string {
+func reviewCalendar(ctx context.Context, f *Fetcher, s service, u *url.URL, parts []string, body []byte) string {
 	// calendars/<id>/events, calendars/<id>/events/<eventId>
 	if len(parts) < 3 || len(parts) > 4 || parts[0] != "calendars" || parts[2] != "events" {
 		return "Makes a change in Calendar den does not know."
@@ -100,13 +125,16 @@ func reviewCalendar(ctx context.Context, f *Fetcher, s service, method string, u
 	if len(parts) == 4 && slices.Contains([]string{"quickAdd", "import", "watch"}, parts[3]) {
 		return "Makes a change in Calendar den does not know."
 	}
+
 	if !f.own(parts[1]) {
 		return "Changes a calendar other than your own, which other people may see."
 	}
+
 	q := u.Query()
 	if update := q.Get("sendUpdates"); update != "" && update != "none" || q.Get("sendNotifications") == "true" {
 		return "Sends other people an invitation or an update."
 	}
+
 	var attendees []json.RawMessage
 	var status string
 	if !field(body, "attendees", &attendees) || !field(body, "status", &status) {
@@ -118,6 +146,7 @@ func reviewCalendar(ctx context.Context, f *Fetcher, s service, method string, u
 	if status == "cancelled" {
 		return "Cancels a calendar event."
 	}
+
 	// A change to an event someone else is on reaches them too.
 	if len(parts) == 4 && f.guests(ctx, s, u) {
 		return "Changes an event that has other people on it."
@@ -136,10 +165,11 @@ func (f *Fetcher) own(id string) bool {
 
 // reviewDrive lets through the changes den knows to stay with the user:
 // edits to files and comments no one else can open, and new files and
-// copies in folders no one else can open. Every other change waits for the
-// user, so a kind of request den does not know, such as publishing a doc to
-// the web, asks too.
-func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte) string {
+// copies in folders no one else can open. parts is the path after the
+// API's version, with docs or sheets before it for those APIs. Every other
+// change waits for the user, so a kind of request den does not know, such
+// as publishing a doc to the web, asks too.
+func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, upload bool, parts []string, body []byte) string {
 	shared := func(ids ...string) bool {
 		for _, id := range ids {
 			if f.shared(ctx, s, id) {
@@ -148,11 +178,6 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return false
 	}
-	q := u.Query()
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if parts[0] == "upload" {
-		parts = parts[1:]
-	}
 	// A doc's or a sheet's id comes before a colon, as in d1:batchUpdate.
 	id := func(i int) string {
 		if len(parts) <= i {
@@ -160,15 +185,16 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return strings.SplitN(parts[i], ":", 2)[0]
 	}
+	q := u.Query()
 
 	switch u.Hostname() {
 	case "docs.googleapis.com":
-		// /v1/documents, /v1/documents/<id>:batchUpdate
-		if len(parts) == 2 && parts[1] == "documents" {
+		// documents, documents/<id>:batchUpdate
+		if len(parts) == 1 && parts[0] == "documents" {
 			return ""
 		}
-		if len(parts) == 3 && strings.HasSuffix(parts[2], ":batchUpdate") {
-			if shared(id(2)) {
+		if len(parts) == 2 && parts[0] == "documents" && strings.HasSuffix(parts[1], ":batchUpdate") {
+			if shared(id(1)) {
 				return "Changes a doc other people can open."
 			}
 			return ""
@@ -176,13 +202,13 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return "Makes a change in Docs den does not know."
 
 	case "sheets.googleapis.com":
-		// /v4/spreadsheets, /v4/spreadsheets/<id>..., but a sheet copied to
-		// another spreadsheet changes that one.
-		if len(parts) == 2 && parts[1] == "spreadsheets" {
+		// spreadsheets, spreadsheets/<id>..., but a sheet copied to another
+		// spreadsheet changes that one.
+		if len(parts) == 1 && parts[0] == "spreadsheets" {
 			return ""
 		}
-		if len(parts) >= 3 && parts[1] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo") {
-			if shared(id(2)) {
+		if len(parts) >= 2 && parts[0] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo") {
+			if shared(id(1)) {
 				return "Changes a spreadsheet other people can open."
 			}
 			return ""
@@ -190,8 +216,8 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return "Makes a change in Sheets den does not know."
 	}
 
-	// /drive/v3/files..., with /upload before it for a file's content.
-	if len(parts) < 3 || parts[0] != "drive" || parts[2] != "files" {
+	// files, files/<id>, files/<id>/copy, files/<id>/comments...
+	if len(parts) == 0 || parts[0] != "files" {
 		return "Makes a change in Drive den does not know."
 	}
 	var parents []string
@@ -201,7 +227,7 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 	switch {
 	// A new file: its metadata names its folder, and a plain upload
 	// goes to the top of My Drive. A multipart upload hides the metadata.
-	case len(parts) == 3 && method == http.MethodPost:
+	case len(parts) == 1 && method == http.MethodPost:
 		switch q.Get("uploadType") {
 		case "media":
 			return ""
@@ -216,14 +242,19 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		}
 		return ""
 
-	// The rest of a resumable upload, whose start den looked at.
-	case method == http.MethodPut && q.Get("upload_id") != "":
+	// The rest of a resumable upload, whose start den looked at; to a file,
+	// its content changes too.
+	case upload && len(parts) <= 2 && method == http.MethodPut && q.Get("uploadType") == "resumable" && q.Get("upload_id") != "":
+		if shared(id(1)) {
+			return "Changes a file other people can open."
+		}
 		return ""
 
-	// A copy is new, and only its folder matters.
-	case len(parts) == 5 && parts[4] == "copy" && method == http.MethodPost:
-		if !readParents() {
-			return "Copies a file where den cannot read which folder it goes to."
+	// A copy without a folder goes to the folders of the file it copies, so
+	// den asks unless the body names one.
+	case len(parts) == 3 && parts[2] == "copy" && method == http.MethodPost:
+		if !readParents() || len(parents) == 0 {
+			return "Copies a file without naming its folder in parents, so it may land beside the original."
 		}
 		if shared(parents...) {
 			return "Puts a copy in a folder other people can open."
@@ -231,8 +262,8 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return ""
 
 	// A file's metadata or content, and the folders it moves to.
-	case len(parts) == 4 && method == http.MethodPatch:
-		if shared(id(3)) {
+	case len(parts) == 2 && method == http.MethodPatch:
+		if shared(id(1)) {
 			return "Changes a file other people can open."
 		}
 		if shared(strings.Split(q.Get("addParents"), ",")...) {
@@ -241,11 +272,12 @@ func reviewDrive(ctx context.Context, f *Fetcher, s service, method string, u *u
 		return ""
 
 	// Comments and replies; a mention mails the person it names.
-	case len(parts) >= 5 && parts[4] == "comments" && (method == http.MethodPost || method == http.MethodPatch):
-		if shared(id(3)) {
+	case len(parts) >= 3 && parts[2] == "comments" && (method == http.MethodPost || method == http.MethodPatch):
+		if shared(id(1)) {
 			return "Comments on a file other people can open."
 		}
-		if bytes.Contains(body, []byte("@")) {
+		var content string
+		if !field(body, "content", &content) || strings.Contains(content, "@") {
 			return "Adds a comment that may mention someone, who then gets an email."
 		}
 		return ""

@@ -254,7 +254,9 @@ func TestReviewDrive(t *testing.T) {
 		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=media", "text", false},
 		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", `{"name":"a.pdf"}`, false},
 		{"PUT", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=u1", "bytes", false},
-		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy"}`, false},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine/comments/c1/replies/r1", `{"action":"resolve"}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy","parents":["folder"]}`, false},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/mine?uploadType=resumable&upload_id=u2", "bytes", false},
 		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder", `{"trashed":true}`, false},
 		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/mine?uploadType=media", "text", false},
 		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments?fields=id", `{"content":"Typo here"}`, false},
@@ -281,6 +283,18 @@ func TestReviewDrive(t *testing.T) {
 		{"POST", "https://www.googleapis.com/drive/v3/files", `{"parents":"folder"}`, true},
 		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/mine/sheets/0:copyTo", `{"destinationSpreadsheetId":"team"}`, true},
 		{"POST", "https://www.googleapis.com/drive/v3/drives", `{"name":"Team"}`, true},
+
+		// Ways around the checks ask too.
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/copy", ``, true},
+		{"PATCH", "https://www.googleapis.com/drive/v2/files/mine", `{"parents":[{"id":"team"}]}`, true},
+		{"PUT", "https://www.googleapis.com/drive/v3/files/team?upload_id=x", `{}`, true},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable&upload_id=u2", "bytes", true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments", `{"content":"+anya\u0040example.com look"}`, true},
+		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=media&uploadType=multipart", "--b", true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder&addParents=team", `{}`, true},
+		{"POST", "https://docs.googleapis.com/v2/documents/mine:batchUpdate", `{}`, true},
+		{"POST", "https://gmail.googleapis.com/gmail/v2/users/me/drafts", `{}`, true},
 	}
 
 	f := &Fetcher{client: &http.Client{Transport: drive{}}}

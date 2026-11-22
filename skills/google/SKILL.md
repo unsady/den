@@ -82,6 +82,7 @@ den fetch --secret google -d '{"values":[["Gym",40]]}' "https://sheets.googleapi
 - For Docs, read the document first: `batchUpdate` places text by index (`.body.content[].endIndex`), and `replaceAllText` changes text without one. Send edits from the end of the doc backwards, so earlier indexes stay right.
 - A new doc or sheet: `POST https://docs.googleapis.com/v1/documents` with `{"title":"…"}`, or `POST https://sheets.googleapis.com/v4/spreadsheets` with `{"properties":{"title":"…"}}`. Send the user its link.
 - Move to the trash with `PATCH $d/files/<id>` and `{"trashed":true}`; the user can restore it.
+- Copy with a folder in the body, such as `{"name":"…","parents":["root"]}`: a copy without one lands beside the original, so den asks the user.
 - Upload with `uploadType=media` or `resumable`, never `multipart`: den cannot read which folder a multipart upload goes to, so it asks the user.
 
 ## Local findings
