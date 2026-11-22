@@ -1,6 +1,6 @@
 ---
 name: web
-description: Search the web with `den search` (the web_search tool does not work here) and read pages, including ones that need JavaScript. Use when a task needs information from the internet or a page's content.
+description: Search the web with `den search` and read pages, including ones that need JavaScript. Use when a task needs information from the internet or a page's content.
 ---
 
 # web
@@ -31,7 +31,7 @@ den search -n 15 --json "<query>"
 
 den asks one search service after another until one answers: free ones without a key, and first any the user added a key for. Search in the language of the content you want, and read the best two or three results with `web_fetch` before you answer.
 
-Do not use the `web_search` tool: it needs a gateway den does not have. If search keeps failing, tell the user; a key for Exa, DeepSeek, Tavily, or Brave, added as the secret `exa_key`, `deepseek_key`, `tavily_key`, or `brave_key`, gives higher limits.
+If search keeps failing, tell the user; a key for Exa, DeepSeek, Tavily, or Brave, added as the secret `exa_key`, `deepseek_key`, `tavily_key`, or `brave_key`, gives higher limits.
 
 ## Local findings
 
