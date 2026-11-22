@@ -40,19 +40,6 @@ func TestReviewGoogle(t *testing.T) {
 		{"POST", "https://www.googleapis.com/calendar/v3/calendars/primary/events/quickAdd?text=Lunch", ``, true},
 		// den cannot read the event to see its guests, so it asks.
 		{"PATCH", "https://www.googleapis.com/calendar/v3/calendars/primary/events/e1", `{"summary":"Gym"}`, true},
-
-		// Edits, copies, and the trash go; sharing and deleting for good ask.
-		{"POST", "https://docs.googleapis.com/v1/documents/d1:batchUpdate", `{"requests":[]}`, false},
-		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/s1/values/A1:B2?valueInputOption=RAW", `{"values":[[1,2]]}`, false},
-		{"POST", "https://www.googleapis.com/drive/v3/files/f1/copy", `{"name":"Copy"}`, false},
-		{"PATCH", "https://www.googleapis.com/drive/v3/files/f1", `{"trashed":true}`, false},
-		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/f1?uploadType=media", "text", false},
-		{"POST", "https://www.googleapis.com/drive/v3/files/f1/permissions", `{"role":"writer","type":"anyone"}`, true},
-		{"DELETE", "https://www.googleapis.com/drive/v3/files/f1/permissions/p1", "", true},
-		{"DELETE", "https://www.googleapis.com/drive/v3/files/f1", "", true},
-		{"DELETE", "https://www.googleapis.com/drive/v3/files/trash", "", true},
-		{"POST", "https://www.googleapis.com/drive/v3/files/f1/comments?fields=id", `{"content":"Typo here"}`, false},
-		{"POST", "https://www.googleapis.com/drive/v3/files/f1/comments/c1/replies?fields=id", `{"content":"+anya@example.com look"}`, true},
 	}
 
 	// No account is connected, so a draft is not fetched to show it.
@@ -206,5 +193,84 @@ func TestGoogleNotGranted(t *testing.T) {
 	}
 	if why := refuseGoogle(f, &url.URL{Host: "docs.googleapis.com", Path: "/v1/documents/d1"}); why != "" {
 		t.Fatalf("docs: %s", why)
+	}
+}
+
+// drive plays Drive's file metadata: mine and folder are the user's alone,
+// team is shared, and theirs belongs to someone else.
+type drive struct{}
+
+func (drive) RoundTrip(r *http.Request) (*http.Response, error) {
+	files := map[string]string{
+		"mine":   `{"ownedByMe":true,"permissionIds":["me"]}`,
+		"folder": `{"ownedByMe":true,"permissionIds":["me"]}`,
+		"team":   `{"ownedByMe":true,"shared":true,"permissionIds":["me","anyoneWithLink"]}`,
+		"theirs": `{"ownedByMe":false}`,
+		"inline": `{"ownedByMe":true,"permissionIds":["me","anya"]}`,
+	}
+	w := httptest.NewRecorder()
+	id := strings.TrimPrefix(r.URL.Path, "/drive/v3/files/")
+	if body, ok := files[id]; ok && r.Method == http.MethodGet && r.Host == "www.googleapis.com" {
+		_, _ = io.WriteString(w, body)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
+	return w.Result(), nil
+}
+
+func TestReviewDrive(t *testing.T) {
+	cases := []struct {
+		method, link, body string
+		ask                bool
+	}{
+		// The user's own files and folders change at once.
+		{"POST", "https://docs.googleapis.com/v1/documents", `{"title":"Plan"}`, false},
+		{"POST", "https://docs.googleapis.com/v1/documents/mine:batchUpdate", `{"requests":[]}`, false},
+		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/mine/values/A1:B2?valueInputOption=RAW", `{"values":[[1,2]]}`, false},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets", `{}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files", `{"name":"Notes","parents":["folder"]}`, false},
+		{"POST", "https://www.googleapis.com/drive/v3/files", ``, false},
+		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=media", "text", false},
+		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", `{"name":"a.pdf"}`, false},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=u1", "bytes", false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/copy", `{"name":"Copy"}`, false},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder", `{"trashed":true}`, false},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/mine?uploadType=media", "text", false},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments?fields=id", `{"content":"Typo here"}`, false},
+
+		// What other people can open waits for the user.
+		{"POST", "https://docs.googleapis.com/v1/documents/team:batchUpdate", `{"requests":[]}`, true},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/theirs/values/A:B:append", `{}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/inline", `{"name":"x"}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine?addParents=folder,team", `{}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files", `{"name":"Notes","parents":["team"]}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/copy", `{"parents":["theirs"]}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/comments", `{"content":"Typo"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/unknown/comments", `{"content":"Typo"}`, true},
+
+		// So do deletes, mentions, and what den does not know.
+		{"DELETE", "https://www.googleapis.com/drive/v3/files/mine", "", true},
+		{"DELETE", "https://www.googleapis.com/drive/v3/files/trash", "", true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/comments/c1/replies", `{"content":"+anya@example.com look"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/permissions", `{"role":"writer","type":"anyone"}`, true},
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/mine/revisions/head", `{"published":true}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/accessproposals/p1:resolve", `{"action":"ACCEPT"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/files/mine/watch", `{"address":"https://example.com"}`, true},
+		{"POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", "--b", true},
+		{"POST", "https://www.googleapis.com/drive/v3/files", `{"parents":"folder"}`, true},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/mine/sheets/0:copyTo", `{"destinationSpreadsheetId":"team"}`, true},
+		{"POST", "https://www.googleapis.com/drive/v3/drives", `{"name":"Team"}`, true},
+	}
+
+	f := &Fetcher{client: &http.Client{Transport: drive{}}}
+	s := google
+	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	for _, c := range cases {
+		u, _ := url.Parse(c.link)
+		why := reviewGoogle(context.Background(), f, s, c.method, u, []byte(c.body))
+		if (why != "") != c.ask {
+			t.Errorf("%s %s %s: %q", c.method, c.link, c.body, why)
+		}
 	}
 }

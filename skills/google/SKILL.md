@@ -15,7 +15,7 @@ When den answers that Google is not connected or not set up, tell the user to ru
 
 ## What waits for the user
 
-Reads, labels, archiving, trash, drafts, events with no other people on them, and edits to files go at once. den asks the user in Telegram first before mail goes out (`messages/send`, `drafts/send`), before an event with other people on it is created or changed, before anyone is notified (`sendUpdates`, `sendNotifications`), before an event is cancelled or deleted, before a file is shared or its access changes, before anything in Drive is deleted for good, and before a comment with an `@` in it, since a mention emails that person. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
+Reads, labels, archiving, trash, drafts, events with no other people on them, and changes to files only the user can open go at once. den asks the user in Telegram first before mail goes out (`messages/send`, `drafts/send`), before an event with other people on it is created or changed, before anyone is notified (`sendUpdates`, `sendNotifications`), before an event is cancelled or deleted, before any change to a file or folder other people can open or that belongs to someone else, before anything in Drive is deleted for good, before a comment with an `@` in it, since a mention emails that person, and before any change in Drive other than editing, creating, copying, moving, trashing, and commenting, such as sharing or publishing a file. The user sees the mail's recipients, subject, and text. A draft goes only as the user saw it: change it after asking and den does not send it. den refuses batch requests and method-override headers; send each request on its own. Such a request returns at once, saying den asked: den sends it once the user allows it and tells you the service's answer in a new `[den:` message. The user already sees den's question, so do not tell them you asked, and do not send it again.
 
 Prefer a draft when the user did not ask you to send: they can read and send it from Gmail themselves.
 
@@ -82,6 +82,7 @@ den fetch --secret google -d '{"values":[["Gym",40]]}' "https://sheets.googleapi
 - For Docs, read the document first: `batchUpdate` places text by index (`.body.content[].endIndex`), and `replaceAllText` changes text without one. Send edits from the end of the doc backwards, so earlier indexes stay right.
 - A new doc or sheet: `POST https://docs.googleapis.com/v1/documents` with `{"title":"…"}`, or `POST https://sheets.googleapis.com/v4/spreadsheets` with `{"properties":{"title":"…"}}`. Send the user its link.
 - Move to the trash with `PATCH $d/files/<id>` and `{"trashed":true}`; the user can restore it.
+- Upload with `uploadType=media` or `resumable`, never `multipart`: den cannot read which folder a multipart upload goes to, so it asks the user.
 
 ## Local findings
 

@@ -53,7 +53,7 @@ Then run `den connect google`, and give it the JSON's path. It opens Google's si
 
 Google's page lists mail, calendar, and Drive, each with a checkbox: leave unchecked what den should not reach, and den uses only what you allowed. To add one later, run `den connect google` again.
 
-den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. In Drive, it asks before a file is shared or its access changes, before anything is deleted for good, and before a comment that may mention someone, who then gets an email. Reading, labels, archiving, trash, drafts, your own events, and editing, creating, and copying files need no answer. People you already share a file with see the agent's edits; a file's version history keeps what an edit replaced.
+den asks before mail goes out, before an event with other people is created or changed, before anyone gets a calendar notification, and before an event is deleted, and shows the recipients, subject, and text. In Drive, the agent edits, creates, copies, moves, trashes, and comments on files that only you can open without asking you; a file's version history keeps what an edit replaced. den asks before any change to a file or folder other people can open, before a file goes into such a folder, before anything is deleted for good, before a comment that may mention someone, and before any other change, such as sharing a file or publishing it to the web. Reading, labels, archiving, trash, drafts, and your own events need no answer.
 
 ## Any mailbox
 
