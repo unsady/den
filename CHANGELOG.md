@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.15.0
+
 ### Added
 
 - The agent can read and edit your Google Drive, Docs, and Sheets. It changes files only you can open without asking; it asks before it changes a file other people can open, puts a file in a folder they can open, deletes one for good, mentions someone in a comment, or makes any other change, such as sharing a file or publishing it to the web. For edits to a file other people can open, Always and 1 hour allow edits to that file alone. To add Drive, enable the Drive, Docs, and Sheets APIs in your Google Cloud project, as the [guide](docs/services.md#google) says, and run `den connect google` again.
