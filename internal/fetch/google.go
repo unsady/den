@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/unsady/den/internal/approve"
 	"github.com/unsady/den/internal/letter"
 )
 
@@ -33,8 +34,7 @@ var google = service{
 	refuse:  refuseGoogle,
 	preview: previewDraft,
 	show:    showMail,
-	// A draft's recipients are not in the request, so a draft always asks.
-	recipient: sentTo,
+	offer:   offerGoogle,
 }
 
 // reviewGoogle lets reads through, and the changes den knows to stay with
@@ -56,15 +56,30 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 		}
 	}
 
-	// The path after the API's version, as users/me/messages/send for
-	// /upload/gmail/v1/users/me/messages/send. Another version is a request
-	// den does not know.
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	upload := parts[0] == "upload"
+	name, upload, parts := googlePath(u)
+	switch name {
+	case "":
+		return "Makes a change in Google den does not know."
+	case "Gmail":
+		return reviewGmail(parts)
+	case "Calendar":
+		return reviewCalendar(ctx, f, s, u, parts, body)
+	}
+	return reviewDrive(ctx, f, s, method, u, upload, parts, body)
+}
+
+// googlePath splits a request's path into the API it needs, as api names
+// it, whether it uploads content, and the path after the API's version, as
+// users/me/messages/send for /upload/gmail/v1/users/me/messages/send. The
+// API is "" for a version den does not know.
+func googlePath(u *url.URL) (name string, upload bool, parts []string) {
+	parts = strings.Split(strings.Trim(u.Path, "/"), "/")
+	upload = parts[0] == "upload"
 	if upload {
 		parts = parts[1:]
 	}
-	name := api(u)
+
+	name = api(u)
 	version := map[string]string{"Gmail": "v1", "Calendar": "v3", "Drive": "v3"}[name]
 	switch u.Hostname() {
 	case "docs.googleapis.com":
@@ -75,17 +90,61 @@ func reviewGoogle(ctx context.Context, f *Fetcher, s service, method string, u *
 		version = "v4"
 	}
 	if version == "" || len(parts) < 2 || parts[1] != version {
-		return "Makes a change in Google den does not know."
+		return "", false, nil
 	}
-	parts = parts[2:]
+	return name, upload, parts[2:]
+}
 
-	switch name {
-	case "Gmail":
-		return reviewGmail(parts)
-	case "Calendar":
-		return reviewCalendar(ctx, f, s, u, parts, body)
+// offerGoogle lets the user allow mail to one address, or edits to one
+// file other people can open, for good or for an hour.
+func offerGoogle(ctx context.Context, f *Fetcher, s service, method string, u *url.URL, body []byte, q *approve.Question) {
+	if to := sentTo(u, body); to != "" {
+		q.MailTo(to)
+		return
 	}
-	return reviewDrive(ctx, f, s, method, u, upload, parts, body)
+
+	id := edited(method, u)
+	if id == "" {
+		return
+	}
+	var file struct {
+		Name string `json:"name"`
+	}
+	if !f.read(ctx, s, "https://www.googleapis.com/drive/v3/files/"+url.PathEscape(id)+"?supportsAllDrives=true&fields=name", &file) || file.Name == "" {
+		file.Name = id
+	}
+	q.Rule = "fetch google edit " + id
+	q.Label = "Edits to " + file.Name
+	q.Scope, q.ScopeLabel = q.Rule, q.Label
+	q.Text += "\n\nFile: " + file.Name
+}
+
+// edited gives the file whose content a request changes and nothing else,
+// so that reviewDrive asks about it only because other people can open the
+// file, or "": a doc's batchUpdate, a change in one spreadsheet, or new
+// content uploaded to a file.
+func edited(method string, u *url.URL) string {
+	for _, values := range u.Query() {
+		if len(values) > 1 {
+			return ""
+		}
+	}
+	name, upload, parts := googlePath(u)
+	if name != "Drive" || len(parts) < 2 || method == http.MethodDelete {
+		return ""
+	}
+
+	id := strings.SplitN(parts[1], ":", 2)[0]
+	switch {
+	case u.Hostname() == "docs.googleapis.com" && len(parts) == 2 && parts[0] == "documents" && strings.HasSuffix(parts[1], ":batchUpdate"):
+		return id
+	case u.Hostname() == "sheets.googleapis.com" && parts[0] == "spreadsheets" && !strings.HasSuffix(u.Path, ":copyTo"):
+		return id
+	case u.Hostname() == "www.googleapis.com" && upload && len(parts) == 2 && parts[0] == "files" && u.Query().Get("addParents") == "" &&
+		(method == http.MethodPatch || method == http.MethodPut && u.Query().Get("uploadType") == "resumable" && u.Query().Get("upload_id") != ""):
+		return id
+	}
+	return ""
 }
 
 // reviewGmail lets labels, the trash, and drafts in the user's own mailbox

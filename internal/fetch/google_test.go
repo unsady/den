@@ -224,6 +224,7 @@ type drive struct{}
 func (drive) RoundTrip(r *http.Request) (*http.Response, error) {
 	files := map[string]string{
 		"mine":   `{"ownedByMe":true,"permissionIds":["me"]}`,
+		"budget": `{"ownedByMe":true,"shared":true,"name":"Budget"}`,
 		"folder": `{"ownedByMe":true,"permissionIds":["me"]}`,
 		"team":   `{"ownedByMe":true,"shared":true,"permissionIds":["me","anyoneWithLink"]}`,
 		"theirs": `{"ownedByMe":false}`,
@@ -319,5 +320,48 @@ func TestOwnCalendar(t *testing.T) {
 		if got := f.own(id); got != want {
 			t.Errorf("own(%q) = %v", id, got)
 		}
+	}
+}
+
+func TestOfferFileEdits(t *testing.T) {
+	cases := []struct {
+		method, link string
+		rule         string
+	}{
+		{"POST", "https://docs.googleapis.com/v1/documents/budget:batchUpdate", "fetch google edit budget"},
+		{"PUT", "https://sheets.googleapis.com/v4/spreadsheets/team/values/A1:B2?valueInputOption=RAW", "fetch google edit team"},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/team:batchUpdate", "fetch google edit team"},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media", "fetch google edit team"},
+		{"PUT", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=resumable&upload_id=u1", "fetch google edit team"},
+
+		// Metadata, moves, sharing, comments, and copies ask each time.
+		{"PATCH", "https://www.googleapis.com/drive/v3/files/team", ""},
+		{"PATCH", "https://www.googleapis.com/upload/drive/v3/files/team?uploadType=media&addParents=x", ""},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/permissions", ""},
+		{"POST", "https://www.googleapis.com/drive/v3/files/team/comments", ""},
+		{"POST", "https://sheets.googleapis.com/v4/spreadsheets/team/sheets/0:copyTo", ""},
+		{"POST", "https://docs.googleapis.com/v2/documents/team:batchUpdate", ""},
+		{"POST", "https://docs.googleapis.com/v1/documents/team:batchUpdate?a=1&a=2", ""},
+		{"DELETE", "https://sheets.googleapis.com/v4/spreadsheets/team", ""},
+	}
+
+	f := &Fetcher{client: &http.Client{Transport: drive{}}}
+	s := google
+	s.token = func(context.Context, *Fetcher) (string, error) { return "tok", nil }
+
+	for _, c := range cases {
+		u, _ := url.Parse(c.link)
+		var q approve.Question
+		offerGoogle(context.Background(), f, s, c.method, u, nil, &q)
+		if q.Rule != c.rule || q.Scope != c.rule {
+			t.Errorf("%s %s: rule %q, scope %q", c.method, c.link, q.Rule, q.Scope)
+		}
+	}
+
+	u, _ := url.Parse("https://docs.googleapis.com/v1/documents/budget:batchUpdate")
+	var q approve.Question
+	offerGoogle(context.Background(), f, s, "POST", u, nil, &q)
+	if q.Label != "Edits to Budget" || !strings.Contains(q.Text, "File: Budget") {
+		t.Errorf("label %q, text %q", q.Label, q.Text)
 	}
 }
