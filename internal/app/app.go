@@ -32,6 +32,7 @@ import (
 	"github.com/unsady/den/internal/chat"
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/memory"
 	"github.com/unsady/den/internal/store"
 )
 
@@ -434,6 +435,39 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, map[string]bool{"sent": true})
+	})
+
+	mux.HandleFunc("GET /memory", func(w http.ResponseWriter, r *http.Request) {
+		m, err := memory.Read(s.cfg)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, m)
+	})
+
+	mux.HandleFunc("PUT /memory", func(w http.ResponseWriter, r *http.Request) {
+		var m memory.Memory
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		err := memory.Write(s.cfg, m)
+		switch {
+		case errors.Is(err, memory.ErrChanged):
+			fail(w, http.StatusConflict, err)
+			return
+		case err != nil:
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		m, err = memory.Read(s.cfg)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, m)
 	})
 
 	mux.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
