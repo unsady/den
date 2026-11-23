@@ -135,6 +135,7 @@ func (c *Chat) published(entries []entry) {
 		return
 	}
 
+	c.restore(context.Background(), session)
 	c.Events.Publish(events.Event{Type: events.Message, Session: session, Text: strings.Join(lines, "\n"), Files: files})
 }
 

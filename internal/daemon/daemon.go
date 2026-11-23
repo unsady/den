@@ -843,6 +843,24 @@ func (d *daemon) routes() http.Handler {
 		reply(w, http.StatusOK, map[string]string{"id": id})
 	})
 
+	archive := func(archived bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			id := r.PathValue("id")
+			err := d.chat.Archive(r.Context(), id, archived)
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+				fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
+				return
+			case err != nil:
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+			reply(w, http.StatusOK, map[string]any{"id": id, "archived": archived})
+		}
+	}
+	mux.HandleFunc("POST /sessions/{id}/archive", archive(true))
+	mux.HandleFunc("DELETE /sessions/{id}/archive", archive(false))
+
 	mux.HandleFunc("POST /quiet", func(w http.ResponseWriter, r *http.Request) {
 		var req QuietRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {

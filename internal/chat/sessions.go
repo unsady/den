@@ -46,7 +46,7 @@ func (c *Chat) enter(client, session string) error {
 			return err
 		}
 	}
-	return c.store.Touch(ctx, session)
+	return c.touch(ctx, session)
 }
 
 // inTelegram says whether Telegram's chat is in session, so its replies go

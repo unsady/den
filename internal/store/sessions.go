@@ -113,10 +113,25 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) (bool, error) {
 }
 
 // Touch marks session id as used now, which puts it first in Sessions and
-// takes it out of the archive.
-func (s *Store) Touch(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET updated = ?, archived = 0 WHERE id = ?`, unix(time.Now()), id)
-	return err
+// takes it out of the archive, and reports whether it was there.
+func (s *Store) Touch(ctx context.Context, id string) (bool, error) {
+	restored, err := s.Restore(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE sessions SET updated = ? WHERE id = ?`, unix(time.Now()), id)
+	return restored, err
+}
+
+// Restore takes session id out of the archive, and reports whether it was
+// there.
+func (s *Store) Restore(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE sessions SET archived = 0 WHERE id = ? AND archived = 1`, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // SetArchived puts session id in the archive or takes it out, or returns
@@ -133,9 +148,11 @@ func (s *Store) SetArchived(ctx context.Context, id string, archived bool) error
 }
 
 // ArchiveIdle puts the sessions last used before `before` in the archive,
-// except those in keep, and returns their ids.
+// except those in keep and those with messages in the inbox, and returns
+// their ids.
 func (s *Store) ArchiveIdle(ctx context.Context, before time.Time, keep []string) ([]string, error) {
-	query := `UPDATE sessions SET archived = 1 WHERE archived = 0 AND updated < ?`
+	query := `UPDATE sessions SET archived = 1 WHERE archived = 0 AND updated < ?
+		AND id NOT IN (SELECT session_id FROM inbox)`
 	args := []any{unix(before)}
 	if len(keep) > 0 {
 		query += ` AND id NOT IN (?` + repeat(", ?", len(keep)-1) + `)`

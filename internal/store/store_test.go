@@ -75,7 +75,7 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Touch(ctx, "chat"); err != nil {
+	if _, err := s.Touch(ctx, "chat"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,11 +193,16 @@ func TestArchive(t *testing.T) {
 	for _, session := range []Session{
 		{ID: "old", Kind: KindChat, Created: old},
 		{ID: "asking", Kind: KindChat, Created: old},
+		{ID: "queued", Kind: KindChat, Created: old},
 		{ID: "new", Kind: KindChat},
 	} {
 		if err := s.AddSession(ctx, session); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// A session with a message in the inbox waits for its turn.
+	if err := s.Enqueue(ctx, Message{Session: "queued", Text: "hi"}); err != nil {
+		t.Fatal(err)
 	}
 
 	// Sessions unused since before the cutoff go, except those kept.
@@ -209,7 +214,7 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("archived %s", got)
 	}
 	list, _ := s.Sessions(ctx, Filter{})
-	if ids := idsOf(list); ids != "new asking" {
+	if ids := idsOf(list); ids != "new queued asking" {
 		t.Fatalf("feed %q", ids)
 	}
 	list, _ = s.Sessions(ctx, Filter{Shelf: Archive})
@@ -217,13 +222,16 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("archive %q", ids)
 	}
 	list, _ = s.Sessions(ctx, Filter{Shelf: Everywhere})
-	if ids := idsOf(list); ids != "new old asking" {
+	if ids := idsOf(list); ids != "new queued old asking" {
 		t.Fatalf("everywhere %q", ids)
 	}
 
 	// A session used again comes back.
-	if err := s.Touch(ctx, "old"); err != nil {
-		t.Fatal(err)
+	if restored, err := s.Touch(ctx, "old"); err != nil || !restored {
+		t.Fatalf("restored %v, %v", restored, err)
+	}
+	if restored, _ := s.Touch(ctx, "old"); restored {
+		t.Fatal("restored a session out of the archive")
 	}
 	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); len(list) != 0 {
 		t.Fatalf("archive after use %q", idsOf(list))

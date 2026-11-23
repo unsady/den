@@ -1736,4 +1736,15 @@ func TestArchiveIdle(t *testing.T) {
 	if len(list) != 1 || list[0].ID != "idle" {
 		t.Fatalf("archived %+v", list)
 	}
+
+	// A message for it brings it back, and the apps hear of it.
+	c.restore(ctx, "idle")
+	select {
+	case e := <-events:
+		if e.Type != "archived" || e.Session != "idle" || e.Archived || e.Kind != "chat" {
+			t.Fatalf("event %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event")
+	}
 }
