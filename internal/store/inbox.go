@@ -102,15 +102,20 @@ func (s *Store) TakeTurn(ctx context.Context, session string) ([]Message, error)
 	return list, tx.Commit()
 }
 
-// ClearInbox drops every waiting message and returns them.
-func (s *Store) ClearInbox(ctx context.Context) ([]Message, error) {
+// ClearInbox drops the waiting messages of session, or every one when
+// session is empty, and returns them.
+func (s *Store) ClearInbox(ctx context.Context, session string) ([]Message, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM inbox ORDER BY id`)
+	where, args := "", []any{}
+	if session != "" {
+		where, args = ` WHERE session_id = ?`, []any{session}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT `+messageColumns+` FROM inbox`+where+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,10 +123,70 @@ func (s *Store) ClearInbox(ctx context.Context) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inbox`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inbox`+where, args...); err != nil {
 		return nil, err
 	}
 	return list, tx.Commit()
+}
+
+// Hold keeps the messages of session's turn that failed before its agent
+// took a step, in place of any it held, so the user can retry them.
+func (s *Store) Hold(ctx context.Context, session string, messages []Message) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM held WHERE session_id = ?`, session); err != nil {
+		return err
+	}
+	for _, m := range messages {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO held (session_id, text, image, report, notice, created) VALUES (?, ?, ?, ?, ?, ?)`,
+			session, m.Text, m.Image, m.Report, m.Notice, unix(m.Created)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// Release puts session's held messages back in the inbox for its next
+// turn, and says whether it held any.
+func (s *Store) Release(ctx context.Context, session string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO inbox (session_id, text, image, report, notice, created)
+		SELECT session_id, text, image, report, notice, created FROM held WHERE session_id = ? ORDER BY id`, session)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM held WHERE session_id = ?`, session); err != nil {
+		return false, err
+	}
+	return n > 0, tx.Commit()
+}
+
+// DropHeld forgets session's held messages, as when the user writes on.
+func (s *Store) DropHeld(ctx context.Context, session string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM held WHERE session_id = ?`, session)
+	return err
+}
+
+// Holds says whether session holds messages to retry.
+func (s *Store) Holds(ctx context.Context, session string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM held WHERE session_id = ?`, session).Scan(&n)
+	return n > 0, err
 }
 
 const messageColumns = `id, session_id, text, image, report, notice, created`

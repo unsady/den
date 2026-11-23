@@ -146,6 +146,9 @@ type Chat struct {
 	// background waits for them to end.
 	bg         map[string]context.CancelFunc
 	background sync.WaitGroup
+	// turns stop the turn that runs in each session, the chat's or a /bg
+	// task's, by its session, for a stop of one session.
+	turns map[string]context.CancelFunc
 	// albums hold the files of an album until the last one is saved.
 	albums map[string]*album
 
@@ -337,6 +340,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		ended:    make(chan struct{}, 1),
 		notes:    make(chan string, 1),
 		bg:       map[string]context.CancelFunc{},
+		turns:    map[string]context.CancelFunc{},
 		attached: map[string][]Upload{},
 		agent:    runner.NewAgent(cfg),
 		busy:     map[string]int{},

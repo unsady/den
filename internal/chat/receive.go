@@ -114,7 +114,7 @@ func (c *Chat) receive(ctx context.Context, telegram *notify.Telegram, m notify.
 // dropped reports would have told the agent, for the user.
 func (c *Chat) halt() (bool, []string) {
 	var notices []string
-	dropped, err := c.store.ClearInbox(context.Background())
+	dropped, err := c.store.ClearInbox(context.Background(), "")
 	if err != nil {
 		log.Printf("chat: inbox: %v", err)
 	}
@@ -194,6 +194,7 @@ func (c *Chat) queue(ctx context.Context, telegram *notify.Telegram, m notify.Me
 	}
 
 	c.published(entries)
+	c.wroteOn(entries)
 	if c.steer(ctx, entries) {
 		c.react(ctx, telegram, id, "✍")
 		return

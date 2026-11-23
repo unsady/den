@@ -202,6 +202,24 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 			c.showLog(ctx, telegram, cb.Message)
 		}
 
+	case "rt", "ct":
+		// The button goes once pressed, so the turn is not asked twice.
+		answer = " "
+		var err error
+		if kind == "rt" {
+			err = c.Retry(ctx, ref)
+		} else {
+			err = c.Continue(ctx, ref)
+		}
+		if err != nil {
+			answer = err.Error()
+		}
+		call, cancel := context.WithTimeout(ctx, time.Minute)
+		if err := telegram.ClearButtons(call, cb.Message); err != nil {
+			log.Printf("chat: buttons: %v", err)
+		}
+		cancel()
+
 	case "x":
 		// The list goes away, so it does not stay in the chat.
 		answer = " "

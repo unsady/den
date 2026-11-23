@@ -171,6 +171,18 @@ var migrations = []string{
 	ALTER TABLE inbox DROP COLUMN app;`,
 
 	`ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`,
+
+	// held keeps the messages of a turn that failed before its agent took
+	// a step, till the user retries them or writes on.
+	`CREATE TABLE held (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE ON UPDATE CASCADE,
+		text       TEXT NOT NULL DEFAULT '',
+		image      TEXT NOT NULL DEFAULT '',
+		report     INTEGER NOT NULL DEFAULT 0,
+		notice     TEXT NOT NULL DEFAULT '',
+		created    INTEGER NOT NULL
+	);`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

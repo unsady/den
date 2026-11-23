@@ -60,12 +60,64 @@ func TestInbox(t *testing.T) {
 	if err := s.DeleteSession(ctx, "a"); err != nil {
 		t.Fatal(err)
 	}
-	dropped, err := s.ClearInbox(ctx)
+	dropped, err := s.ClearInbox(ctx, "")
 	if err != nil || len(dropped) != 1 || dropped[0].Text != "5" {
 		t.Fatalf("cleared %+v %v", dropped, err)
 	}
 	if n, _ := s.Waiting(ctx); n != 0 {
 		t.Fatalf("waiting %d after clear", n)
+	}
+}
+
+func TestHeld(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	for _, id := range []string{"a", "b"} {
+		if err := s.AddSession(ctx, Session{ID: id, Kind: KindChat}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := s.Hold(ctx, "a", []Message{{Text: "1"}, {Text: "2", Image: "p.png"}}); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := s.Holds(ctx, "a"); !held {
+		t.Fatal("a holds nothing")
+	}
+	// Held messages wait for no turn.
+	if session, _ := s.NextTurn(ctx); session != "" {
+		t.Fatalf("next turn %q", session)
+	}
+
+	if ok, err := s.Release(ctx, "a"); !ok || err != nil {
+		t.Fatalf("release: %v %v", ok, err)
+	}
+	list, err := s.TakeTurn(ctx, "a")
+	if err != nil || len(list) != 2 || list[0].Text != "1" || list[1].Image != "p.png" {
+		t.Fatalf("turn %+v %v", list, err)
+	}
+	if ok, _ := s.Release(ctx, "a"); ok {
+		t.Fatal("released twice")
+	}
+
+	if err := s.Hold(ctx, "b", []Message{{Text: "3"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DropHeld(ctx, "b"); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := s.Holds(ctx, "b"); held {
+		t.Fatal("b still holds")
+	}
+
+	// Clearing one session's inbox leaves the others'.
+	if err := s.Enqueue(ctx, Message{Session: "a", Text: "4"}, Message{Session: "b", Text: "5"}); err != nil {
+		t.Fatal(err)
+	}
+	if dropped, err := s.ClearInbox(ctx, "a"); err != nil || len(dropped) != 1 || dropped[0].Text != "4" {
+		t.Fatalf("cleared %+v %v", dropped, err)
+	}
+	if n, _ := s.Waiting(ctx); n != 1 {
+		t.Fatalf("waiting %d", n)
 	}
 }
 

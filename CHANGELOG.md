@@ -11,10 +11,13 @@ release notes.
 - An archive for the app: a session unused for 3 days, with nothing waiting in it, leaves the feed for the archive, and the app can archive one by hand. A new message brings it back. The agent archives sessions with `den sessions archive` when you ask it to tidy the feed.
 - Backups: `den backup setup` backs up den's state, such as its sessions, jobs, and secrets, every 6 hours and before each `den update`, to a folder on your computer and an S3 bucket if you like. Each backup is encrypted to a key that stays on your computer, so neither den nor the agent can read it. `den backup restore` brings one back. [Backups](docs/backup.md) has the details.
 - The app shows what the agent remembers about you, the Soul, User, and Notes sections of its memory, and lets you edit them. den commits the change to the space.
+- A turn that fails before the agent takes a step offers Retry, in the app and in Telegram, which sends the same message again; one that fails later offers Continue, which asks the agent to go on.
+- The app's stop button stops the turn of the session it is in, and leaves the others running. `/stop` in Telegram still stops everything.
 - `den job edit` changes a job's title, schedule, model, or prompt in place, so it keeps its runs. The agent used to remove the job and add it again.
 
 ### Fixed
 
+- Deleting a session in the app stops the turn that runs there, instead of refusing until it ends.
 - A renamed job shows its new title in the app at once, on its past runs too, instead of after its next run.
 - A session deleted in Telegram, by the agent, or as a job run with nothing to say leaves the app at once, and one deleted while the app was away leaves its archive.
 - A picture sent to a session whose model cannot see pictures no longer fails the turn: the message goes on without it, and the agent learns where the picture is saved.
