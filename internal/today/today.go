@@ -1,5 +1,5 @@
 // Package today gathers the user's day for the app's Today card: the
-// events of their Google Calendar, the jobs den runs before the day ends,
+// events of their Google Calendar, the reminders still to come today,
 // the replies of the jobs that ran in the night's quiet hours, and the
 // to-dos the agent keeps in the space's today.md, which the user ticks off
 // in the app.
@@ -56,7 +56,7 @@ type Event struct {
 	AllDay bool `json:"allDay,omitempty"`
 }
 
-// Job is a run of a job still to come today.
+// Job is a reminder, or another one-time job, still to come today.
 type Job struct {
 	Name  string    `json:"name"`
 	Title string    `json:"title"`

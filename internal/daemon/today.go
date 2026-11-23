@@ -33,8 +33,9 @@ func (d *daemon) today(ctx context.Context) (today.Day, error) {
 	titles := map[string]string{}
 	for _, j := range list {
 		titles[j.Name] = j.Title
-		// den's own jobs run in the night, and tell nothing of the day.
-		if j.Name == reflectJob || j.Name == tidyJob || j.NextRun.Before(now) || !j.NextRun.Before(end) {
+		// A reminder is part of the day's plan, as an event is; a repeating
+		// job is routine that tells nothing of the day.
+		if !j.Once || j.NextRun.Before(now) || !j.NextRun.Before(end) {
 			continue
 		}
 		day.Jobs = append(day.Jobs, today.Job{Name: j.Name, Title: j.Title, At: j.NextRun, Once: j.Once})
