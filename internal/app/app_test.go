@@ -90,7 +90,7 @@ func (f *fakeAsker) Answer(id, outcome string) (string, bool) {
 }
 
 func TestServer(t *testing.T) {
-	cfg := config.Config{Secrets: t.TempDir(), Sessions: t.TempDir()}
+	cfg := config.Config{Secrets: t.TempDir(), Sessions: t.TempDir(), Space: t.TempDir()}
 	hub := &events.Hub{Dir: t.TempDir()}
 	c, a := &fakeChat{}, &fakeAsker{}
 	var dropped []string
@@ -185,6 +185,16 @@ func TestServer(t *testing.T) {
 
 	if status, body := call("PUT", "/effort", token, `{"effort":"high"}`); status != http.StatusOK || !strings.Contains(body, `"effort":"high"`) {
 		t.Fatalf("effort: %d %s", status, body)
+	}
+
+	if err := os.WriteFile(filepath.Join(cfg.Space, "AGENTS.md"), []byte("## User\n\nLives in New York.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := call("GET", "/memory", token, ""); status != http.StatusOK || !strings.Contains(body, `"user":"Lives in New York."`) || !strings.Contains(body, `"soul":""`) {
+		t.Fatalf("memory: %d %s", status, body)
+	}
+	if status, _ := call("PUT", "/memory", token, `{"user":"Lives in Boston.","version":"old"}`); status != http.StatusConflict {
+		t.Fatalf("stale memory: %d", status)
 	}
 
 	if status, _ := call("POST", "/questions/q1", token, `{"answer":"yes"}`); status != http.StatusBadRequest {
