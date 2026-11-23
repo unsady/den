@@ -1692,3 +1692,40 @@ func TestStopCutsTurn(t *testing.T) {
 	stopChat(c)
 	telegram.expect(t, "den restarted before this turn ended. Write to go on.")
 }
+
+func TestArchiveIdle(t *testing.T) {
+	_, _, c := startChatWith(t, nil)
+	ctx := context.Background()
+	old := time.Now().Add(-ArchiveAfter - time.Hour)
+	for _, id := range []string{"idle", "running", "asking"} {
+		if err := c.store.AddSession(ctx, store.Session{ID: id, Kind: store.KindChat, Created: old}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, stop := c.Events.Listen()
+	defer stop()
+
+	// A session whose turn runs, or whose question waits, stays.
+	c.mu.Lock()
+	c.busy["running"] = 1
+	c.mu.Unlock()
+	if err := c.ArchiveIdle(ctx, []string{"asking"}); err != nil {
+		t.Fatal(err)
+	}
+	c.mu.Lock()
+	delete(c.busy, "running")
+	c.mu.Unlock()
+
+	select {
+	case e := <-events:
+		if e.Type != "archived" || e.Session != "idle" || !e.Archived {
+			t.Fatalf("event %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no event")
+	}
+	list, _ := c.store.Sessions(ctx, store.Filter{Shelf: store.Archive})
+	if len(list) != 1 || list[0].ID != "idle" {
+		t.Fatalf("archived %+v", list)
+	}
+}

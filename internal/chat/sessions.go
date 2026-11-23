@@ -166,12 +166,16 @@ func (c *Chat) choiceOf(session string) (runner.Choice, error) {
 	return runner.Choice(s.Choice), nil
 }
 
-// Sessions lists the sessions for the app, the latest used first: all, or
-// the runs of the job named `job`; at most `limit` of them, 100 when it is
-// 0, after `before`, the end of the page before, if any.
-func (c *Chat) Sessions(ctx context.Context, job string, before *store.Mark, limit int) ([]store.Session, error) {
+// Sessions lists the sessions for the app, the latest used first: those
+// on shelf, or the runs of the job named `job` wherever they are; at most
+// `limit` of them, 100 when it is 0, after `before`, the end of the page
+// before, if any.
+func (c *Chat) Sessions(ctx context.Context, shelf store.Shelf, job string, before *store.Mark, limit int) ([]store.Session, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	return c.store.Sessions(ctx, store.Filter{Job: job, Before: before, Limit: limit})
+	if job != "" {
+		shelf = store.Everywhere
+	}
+	return c.store.Sessions(ctx, store.Filter{Shelf: shelf, Job: job, Before: before, Limit: limit})
 }

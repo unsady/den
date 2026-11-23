@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -45,8 +46,11 @@ type Session struct {
 	// the user hears of it.
 	Context   int
 	Compacted int
-	Created   time.Time
-	Updated   time.Time
+	// Archived keeps the session out of the apps' feed and lists, until
+	// it is used again.
+	Archived bool
+	Created  time.Time
+	Updated  time.Time
 }
 
 // NewID names a new session as fx names one: 9 random bytes in URL-safe
@@ -108,10 +112,53 @@ func (s *Store) SetTitle(ctx context.Context, id, title string) (bool, error) {
 	return n > 0, err
 }
 
-// Touch marks session id as used now, which puts it first in Sessions.
+// Touch marks session id as used now, which puts it first in Sessions and
+// takes it out of the archive.
 func (s *Store) Touch(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET updated = ? WHERE id = ?`, unix(time.Now()), id)
+	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET updated = ?, archived = 0 WHERE id = ?`, unix(time.Now()), id)
 	return err
+}
+
+// SetArchived puts session id in the archive or takes it out, or returns
+// ErrNotFound.
+func (s *Store) SetArchived(ctx context.Context, id string, archived bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE sessions SET archived = ? WHERE id = ?`, archived, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return cmp.Or(err, ErrNotFound)
+	}
+	return nil
+}
+
+// ArchiveIdle puts the sessions last used before `before` in the archive,
+// except those in keep, and returns their ids.
+func (s *Store) ArchiveIdle(ctx context.Context, before time.Time, keep []string) ([]string, error) {
+	query := `UPDATE sessions SET archived = 1 WHERE archived = 0 AND updated < ?`
+	args := []any{unix(before)}
+	if len(keep) > 0 {
+		query += ` AND id NOT IN (?` + repeat(", ?", len(keep)-1) + `)`
+		for _, id := range keep {
+			args = append(args, id)
+		}
+	}
+
+	rows, err := s.db.QueryContext(ctx, query+` RETURNING id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // SetContext records session id's size after a turn, in tokens.
@@ -135,11 +182,23 @@ type Filter struct {
 	Query string
 	// Job keeps the runs of the job of this name.
 	Job string
+	// Shelf keeps the sessions out of the archive, the archived ones, or
+	// both.
+	Shelf Shelf
 	// Before keeps the sessions that come after it, the latest used first:
 	// the next page after the one it ended.
 	Before *Mark
 	Limit  int
 }
+
+// Shelf is where Sessions looks: in the feed, the archive, or both.
+type Shelf int
+
+const (
+	Feed Shelf = iota
+	Archive
+	Everywhere
+)
 
 // Mark is where a page of Sessions ended: its last session's use and id.
 type Mark struct {
@@ -164,6 +223,12 @@ func (s *Store) Sessions(ctx context.Context, f Filter) ([]Session, error) {
 	if f.Job != "" {
 		query += ` AND job_id = ?`
 		args = append(args, f.Job)
+	}
+	switch f.Shelf {
+	case Feed:
+		query += ` AND archived = 0`
+	case Archive:
+		query += ` AND archived = 1`
 	}
 	if f.Before != nil {
 		at := unix(f.Before.Updated)
@@ -201,7 +266,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
-const sessionColumns = `id, kind, COALESCE(parent_id, ''), COALESCE(job_id, ''), COALESCE(title, ''), provider, model, effort, context, compacted, created, updated`
+const sessionColumns = `id, kind, COALESCE(parent_id, ''), COALESCE(job_id, ''), COALESCE(title, ''), provider, model, effort, context, compacted, archived, created, updated`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -210,7 +275,7 @@ func scanSession(row scanner) (Session, error) {
 	var created, updated int64
 	err := row.Scan(&session.ID, &session.Kind, &session.Parent, &session.Job, &session.Title,
 		&session.Choice.Provider, &session.Choice.Model, &session.Choice.Effort,
-		&session.Context, &session.Compacted, &created, &updated)
+		&session.Context, &session.Compacted, &session.Archived, &created, &updated)
 	session.Created, session.Updated = fromUnix(created), fromUnix(updated)
 	return session, err
 }

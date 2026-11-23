@@ -310,6 +310,7 @@ func (d *daemon) loop() {
 
 	for {
 		d.runDue()
+		d.archiveIdle()
 		select {
 		case <-d.ctx.Done():
 			return

@@ -169,6 +169,8 @@ var migrations = []string{
 	INSERT INTO telegram_sessions (session_id) SELECT session_id FROM cursors WHERE client = 'telegram';
 
 	ALTER TABLE inbox DROP COLUMN app;`,
+
+	`ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

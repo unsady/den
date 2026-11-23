@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -184,4 +185,57 @@ func idsOf(list []Session) string {
 		out += s.ID
 	}
 	return out
+}
+
+func TestArchive(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	old := time.Now().Add(-100 * time.Hour)
+	for _, session := range []Session{
+		{ID: "old", Kind: KindChat, Created: old},
+		{ID: "asking", Kind: KindChat, Created: old},
+		{ID: "new", Kind: KindChat},
+	} {
+		if err := s.AddSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Sessions unused since before the cutoff go, except those kept.
+	ids, err := s.ArchiveIdle(ctx, time.Now().Add(-72*time.Hour), []string{"asking"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(ids); got != "[old]" {
+		t.Fatalf("archived %s", got)
+	}
+	list, _ := s.Sessions(ctx, Filter{})
+	if ids := idsOf(list); ids != "new asking" {
+		t.Fatalf("feed %q", ids)
+	}
+	list, _ = s.Sessions(ctx, Filter{Shelf: Archive})
+	if ids := idsOf(list); ids != "old" || !list[0].Archived {
+		t.Fatalf("archive %q", ids)
+	}
+	list, _ = s.Sessions(ctx, Filter{Shelf: Everywhere})
+	if ids := idsOf(list); ids != "new old asking" {
+		t.Fatalf("everywhere %q", ids)
+	}
+
+	// A session used again comes back.
+	if err := s.Touch(ctx, "old"); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); len(list) != 0 {
+		t.Fatalf("archive after use %q", idsOf(list))
+	}
+
+	if err := s.SetArchived(ctx, "new", true); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); idsOf(list) != "new" {
+		t.Fatalf("archived by hand %q", idsOf(list))
+	}
+	if err := s.SetArchived(ctx, "none", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing session: %v", err)
+	}
 }
