@@ -52,6 +52,12 @@ Usage:
   den disconnect google | codex | grok | claude | mail
   den secret set <name> | ls | rm <name>
                                 Keep a secret, such as github_token; asks for it
+  den backup setup              Back den up every 6 hours and before each update, to a
+                                folder here and an S3 bucket, encrypted to a key that
+                                stays on this machine
+  den backup [ls]               Back up now, or list the backups
+  den backup restore [--key <file>] <file>
+                                Replace den's state with a backup
   den service add               Let the agent call an API with your token, which it
                                 never sees; asks for the name, address, and token
   den service add [--header <name>] [--ask writes|deletes|never|always] [--about <text>] <name> <https-url>
@@ -71,10 +77,13 @@ type hostConfig struct {
 	Image  string `json:"image"`
 	Volume string `json:"volume"`
 	// Home is the agent's home on the host: its notes, sessions, and tools.
-	Home   string            `json:"home"`
-	CPUs   int               `json:"cpus"`
-	Memory string            `json:"memory"`
-	Env    map[string]string `json:"env,omitempty"`
+	Home string `json:"home"`
+	// Backups is the folder of the host that receives den's encrypted
+	// backups, set by den backup setup; empty, there is none.
+	Backups string            `json:"backups,omitempty"`
+	CPUs    int               `json:"cpus"`
+	Memory  string            `json:"memory"`
+	Env     map[string]string `json:"env,omitempty"`
 	// Source is a den checkout to build the image from. Without one, den
 	// pulls Image.
 	Source string `json:"source,omitempty"`
@@ -190,6 +199,8 @@ func hostRun(args []string) error {
 		return hostApp(c, args[1:])
 	case "service", "services":
 		return hostService(c, args)
+	case "backup", "backups":
+		return hostBackup(c, args[1:])
 	case "secret", "secrets":
 		if len(args) == 3 && args[1] == "set" {
 			value, err := ask("Value for "+args[2]+": ", true)
@@ -212,6 +223,7 @@ func hostRun(args []string) error {
 var rootCommands = map[string]bool{
 	"secret": true, "secrets": true, "service": true, "services": true,
 	"login": true, "connect": true, "disconnect": true, "serve": true,
+	"backup": true, "backups": true,
 }
 
 // inside runs den with args in the container, with input on its stdin, or
@@ -286,6 +298,11 @@ func start(c hostConfig) error {
 	if err := os.MkdirAll(c.Home, 0o755); err != nil {
 		return err
 	}
+	if c.Backups != "" {
+		if err := os.MkdirAll(c.Backups, 0o700); err != nil {
+			return err
+		}
+	}
 
 	if out, err := e.command(e.runArgs(c)...).CombinedOutput(); err != nil {
 		return fmt.Errorf("%s run: %v\n%s", e, err, out)
@@ -341,6 +358,7 @@ func update(c hostConfig) error {
 	if err := pullOrBuild(c); err != nil {
 		return err
 	}
+	backupBeforeUpdate(c)
 
 	if err := launch(c, "Restarting den once what runs ends", recreate); err != nil {
 		return err
@@ -349,6 +367,20 @@ func update(c hostConfig) error {
 		c.engine().removeImage(old).Run()
 	}
 	return nil
+}
+
+// backupBeforeUpdate backs den up, when backups are set up, before the
+// update recreates its container. A backup that fails says so and lets
+// the update go on.
+func backupBeforeUpdate(c hostConfig) {
+	if c.Backups == "" || !running(c) {
+		return
+	}
+	if err := step("Backing up den", func(context.Context) error { return insideQuiet(c, "", "backup") }); err != nil {
+		failed("Backup: %v", err)
+		return
+	}
+	done("Backed up den")
 }
 
 // keepPrevious tags the image den runs now with its previous tag and

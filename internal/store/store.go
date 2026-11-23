@@ -54,6 +54,20 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
+// Copy writes a consistent copy of the database at path to dst, which must
+// not exist, while den may write to it. A copy of the file itself could
+// miss what the write-ahead log still holds, or catch a write halfway.
+func Copy(ctx context.Context, path, dst string) error {
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "VACUUM INTO ?", dst)
+	return err
+}
+
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 

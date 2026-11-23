@@ -20,6 +20,9 @@ type Config struct {
 	Space string
 	// Archive receives sessions exported as markdown.
 	Archive string
+	// Backups is a folder of the host that receives den's snapshots, or
+	// empty without one.
+	Backups string
 	// Inbox receives the photos and files the user sends in the chat.
 	Inbox string
 	// Skills holds den's built-in skills, which the agent cannot change.
@@ -64,6 +67,7 @@ func Load() Config {
 		Secrets:   env("DEN_SECRETS", filepath.Join(state, "secrets")),
 		Space:     env("DEN_SPACE", filepath.Join(home, "space")),
 		Archive:   env("DEN_ARCHIVE", filepath.Join(home, "archive")),
+		Backups:   os.Getenv("DEN_BACKUPS"),
 		Inbox:     env("DEN_INBOX", filepath.Join(home, "inbox")),
 		Skills:    os.Getenv("DEN_SKILLS"),
 		FXSkills:  env("DEN_FX_SKILLS", filepath.Join(home, ".agents", "skills")),

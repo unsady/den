@@ -244,6 +244,7 @@ func Serve(cfg config.Config) error {
 	}()
 
 	go d.loop()
+	go d.backups()
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.events)
