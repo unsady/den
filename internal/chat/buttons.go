@@ -22,10 +22,11 @@ var closeButton = notify.Button{Text: "✕", Data: "x:"}
 
 // listSessions lists sessions to continue, in a new message or in place of
 // edit, the ones used last on top. Job runs are a list of their own, and
-// words find sessions of any kind by title.
+// words find sessions of any kind by title. The archive is the apps': the
+// list holds archived sessions too.
 func (c *Chat) listSessions(ctx context.Context, telegram *notify.Telegram, words string, jobRuns bool, edit int64) {
 	query := strings.TrimSpace(words)
-	filter := store.Filter{Query: query, Limit: recentSessions}
+	filter := store.Filter{Query: query, Shelf: store.Everywhere, Limit: recentSessions}
 	switch {
 	case query != "":
 	case jobRuns:

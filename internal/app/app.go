@@ -54,7 +54,8 @@ type Chat interface {
 	ChooseEffort(ctx context.Context, level string) error
 	ChooseSecond(ctx context.Context, provider, model string) error
 	ChooseSecondEffort(ctx context.Context, level string) error
-	Sessions(ctx context.Context, job string, before *store.Mark, limit int) ([]store.Session, error)
+	Sessions(ctx context.Context, shelf store.Shelf, job string, before *store.Mark, limit int) ([]store.Session, error)
+	Archive(ctx context.Context, session string, archived bool) error
 }
 
 // Asker is what the app does with the questions den asks.
@@ -258,14 +259,19 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
-		list, err := s.chat.Sessions(r.Context(), query.Get("job"), before, limit)
+		// ?archived=1 lists the archive instead of the feed.
+		shelf := store.Feed
+		if query.Get("archived") == "1" {
+			shelf = store.Archive
+		}
+		list, err := s.chat.Sessions(r.Context(), shelf, query.Get("job"), before, limit)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Updated: l.Updated})
+			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated})
 		}
 		if !paged {
 			reply(w, out)
@@ -353,6 +359,24 @@ func (s *Server) Handler() http.Handler {
 		s.events.Publish(events.Event{Type: events.Settings})
 		reply(w, map[string]string{"id": id})
 	})
+
+	archive := func(archived bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			id := r.PathValue("id")
+			err := s.chat.Archive(r.Context(), id, archived)
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+				fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
+				return
+			case err != nil:
+				fail(w, http.StatusInternalServerError, err)
+				return
+			}
+			reply(w, map[string]any{"id": id, "archived": archived})
+		}
+	}
+	mux.HandleFunc("POST /sessions/{id}/archive", archive(true))
+	mux.HandleFunc("DELETE /sessions/{id}/archive", archive(false))
 
 	mux.HandleFunc("POST /sessions/{id}/open", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.chat.Open(r.Context(), r.PathValue("id")); err != nil {
@@ -515,8 +539,10 @@ type session struct {
 	// nightly-reflect for den's own nightly review.
 	Job string `json:"job,omitempty"`
 	// Title is empty until den names the session.
-	Title   string    `json:"title,omitempty"`
-	Updated time.Time `json:"updated"`
+	Title string `json:"title,omitempty"`
+	// Archived marks a session in the archive.
+	Archived bool      `json:"archived,omitempty"`
+	Updated  time.Time `json:"updated"`
 }
 
 // message is one message of a session as the user saw it.

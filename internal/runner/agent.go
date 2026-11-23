@@ -84,7 +84,7 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	// not part of the answer but says what it does, so it goes to Said.
 	var last strings.Builder
 	ooms := proc.OOMKills()
-	res, err := conn.Prompt(ctx, session, prompt, func(ev acp.Event) {
+	onEvent := func(ev acp.Event) {
 		switch ev.Kind {
 		case acp.KindText:
 			last.WriteString(ev.Text)
@@ -98,7 +98,18 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 				req.Said(said)
 			}
 		}
-	})
+	}
+	res, err := conn.Prompt(ctx, session, prompt, onEvent)
+	// A model that cannot see pictures gets the prompt without them: the
+	// prompt names where each is saved.
+	if len(prompt.Images) > 0 && blind(err) {
+		// What fx said before it refused, such as that it could not reach
+		// its catalog of models, is not part of the reply.
+		last.Reset()
+		prompt.Images = nil
+		prompt.Text += "\n" + noImages
+		res, err = conn.Prompt(ctx, session, prompt, onEvent)
+	}
 	reply.Output = strings.TrimSpace(last.String())
 	reply.InputTokens = int64(res.InputTokens)
 	reply.OutputTokens = int64(res.OutputTokens)
@@ -122,6 +133,17 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		a.Close()
 	}
 	return reply
+}
+
+// noImages tells the agent why the pictures its prompt names are not
+// attached.
+const noImages = "[den: this session's model cannot see pictures, so den did not attach them. They are saved at the paths above.]"
+
+// blind says whether err is fx's answer to pictures sent to a model that
+// cannot see them.
+func blind(err error) bool {
+	var e *acp.Error
+	return errors.As(err, &e) && e.Code == -32602 && strings.Contains(e.Message, "Image prompts are unavailable")
 }
 
 // Compact compacts req.Resume in place, on req's model, between turns.

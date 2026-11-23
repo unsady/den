@@ -6,13 +6,18 @@ release notes.
 
 ## Unreleased
 
+### Added
+
+- An archive for the app: a session unused for 3 days, with nothing waiting in it, leaves the feed for the archive, and the app can archive one by hand. A new message brings it back. The agent archives sessions with `den sessions archive` when you ask it to tidy the feed.
+- Backups: `den backup setup` backs up den's state, such as its sessions, jobs, and secrets, every 6 hours and before each `den update`, to a folder on your computer and an S3 bucket if you like. Each backup is encrypted to a key that stays on your computer, so neither den nor the agent can read it. `den backup restore` brings one back. [Backups](docs/backup.md) has the details.
+
+### Fixed
+
+- A picture sent to a session whose model cannot see pictures no longer fails the turn: the message goes on without it, and the agent learns where the picture is saved.
+
 ### Removed
 
 - A reply that is exactly SILENT is sent like any other; the agent stays quiet with `den quiet`.
-
-### Added
-
-- Backups: `den backup setup` backs up den's state, such as its sessions, jobs, and secrets, every 6 hours and before each `den update`, to a folder on your computer and an S3 bucket if you like. Each backup is encrypted to a key that stays on your computer, so neither den nor the agent can read it. `den backup restore` brings one back. [Backups](docs/backup.md) has the details.
 
 ## v0.15.0
 

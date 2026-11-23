@@ -48,7 +48,9 @@ func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
 
-func (f *fakeChat) Sessions(context.Context, string, *store.Mark, int) ([]store.Session, error) {
+func (f *fakeChat) Archive(context.Context, string, bool) error { return nil }
+
+func (f *fakeChat) Sessions(context.Context, store.Shelf, string, *store.Mark, int) ([]store.Session, error) {
 	return nil, nil
 }
 

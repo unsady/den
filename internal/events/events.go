@@ -52,6 +52,9 @@ const (
 	// File carries files the agent sent outside a turn's reply, such as
 	// from a command that outlived the turn.
 	File = "file"
+	// Archived says a session went into the archive, or out of it when
+	// Archived is false.
+	Archived = "archived"
 )
 
 // Event is one thing that happened. Fields that do not apply to its kind
@@ -83,6 +86,8 @@ type Event struct {
 	Options []string `json:"options,omitempty"`
 	// Source names where a question's action goes, such as "Gmail".
 	Source string `json:"source,omitempty"`
+	// Archived is where an Archived event put its session.
+	Archived bool `json:"archived,omitempty"`
 	// Files are the files a reply or a File event carries.
 	Files []Attachment `json:"files,omitempty"`
 }

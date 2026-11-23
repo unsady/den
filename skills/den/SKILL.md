@@ -56,6 +56,10 @@ rg -i -C3 "invoice" "$DEN_ARCHIVE/2026/11"
 
 Search with word stems for inflected languages, such as `rg -i "rechnung|rechnungen"`. List matching files first, then read the one or two that fit by date and title. Do this only when the user refers to an earlier conversation.
 
+## Tidy the app's feed
+
+When the user asks to clear sessions out of the app, archive them: `den sessions ls` lists their ids and titles, and `den sessions archive <id>...` hides them from the app's feed, keeping all they hold. A new message in one brings it back, and `den sessions unarchive <id>` does too. den archives a session unused for 3 days by itself.
+
 ## Use a service with a secret
 
 ```bash

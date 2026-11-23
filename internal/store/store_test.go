@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -74,7 +76,7 @@ func TestSessionsOrderAndFilter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Touch(ctx, "chat"); err != nil {
+	if _, err := s.Touch(ctx, "chat"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,4 +186,77 @@ func idsOf(list []Session) string {
 		out += s.ID
 	}
 	return out
+}
+
+func TestArchive(t *testing.T) {
+	s, ctx := open(t), context.Background()
+	old := time.Now().Add(-100 * time.Hour)
+	for _, session := range []Session{
+		{ID: "old", Kind: KindChat, Created: old},
+		{ID: "asking", Kind: KindChat, Created: old},
+		{ID: "queued", Kind: KindChat, Created: old},
+		{ID: "new", Kind: KindChat},
+	} {
+		if err := s.AddSession(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A session with a message in the inbox waits for its turn.
+	if err := s.Enqueue(ctx, Message{Session: "queued", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sessions unused since before the cutoff go, except those kept.
+	ids, err := s.ArchiveIdle(ctx, time.Now().Add(-72*time.Hour), []string{"asking"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(ids); got != "[old]" {
+		t.Fatalf("archived %s", got)
+	}
+	list, _ := s.Sessions(ctx, Filter{})
+	if ids := idsOf(list); ids != "new queued asking" {
+		t.Fatalf("feed %q", ids)
+	}
+	list, _ = s.Sessions(ctx, Filter{Shelf: Archive})
+	if ids := idsOf(list); ids != "old" || !list[0].Archived {
+		t.Fatalf("archive %q", ids)
+	}
+	list, _ = s.Sessions(ctx, Filter{Shelf: Everywhere})
+	if ids := idsOf(list); ids != "new queued old asking" {
+		t.Fatalf("everywhere %q", ids)
+	}
+
+	// A session used again comes back.
+	if restored, err := s.Touch(ctx, "old"); err != nil || !restored {
+		t.Fatalf("restored %v, %v", restored, err)
+	}
+	if restored, _ := s.Touch(ctx, "old"); restored {
+		t.Fatal("restored a session out of the archive")
+	}
+	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); len(list) != 0 {
+		t.Fatalf("archive after use %q", idsOf(list))
+	}
+
+	if err := s.SetArchived(ctx, "new", true); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); idsOf(list) != "new" {
+		t.Fatalf("archived by hand %q", idsOf(list))
+	}
+
+	// Taken out by hand, it is no longer idle, or ArchiveIdle would take it
+	// back at once.
+	if err := s.SetArchived(ctx, "asking", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetArchived(ctx, "asking", false); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := s.ArchiveIdle(ctx, time.Now().Add(-72*time.Hour), nil); slices.Contains(ids, "asking") {
+		t.Fatal("archived again")
+	}
+	if err := s.SetArchived(ctx, "none", true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing session: %v", err)
+	}
 }

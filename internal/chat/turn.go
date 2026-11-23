@@ -267,7 +267,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		}
 	}
 
-	if err := c.store.Touch(context.Background(), session); err != nil {
+	if err := c.touch(context.Background(), session); err != nil {
 		log.Printf("chat: touch %s: %v", session, err)
 	}
 	// A turn tells how big its session has grown, and the first reply

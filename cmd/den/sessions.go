@@ -17,7 +17,7 @@ import (
 
 func sessionsCommand(cfg config.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("sessions needs a subcommand: export, recent, ls, or rm")
+		return fmt.Errorf("sessions needs a subcommand: export, recent, ls, rm, archive, or unarchive")
 	}
 
 	switch args[0] {
@@ -97,6 +97,31 @@ func sessionsCommand(cfg config.Config, args []string) error {
 		}
 		if failed {
 			return fmt.Errorf("not every session was deleted")
+		}
+		return nil
+
+	case "archive", "unarchive":
+		ids := slices.DeleteFunc(slices.Clone(args[1:]), func(a string) bool { return a == "--" })
+		if len(ids) == 0 {
+			return fmt.Errorf("sessions %s needs a session id", args[0])
+		}
+
+		method, done := http.MethodPost, "archived"
+		if args[0] == "unarchive" {
+			method, done = http.MethodDelete, "unarchived"
+		}
+		c := client.New(cfg)
+		failed := false
+		for _, id := range ids {
+			if err := c.Do(method, "/sessions/"+url.PathEscape(id)+"/archive", nil, nil); err != nil {
+				fmt.Fprintf(os.Stderr, "den: session %s: %v\n", id, err)
+				failed = true
+				continue
+			}
+			fmt.Printf("%s session %s\n", done, id)
+		}
+		if failed {
+			return fmt.Errorf("not every session was %s", done)
 		}
 		return nil
 	}

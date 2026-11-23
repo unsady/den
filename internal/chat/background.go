@@ -139,7 +139,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 			c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
 		}
-		if err := c.store.Touch(context.Background(), session); err != nil {
+		if err := c.touch(context.Background(), session); err != nil {
 			log.Printf("chat: touch %s: %v", session, err)
 		}
 

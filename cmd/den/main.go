@@ -41,6 +41,9 @@ Usage:
   den sessions ls [-n <count>]  The latest sessions: id, turns, when, and title
   den sessions rm <id>...       Delete sessions, and the chat forgets them; an id
                                 that starts with - goes after --
+  den sessions archive | unarchive <id>...
+                                Hide sessions from the apps' feed, or show them
+                                again; a new message shows one again too
   den secret set <name> | ls | rm <name>
                                 Keep a secret, read from stdin (root only)
   den stats [--since 24h] [--json]

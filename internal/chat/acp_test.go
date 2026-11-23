@@ -224,6 +224,11 @@ func fakeACP(args []string) {
 					text = append(text, block.Text)
 				}
 			}
+			// As fx does for a model that cannot see pictures.
+			if images > 0 && strings.HasPrefix(text[0], "blind") {
+				send(map[string]any{"jsonrpc": "2.0", "id": m.ID, "error": map[string]any{"code": -32602, "message": "Image prompts are unavailable for the selected model"}})
+				continue
+			}
 			mu.Lock()
 			if m.Params.Meta.Fx.Steer && running {
 				steers = append(steers, m.ID)
