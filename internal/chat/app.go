@@ -190,6 +190,9 @@ type Setup struct {
 	// Recent are the models chosen last, newest first.
 	Recent    []Model  `json:"recent"`
 	Providers []string `json:"providers"`
+	// Jobs holds each job's title by its name, which a job run's session
+	// carries; a job's runs go under it.
+	Jobs map[string]string `json:"jobs"`
 }
 
 // Setup reads the chat's session, its models, and whether a turn runs.
@@ -213,7 +216,21 @@ func (c *Chat) Setup(ctx context.Context) (Setup, error) {
 		p, m, _ := strings.Cut(ref, "/")
 		s.Recent = append(s.Recent, c.describe(p, m, ""))
 	}
+
+	list, err := c.store.Jobs(ctx)
+	if err != nil {
+		return Setup{}, err
+	}
+	s.Jobs = make(map[string]string, len(list))
+	for _, j := range list {
+		s.Jobs[j.Name] = j.Title
+	}
 	return s, nil
+}
+
+// JobsChanged tells the app a job was added, edited, or removed.
+func (c *Chat) JobsChanged() {
+	c.changed(nil)
 }
 
 // Models lists provider's models, the provider fx uses when it is empty.

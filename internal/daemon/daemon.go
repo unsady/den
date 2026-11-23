@@ -769,6 +769,7 @@ func (d *daemon) routes() http.Handler {
 		if !j.Once {
 			d.ask.Note(fmt.Sprintf("Job %s added: %s", j.Name, j.Schedule), approve.Went)
 		}
+		d.chat.JobsChanged()
 		reply(w, http.StatusCreated, j)
 	})
 
@@ -789,6 +790,7 @@ func (d *daemon) routes() http.Handler {
 			if !j.Once {
 				d.ask.Note(fmt.Sprintf("Job %s edited: %s", j.Name, j.Schedule), approve.Went)
 			}
+			d.chat.JobsChanged()
 			reply(w, http.StatusOK, j)
 		}
 	})
@@ -802,6 +804,7 @@ func (d *daemon) routes() http.Handler {
 		if !j.Once {
 			d.ask.Note(fmt.Sprintf("Job %s removed", j.Name), approve.Went)
 		}
+		d.chat.JobsChanged()
 		reply(w, http.StatusOK, j)
 	})
 
