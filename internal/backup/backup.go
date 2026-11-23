@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"filippo.io/age"
@@ -53,41 +54,45 @@ const (
 // a snapshot.
 var ErrOff = errors.New("backups are not set up: run den backup setup on the host")
 
-// On reports whether backups are set up.
+// On reports whether backups are set up. A bucket that den cannot read
+// counts, so its error reaches the user.
 func On(cfg config.Config) bool {
 	if _, err := os.Stat(filepath.Join(cfg.Secrets, RecipientSecret)); err != nil {
 		return false
 	}
-	b, err := loadBucket(cfg)
-	return cfg.Backups != "" || (err == nil && b != nil)
+	_, err := os.Stat(filepath.Join(cfg.Secrets, BucketSecret))
+	return cfg.Backups != "" || err == nil
 }
 
 // Snapshot takes a snapshot and saves it to the folder and the bucket,
 // keeping the latest Keep in each. It returns the snapshot's name, and
 // with an error from one place still saves to the other.
 func Snapshot(ctx context.Context, cfg config.Config, now time.Time) (string, error) {
-	recipient, err := readRecipient(cfg)
-	if err != nil {
-		return "", err
-	}
-
-	bucket, err := loadBucket(cfg)
-	if err != nil {
-		return "", err
-	}
-	if cfg.Backups == "" && bucket == nil {
-		return "", ErrOff
-	}
-
 	unlock, err := filelock.Lock(filepath.Join(cfg.State, "backup.lock"))
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	// A snapshot that fails waits for the next one too, so a folder that
-	// keeps Keep does not fill with retries.
+	// A snapshot that fails waits for the next one too, so den does not
+	// retry it all day.
 	if err := tried(cfg, now); err != nil {
 		return "", err
+	}
+
+	recipient, err := readRecipient(cfg)
+	if err != nil {
+		return "", err
+	}
+	var errs []error
+	bucket, err := loadBucket(cfg)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("S3: %w", err))
+	}
+	if cfg.Backups == "" && bucket == nil {
+		if len(errs) > 0 {
+			return "", errors.Join(errs...)
+		}
+		return "", ErrOff
 	}
 
 	data, err := pack(ctx, cfg, recipient)
@@ -95,8 +100,7 @@ func Snapshot(ctx context.Context, cfg config.Config, now time.Time) (string, er
 		return "", err
 	}
 
-	name := prefix + now.UTC().Format("20060102T150405Z") + suffix
-	var errs []error
+	name := snapshotName(now)
 	if cfg.Backups != "" {
 		if err := saveLocal(cfg.Backups, name, data); err != nil {
 			errs = append(errs, fmt.Errorf("folder: %w", err))
@@ -110,26 +114,39 @@ func Snapshot(ctx context.Context, cfg config.Config, now time.Time) (string, er
 	return name, errors.Join(errs...)
 }
 
+func snapshotName(t time.Time) string {
+	return prefix + t.UTC().Format("20060102T150405Z") + suffix
+}
+
 // List returns the snapshots in the folder and in the bucket, oldest first.
+// A place that fails to list leaves the other's list as it is.
 func List(ctx context.Context, cfg config.Config) (local, remote []string, err error) {
+	var errs []error
 	if cfg.Backups != "" {
 		if local, err = listLocal(cfg.Backups); err != nil {
-			return nil, nil, err
+			errs = append(errs, fmt.Errorf("folder: %w", err))
 		}
 	}
 
 	bucket, err := loadBucket(cfg)
-	if err != nil || bucket == nil {
-		return local, nil, err
+	if err == nil && bucket != nil {
+		remote, err = bucket.snapshots(ctx)
 	}
-	remote, err = bucket.snapshots(ctx)
-	return local, remote, err
+	if err != nil {
+		errs = append(errs, fmt.Errorf("S3: %w", err))
+	}
+	return local, remote, errors.Join(errs...)
 }
 
 // Unpack replaces den's state with the snapshot tar.gz in r, decrypted.
 // den must not run. The state changes only once the whole snapshot is
-// read; what den downloads again stays.
+// read, and goes back as it was if the swap fails; what den downloads
+// again stays.
 func Unpack(cfg config.Config, r io.Reader) error {
+	if _, err := os.Stat(cfg.Socket); err == nil {
+		return errors.New("den runs: den backup restore on the host stops it first")
+	}
+
 	staging, err := os.MkdirTemp(cfg.State, temp+"restore-")
 	if err != nil {
 		return err
@@ -143,20 +160,52 @@ func Unpack(cfg config.Config, r io.Reader) error {
 		return errors.New("the snapshot has no database")
 	}
 
-	if err := clear(cfg.State, ""); err != nil {
+	old, err := os.MkdirTemp(cfg.State, temp+"old-")
+	if err != nil {
 		return err
 	}
-	return merge(staging, cfg.State)
+	if err := aside(cfg.State, "", old); err != nil {
+		return putBack(cfg.State, old, err)
+	}
+	if err := merge(staging, cfg.State); err != nil {
+		return putBack(cfg.State, old, err)
+	}
+	return os.RemoveAll(old)
 }
+
+// putBack brings the state set aside in old back after a restore failed
+// with cause.
+func putBack(state, old string, cause error) error {
+	failed, err := os.MkdirTemp(state, temp+"failed-")
+	if err == nil {
+		err = aside(state, "", failed)
+	}
+	if err == nil {
+		err = merge(old, state)
+	}
+	if err != nil {
+		return fmt.Errorf("%w; the state before the restore is in %s, as putting it back failed: %v", cause, old, err)
+	}
+	os.RemoveAll(failed)
+	os.RemoveAll(old)
+	return cause
+}
+
+// downloaded are the state's paths den downloads again.
+var downloaded = []string{"models", "lost+found", filepath.Join("claude", claude.Version), filepath.Join("claude", ".cache")}
 
 // kept are the state's paths a restore leaves as they are and a snapshot
 // leaves out: what den downloads again, and the folders backups work in.
 func kept(rel string) bool {
-	switch rel {
-	case "models", "lost+found", filepath.Join("claude", claude.Version), filepath.Join("claude", ".cache"):
-		return true
-	}
-	return strings.HasPrefix(rel, temp)
+	return slices.Contains(downloaded, rel) || strings.HasPrefix(rel, temp)
+}
+
+// holdsKept reports whether the folder at rel holds a path that kept
+// names.
+func holdsKept(rel string) bool {
+	return slices.ContainsFunc(downloaded, func(p string) bool {
+		return strings.HasPrefix(p, rel+string(filepath.Separator))
+	})
 }
 
 // packed reports whether a snapshot takes the state's file at rel as it
@@ -279,20 +328,21 @@ func addFile(tw *tar.Writer, path, rel string) error {
 		return tw.WriteHeader(hdr)
 	}
 
-	f, err := os.Open(path)
+	// The file is read whole first, so one den changes meanwhile goes in
+	// at the size it has when read.
+	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	hdr.Size = int64(len(data))
 
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	// A log den appends to while it is read goes in at the size it had.
-	_, err = io.CopyN(tw, f, hdr.Size)
+	_, err = tw.Write(data)
 	return err
 }
 
@@ -367,9 +417,9 @@ func extract(r io.Reader, dir string) error {
 	}
 }
 
-// clear removes what is in the folder dir, at rel in the state, except
-// what kept names.
-func clear(dir, rel string) error {
+// aside moves what is in the folder dir, at rel in the state, into to,
+// except what kept names.
+func aside(dir, rel, to string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -381,19 +431,23 @@ func clear(dir, rel string) error {
 			continue
 		}
 
-		path := filepath.Join(dir, e.Name())
-		if !e.IsDir() {
-			if err := os.Remove(path); err != nil {
+		from, dst := filepath.Join(dir, e.Name()), filepath.Join(to, e.Name())
+		if !e.IsDir() || !holdsKept(r) {
+			if err := os.Rename(from, dst); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := clear(path, r); err != nil {
+
+		// A folder that holds what stays, such as claude's, stays too.
+		info, err := e.Info()
+		if err != nil {
 			return err
 		}
-		// A folder that holds what stays, such as claude's, stays too:
-		// ErrExist stands for its not being empty.
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrExist) {
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		if err := aside(from, r, dst); err != nil {
 			return err
 		}
 	}
@@ -431,7 +485,11 @@ func merge(src, dst string) error {
 }
 
 func saveLocal(dir, name string, data []byte) error {
-	if err := atomicfile.Write(filepath.Join(dir, name), data, 0o600); err != nil {
+	path := filepath.Join(dir, name)
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
+		return err
+	}
+	if err := ownLike(path, dir); err != nil {
 		return err
 	}
 
@@ -439,7 +497,7 @@ func saveLocal(dir, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	for _, old := range stale(names) {
+	for _, old := range stale(names, name) {
 		if err := os.Remove(filepath.Join(dir, old)); err != nil {
 			return err
 		}
@@ -467,12 +525,33 @@ func isSnapshot(name string) bool {
 	return strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix)
 }
 
-// stale returns the snapshots, sorted oldest first, beyond the latest Keep.
-func stale(names []string) []string {
-	if len(names) <= Keep {
+// ownLike gives the file at path the owner of the folder dir: den runs as
+// root, and the user on the host reads the folder's snapshots to restore
+// one.
+func ownLike(path, dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) == os.Geteuid() {
 		return nil
 	}
-	return names[:len(names)-Keep]
+	return os.Chown(path, int(st.Uid), int(st.Gid))
+}
+
+// stale returns the snapshots, sorted oldest first, beyond the latest Keep
+// up to latest, the one just saved. Later names, as from a clock that ran
+// ahead or a file someone put there, neither count nor go.
+func stale(names []string, latest string) []string {
+	n, _ := slices.BinarySearch(names, latest)
+	if n < len(names) && names[n] == latest {
+		n++
+	}
+	if n <= Keep {
+		return nil
+	}
+	return names[:n-Keep]
 }
 
 // Last returns when den last tried to take a snapshot.

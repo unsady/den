@@ -173,6 +173,88 @@ func TestExtractStaysInside(t *testing.T) {
 	}
 }
 
+func TestUnpackPutsTheStateBackWhenTheSwapFails(t *testing.T) {
+	cfg, _ := setUp(t)
+	write(t, filepath.Join(cfg.State, "lost+found", "x"), "")
+
+	// lost+found stays as a folder, so the snapshot's file of that name
+	// cannot take its place.
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, name := range []string{store.File, "jobs.json", "lost+found"} {
+		tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o600, Size: 1})
+		tw.Write([]byte("x"))
+	}
+	tw.Close()
+	gz.Close()
+
+	if err := Unpack(cfg, &buf); err == nil {
+		t.Fatal("no error")
+	}
+	if got := read(t, filepath.Join(cfg.State, "jobs.json")); got != "[]" {
+		t.Errorf("jobs.json %q", got)
+	}
+	if got := read(t, filepath.Join(cfg.Secrets, "telegram_token")); got != "token\n" {
+		t.Errorf("secret %q", got)
+	}
+	if got := read(t, filepath.Join(cfg.State, "claude", "config", "login.json")); got != "{}" {
+		t.Errorf("claude login %q", got)
+	}
+	entries, _ := os.ReadDir(cfg.State)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), temp) {
+			t.Errorf("%s stayed", e.Name())
+		}
+	}
+}
+
+func TestUnpackRefusesWhileDenRuns(t *testing.T) {
+	cfg, _ := setUp(t)
+	cfg.Socket = filepath.Join(cfg.State, "den.sock")
+	write(t, cfg.Socket, "")
+	if err := Unpack(cfg, strings.NewReader("")); err == nil || !strings.Contains(err.Error(), "den runs") {
+		t.Errorf("err %v", err)
+	}
+}
+
+func TestABrokenBucketLeavesTheFolder(t *testing.T) {
+	cfg, _ := setUp(t)
+	write(t, filepath.Join(cfg.Secrets, BucketSecret), "{not json")
+
+	name, err := Snapshot(context.Background(), cfg, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "S3") {
+		t.Errorf("err %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(cfg.Backups, name)); name == "" || serr != nil {
+		t.Errorf("no snapshot in the folder: %q %v", name, serr)
+	}
+	// The next try waits for its time.
+	if time.Since(Last(cfg)) > time.Minute {
+		t.Error("the try was not recorded")
+	}
+
+	cfg.Backups = ""
+	if !On(cfg) {
+		t.Error("a broken bucket alone counts as off, so its error never shows")
+	}
+}
+
+func TestLaterNamesDoNotPushOutNewSnapshots(t *testing.T) {
+	cfg, _ := setUp(t)
+	for i := range Keep {
+		write(t, filepath.Join(cfg.Backups, fmt.Sprintf("den-2099%02d01T000000Z.tar.gz.age", i+1)), "")
+	}
+
+	name, err := Snapshot(context.Background(), cfg, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Backups, name)); err != nil {
+		t.Errorf("the new snapshot went: %v", err)
+	}
+}
+
 func TestSnapshotKeepsTheLatest(t *testing.T) {
 	cfg, _ := setUp(t)
 	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
@@ -279,7 +361,7 @@ func TestBucket(t *testing.T) {
 	srv := httptest.NewTLSServer(fake)
 	defer srv.Close()
 
-	b := Bucket{Endpoint: srv.URL, Region: "auto", Bucket: "bucket", Prefix: "den/", KeyID: "key", Secret: "secret"}
+	b := Bucket{Endpoint: srv.URL, Region: "auto", Name: "bucket", Prefix: "den/", KeyID: "key", Secret: "secret"}
 	data, _ := json.Marshal(b)
 	write(t, filepath.Join(cfg.Secrets, BucketSecret), string(data))
 	// The fake's certificate is its own.
@@ -315,14 +397,14 @@ func TestBucket(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	good := Bucket{Endpoint: "https://s3.us-east-1.amazonaws.com", Region: "us-east-1", Bucket: "my-den", Prefix: "den/", KeyID: "k", Secret: "s"}
+	good := Bucket{Endpoint: "https://s3.us-east-1.amazonaws.com", Region: "us-east-1", Name: "my-den", Prefix: "den/", KeyID: "k", Secret: "s"}
 	if err := good.Check(); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range []func(*Bucket){
 		func(b *Bucket) { b.Endpoint = "http://s3.example.com" },
 		func(b *Bucket) { b.Endpoint = "https://s3.example.com/bucket" },
-		func(b *Bucket) { b.Bucket = "My_Bucket" },
+		func(b *Bucket) { b.Name = "My_Bucket" },
 		func(b *Bucket) { b.Prefix = "/den" },
 		func(b *Bucket) { b.Prefix = "den den" },
 		func(b *Bucket) { b.Secret = "" },

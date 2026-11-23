@@ -36,7 +36,7 @@ type Bucket struct {
 	Endpoint string `json:"endpoint"`
 	// Region is the bucket's region, such as us-east-1, or auto for R2.
 	Region string `json:"region"`
-	Bucket string `json:"bucket"`
+	Name   string `json:"bucket"`
 	// Prefix comes before each snapshot's name, such as den/.
 	Prefix string `json:"prefix,omitempty"`
 	KeyID  string `json:"key_id"`
@@ -59,8 +59,8 @@ func (b Bucket) Check() error {
 		return errors.New("the endpoint is an https address with no path, such as https://s3.us-east-1.amazonaws.com")
 	case b.Region == "":
 		return errors.New("the region is missing")
-	case !bucketName.MatchString(b.Bucket):
-		return fmt.Errorf("%q is not a bucket name", b.Bucket)
+	case !bucketName.MatchString(b.Name):
+		return fmt.Errorf("%q is not a bucket name", b.Name)
 	case !keyPrefix.MatchString(b.Prefix) || strings.HasPrefix(b.Prefix, "/"):
 		return errors.New("the prefix takes letters, digits, and . _ - /, and does not start with /")
 	case b.KeyID == "" || b.Secret == "":
@@ -100,7 +100,7 @@ func (b *Bucket) save(ctx context.Context, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	for _, old := range stale(names) {
+	for _, old := range stale(names, name) {
 		if _, err := b.do(ctx, http.MethodDelete, b.Prefix+old, nil, nil); err != nil {
 			return err
 		}
@@ -150,7 +150,7 @@ func (b *Bucket) snapshots(ctx context.Context) ([]string, error) {
 // do sends a signed request for key in the bucket, or for the bucket
 // itself when key is "", and returns the response's body.
 func (b *Bucket) do(ctx context.Context, method, key string, query url.Values, body []byte) ([]byte, error) {
-	path := "/" + b.Bucket
+	path := "/" + b.Name
 	if key != "" {
 		path += "/" + key
 	}

@@ -58,17 +58,21 @@ func defaultBackups() string {
 	return filepath.Join(home, ".local", "share", "den", "backups")
 }
 
-// hostBackup is den backup on the host.
+// hostBackup is den backup on the host. unpack stays in the container:
+// only restore runs it, while den is stopped.
 func hostBackup(c hostConfig, args []string) error {
-	if len(args) > 0 {
-		switch args[0] {
-		case "setup":
-			return backupSetup(c)
-		case "restore":
-			return backupRestore(c, args[1:])
-		}
+	if len(args) == 0 {
+		return inside(c, "", "backup")
 	}
-	return inside(c, "", append([]string{"backup"}, args...)...)
+	switch args[0] {
+	case "setup":
+		return backupSetup(c)
+	case "restore":
+		return backupRestore(c, args[1:])
+	case "ls", "list":
+		return inside(c, "", "backup", "ls")
+	}
+	return fmt.Errorf("unknown backup subcommand %q; run den help", args[0])
 }
 
 // backupKey reads the backups' key, or makes one when there is none, and
@@ -186,7 +190,7 @@ func askBucket() ([]byte, error) {
 	if b.Region, err = input("Region (auto for R2)", "us-east-1"); err != nil {
 		return nil, err
 	}
-	if b.Bucket, err = ask("Bucket: ", false); err != nil {
+	if b.Name, err = ask("Bucket: ", false); err != nil {
 		return nil, err
 	}
 	if b.Prefix, err = input("Prefix of the backups' names", "den/"); err != nil {
@@ -259,10 +263,12 @@ func backupRestore(c hostConfig, args []string) error {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
+	// A restore that failed left the state as it was, so den starts again
+	// either way.
+	if serr := launch(c, "Starting den", start); err == nil {
+		err = serr
 	}
-	return launch(c, "Starting den", start)
+	return err
 }
 
 // openBackup decrypts the backup at path whole, so a damaged one stops the
