@@ -428,6 +428,7 @@ func (c *Chat) Forget(session string, drop func() error) error {
 		return err
 	}
 	c.Events.Forget(session)
+	c.Events.Publish(events.Event{Type: events.Deleted, Session: session})
 	return nil
 }
 

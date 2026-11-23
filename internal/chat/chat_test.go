@@ -988,9 +988,15 @@ func TestForget(t *testing.T) {
 	c.Sent([]int64{5}, "old")
 	c.Sent([]int64{6}, "job1")
 
-	// A session the chat is not in goes, with its message links.
+	// A session the chat is not in goes, with its message links, and the
+	// apps hear of it.
+	heard, stop := c.Events.Listen()
+	defer stop()
 	if err := c.Forget("old", nil); err != nil {
 		t.Fatal(err)
+	}
+	if e := <-heard; e.Type != "deleted" || e.Session != "old" {
+		t.Fatalf("event %+v", e)
 	}
 	if _, err := c.store.Session(ctx, "old"); err == nil {
 		t.Fatal("old is still in the store")

@@ -55,6 +55,9 @@ const (
 	// Archived says a session went into the archive, or out of it when
 	// Archived is false.
 	Archived = "archived"
+	// Deleted says a session is gone, however it was deleted: by the app,
+	// in Telegram, by the agent, or as a job run with nothing to say.
+	Deleted = "deleted"
 )
 
 // Event is one thing that happened. Fields that do not apply to its kind
