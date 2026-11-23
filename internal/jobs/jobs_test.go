@@ -96,18 +96,50 @@ func TestAddChecks(t *testing.T) {
 	}
 }
 
-func TestSlot(t *testing.T) {
+func TestEdit(t *testing.T) {
 	s := open(t)
-	if _, err := s.Add(Job{Name: "hourly-check", Title: "Check", Schedule: "every 1h", Prompt: "a", Slot: Main}, time.Now()); err != nil {
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
+	added, err := s.Add(Job{Name: "hourly-check", Title: "Проверка", Schedule: "every 1h", Prompt: "a", Slot: Main}, now)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if j, err := s.SetSlot("hourly-check", Second); err != nil || j.Slot != Second {
-		t.Fatalf("set second: slot=%q err=%v", j.Slot, err)
+	if err := s.Finish(Run{Job: "hourly-check", Started: now}); err != nil {
+		t.Fatal(err)
 	}
-	if j, err := s.SetSlot("hourly-check", Main); err != nil || j.Slot != "" {
-		t.Fatalf("set main: slot=%q err=%v", j.Slot, err)
+
+	ptr := func(s string) *string { return &s }
+	later := now.Add(time.Minute)
+	j, err := s.Edit("hourly-check", Change{Title: ptr(" Check "), Slot: ptr(Second)}, later)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := s.SetSlot("no-such-job", Second); err != ErrNotFound {
+	if j.Title != "Check" || j.Slot != Second || j.Prompt != "a" || !j.NextRun.Equal(added.NextRun) {
+		t.Fatalf("title and slot edit: %+v", j)
+	}
+	if j, _ := s.Get("hourly-check"); j.LastRun == nil || !j.Created.Equal(added.Created) {
+		t.Errorf("edit lost the job's history: %+v", j)
+	}
+
+	j, err = s.Edit("hourly-check", Change{Schedule: ptr("in 5m"), Slot: ptr(Main)}, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !j.Once || !j.NextRun.Equal(later.Add(5*time.Minute)) || j.Slot != "" {
+		t.Fatalf("schedule edit: %+v", j)
+	}
+	if j, err := s.Edit("hourly-check", Change{Schedule: ptr("in 5m")}, later.Add(time.Minute)); err != nil || !j.NextRun.Equal(later.Add(5*time.Minute)) {
+		t.Fatalf("the same schedule moved the next run: %+v %v", j, err)
+	}
+
+	for _, c := range []Change{{Title: ptr("")}, {Prompt: ptr(" ")}, {Schedule: ptr("whenever")}, {Slot: ptr("third")}} {
+		if _, err := s.Edit("hourly-check", c, later); err == nil {
+			t.Errorf("%+v: want an error", c)
+		}
+	}
+	if j, _ := s.Get("hourly-check"); j.Title != "Check" {
+		t.Errorf("a failed edit changed the job: %+v", j)
+	}
+	if _, err := s.Edit("no-such-job", Change{Slot: ptr(Second)}, later); err != ErrNotFound {
 		t.Errorf("want ErrNotFound, got %v", err)
 	}
 }

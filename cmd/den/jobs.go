@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,7 +20,7 @@ import (
 
 func jobCommand(cfg config.Config, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("job needs a subcommand: add, ls, slot, rm, run, or log")
+		return fmt.Errorf("job needs a subcommand: add, edit, ls, slot, rm, run, or log")
 	}
 	c := client.New(cfg)
 	sub, args := args[0], args[1:]
@@ -47,6 +48,55 @@ func jobCommand(cfg config.Config, args []string) error {
 			return err
 		}
 		fmt.Printf("added job %s, next run %s\n", j.Name, when(j.NextRun))
+		return nil
+
+	case "edit":
+		fs := flag.NewFlagSet("job edit", flag.ContinueOnError)
+		title := fs.String("title", "", "the job's new title in the user's language")
+		sched := fs.String("schedule", "", "when the job runs from now on")
+		slot := fs.String("slot", "", "the chat's model the job runs on: main or second")
+		// A string, so that --silent false never takes false for the prompt.
+		silent := fs.String("silent", "", "true keeps the reply in the job log instead of sending it, false sends it")
+		rest, err := parse(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(rest) == 0 {
+			return fmt.Errorf("job edit needs the job's name")
+		}
+
+		// Only what is given changes; words after the name are the new prompt.
+		var change jobs.Change
+		fs.Visit(func(f *flag.Flag) {
+			switch f.Name {
+			case "title":
+				change.Title = title
+			case "schedule":
+				change.Schedule = sched
+			case "slot":
+				change.Slot = slot
+			case "silent":
+				if quiet, err := strconv.ParseBool(*silent); err == nil {
+					change.Silent = &quiet
+				}
+			}
+		})
+		if *silent != "" && change.Silent == nil {
+			return fmt.Errorf("job edit takes --silent true or false, not %q", *silent)
+		}
+		if len(rest) > 1 {
+			prompt := strings.Join(rest[1:], " ")
+			change.Prompt = &prompt
+		}
+		if change == (jobs.Change{}) {
+			return fmt.Errorf("job edit needs --title, --schedule, --slot, --silent, or a new prompt")
+		}
+
+		var j jobs.Job
+		if err := c.Do(http.MethodPatch, "/jobs/"+url.PathEscape(rest[0]), change, &j); err != nil {
+			return err
+		}
+		fmt.Printf("edited job %s, next run %s\n", j.Name, when(j.NextRun))
 		return nil
 
 	case "ls", "list":
@@ -88,7 +138,7 @@ func jobCommand(cfg config.Config, args []string) error {
 			return fmt.Errorf("job slot takes a job and main or second")
 		}
 		var j jobs.Job
-		if err := c.Do(http.MethodPatch, "/jobs/"+url.PathEscape(args[0]), daemon.SlotRequest{Slot: args[1]}, &j); err != nil {
+		if err := c.Do(http.MethodPatch, "/jobs/"+url.PathEscape(args[0]), jobs.Change{Slot: &args[1]}, &j); err != nil {
 			return err
 		}
 		fmt.Printf("job %s runs on the %s model\n", j.Name, args[1])

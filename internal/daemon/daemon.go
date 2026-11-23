@@ -650,11 +650,6 @@ type AddRequest struct {
 	Silent bool   `json:"silent"`
 }
 
-// SlotRequest is the body of PATCH /jobs/{ref}.
-type SlotRequest struct {
-	Slot string `json:"slot"`
-}
-
 // QuietRequest is the body of POST /quiet.
 type QuietRequest struct {
 	// Session is the DEN_SESSION of the agent that has nothing to send.
@@ -778,19 +773,22 @@ func (d *daemon) routes() http.Handler {
 	})
 
 	mux.HandleFunc("PATCH /jobs/{ref}", func(w http.ResponseWriter, r *http.Request) {
-		var req SlotRequest
+		var req jobs.Change
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
 
-		j, err := d.store.SetSlot(r.PathValue("ref"), req.Slot)
+		j, err := d.store.Edit(r.PathValue("ref"), req, time.Now())
 		switch {
 		case errors.Is(err, jobs.ErrNotFound):
 			fail(w, http.StatusNotFound, err)
 		case err != nil:
 			fail(w, http.StatusBadRequest, err)
 		default:
+			if !j.Once {
+				d.ask.Note(fmt.Sprintf("Job %s edited: %s", j.Name, j.Schedule), approve.Went)
+			}
 			reply(w, http.StatusOK, j)
 		}
 	})

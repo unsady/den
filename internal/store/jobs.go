@@ -80,16 +80,35 @@ func (s *Store) RemoveJob(ctx context.Context, name string) (Job, error) {
 	return j, tx.Commit()
 }
 
-// SetJobSlot makes the job run on slot, "second" or "" for the main model.
-func (s *Store) SetJobSlot(ctx context.Context, name, slot string) (Job, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET slot = ? WHERE name = ?`, slot, name)
+// UpdateJob applies change to the job by name and saves its title,
+// schedule, prompt, slot, silent, once, and next run, or returns
+// ErrNotFound. It holds the job while change runs, so a due run cannot
+// move it in between.
+func (s *Store) UpdateJob(ctx context.Context, name string, change func(*Job) error) (Job, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Job{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	defer tx.Rollback()
+
+	j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE name = ?`, name))
+	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
-	return s.Job(ctx, name)
+	if err != nil {
+		return Job{}, err
+	}
+
+	if err := change(&j); err != nil {
+		return Job{}, err
+	}
+	_, err = tx.ExecContext(ctx,
+		`UPDATE jobs SET title = ?, schedule = ?, prompt = ?, slot = ?, silent = ?, once = ?, next_run = ? WHERE name = ?`,
+		j.Title, j.Schedule, j.Prompt, j.Slot, j.Silent, j.Once, unix(j.NextRun), name)
+	if err != nil {
+		return Job{}, err
+	}
+	return j, tx.Commit()
 }
 
 // FinishJob records the outcome of a run on the job, if it still exists.

@@ -142,13 +142,57 @@ func (s *Store) TakeDue(now time.Time, skip func(name string) bool) ([]Job, erro
 	})
 }
 
-// SetSlot makes a job run on the main or the second model.
-func (s *Store) SetSlot(name, slotName string) (Job, error) {
-	stored, err := slot(slotName)
-	if err != nil {
-		return Job{}, err
-	}
-	j, err := s.db.SetJobSlot(context.Background(), name, stored)
+// Change is an edit of a job: each field that is not nil replaces the
+// job's own. A job's name never changes, since its runs and sessions
+// are filed under it.
+type Change struct {
+	Title    *string `json:"title,omitempty"`
+	Schedule *string `json:"schedule,omitempty"`
+	Prompt   *string `json:"prompt,omitempty"`
+	// Slot is main or second, the chat's model the job runs on.
+	Slot   *string `json:"slot,omitempty"`
+	Silent *bool   `json:"silent,omitempty"`
+}
+
+// Edit applies c to the job by name with the checks Add makes. A changed
+// schedule starts over from now; the same one keeps the next run.
+func (s *Store) Edit(name string, c Change, now time.Time) (Job, error) {
+	j, err := s.db.UpdateJob(context.Background(), name, func(j *Job) error {
+		if c.Title != nil {
+			j.Title = strings.TrimSpace(*c.Title)
+			if err := checkTitle(j.Title); err != nil {
+				return err
+			}
+		}
+
+		if c.Prompt != nil {
+			j.Prompt = strings.TrimSpace(*c.Prompt)
+			if j.Prompt == "" {
+				return errors.New("a job needs a prompt")
+			}
+		}
+
+		if c.Schedule != nil && *c.Schedule != j.Schedule {
+			next, once, err := schedule.First(*c.Schedule, now)
+			if err != nil {
+				return err
+			}
+			j.Schedule, j.NextRun, j.Once = *c.Schedule, next, once
+		}
+
+		if c.Slot != nil {
+			stored, err := slot(*c.Slot)
+			if err != nil {
+				return err
+			}
+			j.Slot = stored
+		}
+
+		if c.Silent != nil {
+			j.Silent = *c.Silent
+		}
+		return nil
+	})
 	if errors.Is(err, store.ErrNotFound) {
 		return Job{}, ErrNotFound
 	}

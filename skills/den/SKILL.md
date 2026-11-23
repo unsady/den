@@ -23,6 +23,7 @@ A job runs fx later in a fresh session in this folder, with den's rules and the 
 ```bash
 den job add --name call-the-bank --title "Позвонить в банк" --schedule "in 30m" "Remind the user to call the bank."
 den job add --name morning-brief --title "Утренняя сводка" --schedule "0 9 * * 1-5" "Check notes/todo.md and send the user today's three most important items."
+den job edit morning-brief --title "Сводка на утро" --schedule "0 8 * * 1-5"
 den job ls
 den job log morning-brief
 den job run morning-brief
@@ -40,7 +41,7 @@ A job runs on the chat's main model, or on the second model the user chose in `/
 
 Write the prompt so it stands on its own. The job will not see this conversation, so name the files, the facts, and what to send. For a reminder, the prompt can simply say what to remind the user of.
 
-For a recurring task that needs more than a few lines of rules, write the rules in a skill and let the prompt only name it and its mode, such as `Use the news skill in daily mode.` Rules in a prompt cannot be fixed later, and they win over a skill that says otherwise. To change such a job's prompt, remove the job and add it again with the same name, schedule, and slot.
+For a recurring task that needs more than a few lines of rules, write the rules in a skill and let the prompt only name it and its mode, such as `Use the news skill in daily mode.` Rules in a prompt cannot be fixed later, and they win over a skill that says otherwise. To change a job, its title, schedule, slot, or prompt, use `den job edit <name>` with what changes; words after the name are the new prompt. Never remove a job and add it again to change it. A job's name stays: its runs are filed under it.
 
 Confirm with the user before you add a recurring job they did not ask for. After `den job add`, tell the user when it runs next.
 

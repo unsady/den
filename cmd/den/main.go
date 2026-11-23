@@ -18,6 +18,8 @@ const usage = `den: a small home for a personal fx agent.
 
 Usage:
   den job add --schedule <spec> [--name <name>] [--slot main|second] [--silent] <prompt>
+  den job edit <name> [--title <title>] [--schedule <spec>] [--slot main|second] [--silent true|false] [<prompt>]
+                                Change what is given and keep the job's runs
   den job ls [--json]
   den job slot <id|name> main|second
                                 Run the job on the chat's main or second model
