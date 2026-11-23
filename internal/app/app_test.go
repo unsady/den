@@ -64,6 +64,8 @@ func (f *fakeChat) Retry(_ context.Context, session string) error {
 
 func (f *fakeChat) Continue(context.Context, string) error { return nil }
 
+func (f *fakeChat) Holds(context.Context, string) bool { return false }
+
 func (f *fakeChat) Open(context.Context, string) error { return nil }
 
 func (f *fakeChat) Archive(context.Context, string, bool) error { return nil }

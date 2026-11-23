@@ -255,19 +255,23 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	files := c.attached[session]
 	delete(c.attached, session)
 	delete(c.steering, session)
-	delete(c.turns, session)
 	if t.own {
 		delete(c.bg, t.id)
 	} else {
+		delete(c.turns, session)
 		c.stop = nil
 	}
 	c.mu.Unlock()
 	if t.own {
 		// A message fx runs as a turn of its own after this one ends
-		// before fx stops, and the session stays busy until then.
+		// before fx stops, and the session stays busy until then, which
+		// a stop of the session ends too.
 		defer func() {
 			t.agent.Settle(turn)
 			t.agent.Close()
+			c.mu.Lock()
+			delete(c.turns, session)
+			c.mu.Unlock()
 		}()
 	} else {
 		// The user's time away counts from the end of the chat's turn.

@@ -25,6 +25,10 @@ var ErrNothingHeld = errors.New("nothing to retry in this session")
 // its messages to send again; after a step, the agent goes on instead.
 func (c *Chat) recovery(session string, messages []store.Message, stepped bool) string {
 	if stepped {
+		// What an earlier turn held is stale once the agent went on.
+		if err := c.store.DropHeld(context.Background(), session); err != nil {
+			log.Printf("chat: held %s: %v", session, err)
+		}
 		return events.RetryContinue
 	}
 	if err := c.store.Hold(context.Background(), session, messages); err != nil {
@@ -45,6 +49,16 @@ func (c *Chat) Retry(ctx context.Context, session string) error {
 	}
 	c.poke()
 	return nil
+}
+
+// Holds says whether session holds the messages of a failed turn to send
+// again.
+func (c *Chat) Holds(ctx context.Context, session string) bool {
+	held, err := c.store.Holds(ctx, session)
+	if err != nil {
+		log.Printf("chat: held %s: %v", session, err)
+	}
+	return held
 }
 
 // Continue asks the agent to go on in session after its turn broke off.
@@ -102,12 +116,12 @@ func (c *Chat) StopSession(ctx context.Context, session string) bool {
 	return stop != nil
 }
 
-// Settle waits until no turn runs in session, as after StopSession, or
-// until ctx ends.
+// Settle waits until the turn StopSession stopped in session has ended, or
+// until ctx ends. A job that occupies the session is no turn of the chat's.
 func (c *Chat) Settle(ctx context.Context, session string) error {
 	for {
 		c.mu.Lock()
-		running := c.busy[session] > 0
+		running := c.turns[session] != nil
 		c.mu.Unlock()
 		if !running {
 			return nil

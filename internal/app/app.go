@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"net"
@@ -51,6 +52,7 @@ type Chat interface {
 	StopSession(ctx context.Context, session string) bool
 	Settle(ctx context.Context, session string) error
 	Retry(ctx context.Context, session string) error
+	Holds(ctx context.Context, session string) bool
 	Continue(ctx context.Context, session string) error
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
@@ -331,6 +333,11 @@ func (s *Server) Handler() http.Handler {
 		for _, e := range journal[start:end] {
 			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files})
 		}
+		// The journal keeps an offer to retry for good: once its messages
+		// went again, or the user wrote on, den holds nothing to retry.
+		if n := len(list); n > 0 && end == len(journal) && list[n-1].Retry == events.RetryAgain && !s.chat.Holds(r.Context(), id) {
+			list[n-1].Retry = ""
+		}
 		if !paged {
 			reply(w, list)
 			return
@@ -490,11 +497,9 @@ func (s *Server) Handler() http.Handler {
 		var req struct {
 			Session string `json:"session"`
 		}
-		if r.ContentLength != 0 {
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				fail(w, http.StatusBadRequest, err)
-				return
-			}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			fail(w, http.StatusBadRequest, err)
+			return
 		}
 		if req.Session != "" {
 			reply(w, map[string]bool{"stopped": s.chat.StopSession(r.Context(), req.Session)})

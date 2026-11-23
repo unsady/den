@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -214,11 +215,14 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 		if err != nil {
 			answer = err.Error()
 		}
-		call, cancel := context.WithTimeout(ctx, time.Minute)
-		if err := telegram.ClearButtons(call, cb.Message); err != nil {
-			log.Printf("chat: buttons: %v", err)
+		// A failure den can get past keeps the button for another try.
+		if err == nil || errors.Is(err, ErrNothingHeld) || errors.Is(err, store.ErrNotFound) {
+			call, cancel := context.WithTimeout(ctx, time.Minute)
+			if err := telegram.ClearButtons(call, cb.Message); err != nil {
+				log.Printf("chat: buttons: %v", err)
+			}
+			cancel()
 		}
-		cancel()
 
 	case "x":
 		// The list goes away, so it does not stay in the chat.
