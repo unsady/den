@@ -13,6 +13,7 @@ release notes.
 
 ### Fixed
 
+- A session deleted in Telegram, by the agent, or as a job run with nothing to say leaves the app at once, and one deleted while the app was away leaves its archive.
 - A picture sent to a session whose model cannot see pictures no longer fails the turn: the message goes on without it, and the agent learns where the picture is saved.
 
 ### Removed
