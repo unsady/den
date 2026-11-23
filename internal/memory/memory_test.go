@@ -70,6 +70,14 @@ func TestPut(t *testing.T) {
 			want: "## User\n\ny\n\n## Places\n\np\n",
 		},
 		{
+			name: "code block", text: "## Notes\n\n```\n# a comment\n```\n\n## Places\n\np\n", section: "Notes", body: "n",
+			want: "## Notes\n\nn\n\n## Places\n\np\n",
+		},
+		{
+			name: "indent kept", text: "## User\n\nx\n", section: "User", body: "\n  - y\n",
+			want: "## User\n\n  - y\n",
+		},
+		{
 			name: "no file", text: "", section: "User", body: "x",
 			want: "## User\n\nx\n",
 		},

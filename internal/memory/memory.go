@@ -9,10 +9,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/proc"
@@ -32,6 +35,9 @@ type Memory struct {
 	Notes   string `json:"notes"`
 	Version string `json:"version"`
 }
+
+// writing holds one Write at a time.
+var writing sync.Mutex
 
 // names are the sections' headings, in the order the file keeps them.
 var names = []string{"Soul", "User", "Notes"}
@@ -57,8 +63,12 @@ func Read(cfg config.Config) (Memory, error) {
 }
 
 // Write puts m's sections into the file, when it is still at m.Version, and
-// commits it. Lines outside the three sections stay as they are.
+// commits it when it can. Lines outside the three sections stay as they are.
 func Write(cfg config.Config, m Memory) error {
+	// Two saves at once would both pass the version check.
+	writing.Lock()
+	defer writing.Unlock()
+
 	data, err := read(cfg)
 	if err != nil {
 		return err
@@ -79,7 +89,15 @@ func Write(cfg config.Config, m Memory) error {
 	if err := proc.WriteFile(cfg, path, []byte(text), 0o644); err != nil {
 		return err
 	}
-	return commit(cfg)
+
+	// The memory is saved once written: a commit that fails, as on the
+	// agent's own git holding the index, leaves the change for the agent's
+	// next commit, and failing the save would only send the app a 409 on
+	// its retry.
+	if err := commit(cfg); err != nil {
+		log.Printf("memory: %v", err)
+	}
+	return nil
 }
 
 func read(cfg config.Config) ([]byte, error) {
@@ -107,7 +125,9 @@ func commit(cfg config.Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	script := `cd "$1" && git add -- "$2" && git commit -q -m "Edit memory in the app" -- "$2"`
+	// The file can match the last commit again, when the edit undoes the
+	// agent's uncommitted one, and then there is nothing to commit.
+	script := `cd "$1" && git add -- "$2" && { git diff --cached --quiet -- "$2" || git commit -q -m "Edit memory in the app" -- "$2"; }`
 	cmd, err := proc.Command(ctx, cfg, "/bin/sh", "-c", script, "commit", cfg.Space, File)
 	if err != nil {
 		return err
@@ -131,9 +151,16 @@ func span(lines []string, name string) (int, int) {
 		if strings.TrimSpace(line) != "## "+name {
 			continue
 		}
-		end := i + 1
-		for end < len(lines) && !heading(lines[end]) {
-			end++
+		// A line such as a shell comment in a code block is no heading.
+		end, fenced := i+1, false
+		for ; end < len(lines); end++ {
+			trimmed := strings.TrimSpace(lines[end])
+			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+				fenced = !fenced
+			}
+			if !fenced && heading(lines[end]) {
+				break
+			}
 		}
 		return i, end
 	}
@@ -147,13 +174,30 @@ func section(text, name string) string {
 	if start < 0 {
 		return ""
 	}
-	return strings.TrimSpace(strings.Join(lines[start+1:end], "\n"))
+	return trim(strings.Join(lines[start+1:end], "\n"))
+}
+
+// trim drops the blank lines around text and the spaces at its end, but
+// keeps the indent of its first line, such as a nested item's.
+func trim(text string) string {
+	text = strings.TrimRightFunc(text, unicode.IsSpace)
+	for {
+		line, rest, found := strings.Cut(text, "\n")
+		if !found || strings.TrimSpace(line) != "" {
+			break
+		}
+		text = rest
+	}
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	return text
 }
 
 // put sets the body of the section name to body. A missing section goes
 // before the first of those that follow it in names, or at the end.
 func put(text, name, body string) string {
-	body = strings.TrimSpace(body)
+	body = trim(body)
 	lines := strings.Split(text, "\n")
 	block := []string{"## " + name, ""}
 	if body != "" {
