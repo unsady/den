@@ -169,7 +169,7 @@ func backupSetup(c hostConfig) error {
 	if err := step("Taking the first backup", func(context.Context) error { return insideQuiet(c, "", "backup") }); err != nil {
 		return err
 	}
-	done("den backs up every %s and before each update, to %s%s", backup.Every, folder, map[bool]string{true: " and S3"}[bucket != nil])
+	done("den backs up every %d hours and before each update, to %s%s", int(backup.Every.Hours()), folder, map[bool]string{true: " and S3"}[bucket != nil])
 	if made {
 		note("The key that opens the backups is " + backupKeyPath() + ". Keep a copy somewhere safe, such as a password manager: without it no backup can be read.")
 	}
