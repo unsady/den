@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"maps"
 	"net/http"
 	"os"
@@ -135,7 +136,11 @@ func (c *Chat) published(entries []entry) {
 		return
 	}
 
-	c.restore(context.Background(), session)
+	// A message for a session is its use: it leaves the archive now, so it
+	// is not archived again before its turn.
+	if err := c.touch(context.Background(), session); err != nil {
+		log.Printf("chat: touch %s: %v", session, err)
+	}
 	c.Events.Publish(events.Event{Type: events.Message, Session: session, Text: strings.Join(lines, "\n"), Files: files})
 }
 

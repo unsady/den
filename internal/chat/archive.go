@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"log"
 	"slices"
 	"time"
 
@@ -43,18 +42,6 @@ func (c *Chat) touch(ctx context.Context, session string) error {
 		c.announce(ctx, session, false)
 	}
 	return err
-}
-
-// restore takes session out of the archive as a message comes for it, so
-// it is not archived meanwhile, and the apps list it again.
-func (c *Chat) restore(ctx context.Context, session string) {
-	restored, err := c.store.Restore(ctx, session)
-	if err != nil {
-		log.Printf("chat: restore %s: %v", session, err)
-	}
-	if restored {
-		c.announce(ctx, session, false)
-	}
 }
 
 // ArchiveIdle puts the sessions unused for ArchiveAfter in the archive,

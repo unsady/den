@@ -135,9 +135,14 @@ func (s *Store) Restore(ctx context.Context, id string) (bool, error) {
 }
 
 // SetArchived puts session id in the archive or takes it out, or returns
-// ErrNotFound.
+// ErrNotFound. Taken out, it counts as used now, so ArchiveIdle does not put
+// it back at once.
 func (s *Store) SetArchived(ctx context.Context, id string, archived bool) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE sessions SET archived = ? WHERE id = ?`, archived, id)
+	query, args := `UPDATE sessions SET archived = 1 WHERE id = ?`, []any{id}
+	if !archived {
+		query, args = `UPDATE sessions SET archived = 0, updated = ? WHERE id = ?`, []any{unix(time.Now()), id}
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}

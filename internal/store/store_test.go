@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -242,6 +243,18 @@ func TestArchive(t *testing.T) {
 	}
 	if list, _ = s.Sessions(ctx, Filter{Shelf: Archive}); idsOf(list) != "new" {
 		t.Fatalf("archived by hand %q", idsOf(list))
+	}
+
+	// Taken out by hand, it is no longer idle, or ArchiveIdle would take it
+	// back at once.
+	if err := s.SetArchived(ctx, "asking", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetArchived(ctx, "asking", false); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := s.ArchiveIdle(ctx, time.Now().Add(-72*time.Hour), nil); slices.Contains(ids, "asking") {
+		t.Fatal("archived again")
 	}
 	if err := s.SetArchived(ctx, "none", true); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing session: %v", err)

@@ -1738,7 +1738,9 @@ func TestArchiveIdle(t *testing.T) {
 	}
 
 	// A message for it brings it back, and the apps hear of it.
-	c.restore(ctx, "idle")
+	if err := c.touch(ctx, "idle"); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case e := <-events:
 		if e.Type != "archived" || e.Session != "idle" || e.Archived || e.Kind != "chat" {
