@@ -409,12 +409,20 @@ func TestChat(t *testing.T) {
 	photo := filepath.Join(day, fmt.Sprintf("%d-photo.jpg", id))
 	telegram.expect(t, "resume=s2 msg=what is this lines=2 images=1")
 	expectFile(t, photo, "content of large")
+
 	// The app gets the caption with the photo kept for it.
 	if e := lastMessage(t, cfg, "s2"); e.Text != "what is this" || len(e.Files) != 1 || e.Files[0].Name != "photo.jpg" {
 		t.Fatalf("message %+v", e)
 	} else {
 		expectFile(t, c.Events.FilePath("s2", e.Files[0].File), "content of large")
 	}
+
+	// A model that cannot see it gets the message without it.
+	telegram.update(42, map[string]any{
+		"caption": "blind look",
+		"photo":   []any{map[string]any{"file_id": "large"}},
+	})
+	telegram.expect(t, "resume=s2 msg=blind look lines=3")
 
 	// A document keeps a safe form of its name and is not attached.
 	id = telegram.update(42, map[string]any{
@@ -478,8 +486,8 @@ func TestChat(t *testing.T) {
 	default:
 	}
 
-	if got, err := testStore(t, cfg).TelegramOffset(context.Background()); err != nil || got != 20 {
-		t.Fatalf("offset %d, %v; want 20", got, err)
+	if got, err := testStore(t, cfg).TelegramOffset(context.Background()); err != nil || got != 21 {
+		t.Fatalf("offset %d, %v; want 21", got, err)
 	}
 }
 
