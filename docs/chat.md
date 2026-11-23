@@ -48,6 +48,7 @@ den job add --name morning-brief --title "Morning brief" --schedule "0 9 * * 1-5
 den job ls
 den job log morning-brief
 den job run morning-brief
+den job edit morning-brief --title "Morning digest" --schedule "0 8 * * 1-5"
 den job slot morning-brief second
 den job rm morning-brief
 ```
