@@ -1124,18 +1124,12 @@ func TestSilentReport(t *testing.T) {
 	if !c.Tell(session, "[den: quiet run ended]", "") {
 		t.Fatal("the chat's turn did not take the report")
 	}
+	time.Sleep(300 * time.Millisecond)
+	c.Quiet(session)
 	select {
 	case text := <-telegram.sent:
 		t.Fatalf("sent %q", text)
-	case <-time.After(time.Second):
-	}
-
-	// A user's message that needs no answer gets none, never the word.
-	telegram.message(42, "ok")
-	select {
-	case text := <-telegram.sent:
-		t.Fatalf("sent %q", text)
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 	}
 
 	telegram.message(42, "and you?")

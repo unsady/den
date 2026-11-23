@@ -279,7 +279,7 @@ func (c *Chat) steeredTurn(key string, reply runner.Reply) {
 	// fx ran the message as a turn after den passed it, so a mark from
 	// before that belongs to the turn it was meant for.
 	quiet := c.Quieted(reply.SessionID, st.at)
-	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, reply.SessionID)) {
+	if reply.Error == "" && quiet {
 		return
 	}
 	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})
