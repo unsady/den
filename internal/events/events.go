@@ -81,6 +81,9 @@ type Event struct {
 	Model string `json:"model,omitempty"`
 	// Failed marks a job's failure, or a turn's.
 	Failed bool `json:"failed,omitempty"`
+	// Retry says what the user can do about a failed turn: RetryAgain or
+	// RetryContinue.
+	Retry string `json:"retry,omitempty"`
 	// ID is a question's, which the answer names.
 	ID string `json:"id,omitempty"`
 	// What is a question's one line, and Options the answers it takes:
@@ -94,6 +97,15 @@ type Event struct {
 	// Files are the files a reply or a File event carries.
 	Files []Attachment `json:"files,omitempty"`
 }
+
+// What the user can do about a failed turn. A turn that failed before its
+// agent took a step did nothing, so den holds its messages to send again;
+// one that failed later may have done part of its work, so the agent goes
+// on from where it stopped.
+const (
+	RetryAgain    = "again"
+	RetryContinue = "continue"
+)
 
 // Attachment is a file the agent sent the user, such as a chart, kept in
 // its session's folder.

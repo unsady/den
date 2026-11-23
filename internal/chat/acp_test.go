@@ -100,6 +100,17 @@ func fakeACP(args []string) {
 			if !wait(time.Second) {
 				stop = "cancelled"
 			}
+		case strings.HasPrefix(first, "flaky"):
+			// The provider refuses the first prompt of each name, before
+			// any step.
+			marker := "refused-" + first
+			if _, err := os.Stat(marker); err != nil {
+				os.WriteFile(marker, nil, 0o644)
+				reply, stop = "the provider is down", "refused"
+			}
+		case strings.HasPrefix(first, "broken"):
+			tool("Reading", "path", "a.txt")
+			reply, stop = "the provider is down", "refused"
 		case strings.HasPrefix(first, "steps"):
 			tool("Reading", "path", "a.txt")
 			tool("Running", "command", "ls")

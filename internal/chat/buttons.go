@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -200,6 +201,27 @@ func (c *Chat) press(ctx context.Context, telegram *notify.Telegram, cb notify.C
 		if r, found := c.den.Forget(ref); found {
 			answer = "den will ask about " + r.Label + " again"
 			c.showLog(ctx, telegram, cb.Message)
+		}
+
+	case "rt", "ct":
+		// The button goes once pressed, so the turn is not asked twice.
+		answer = " "
+		var err error
+		if kind == "rt" {
+			err = c.Retry(ctx, ref)
+		} else {
+			err = c.Continue(ctx, ref)
+		}
+		if err != nil {
+			answer = err.Error()
+		}
+		// A failure den can get past keeps the button for another try.
+		if err == nil || errors.Is(err, ErrNothingHeld) || errors.Is(err, store.ErrNotFound) {
+			call, cancel := context.WithTimeout(ctx, time.Minute)
+			if err := telegram.ClearButtons(call, cb.Message); err != nil {
+				log.Printf("chat: buttons: %v", err)
+			}
+			cancel()
 		}
 
 	case "x":

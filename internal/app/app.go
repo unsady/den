@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"net"
@@ -48,6 +49,11 @@ type Chat interface {
 	Post(ctx context.Context, text, session string, files []chat.File) error
 	Start(ctx context.Context, text string, files []chat.File) (string, error)
 	Stop(ctx context.Context) bool
+	StopSession(ctx context.Context, session string) bool
+	Settle(ctx context.Context, session string) error
+	Retry(ctx context.Context, session string) error
+	Holds(ctx context.Context, session string) bool
+	Continue(ctx context.Context, session string) error
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
 	Models(ctx context.Context, provider string) ([]chat.Model, error)
@@ -325,7 +331,12 @@ func (s *Server) Handler() http.Handler {
 
 		list := []message{}
 		for _, e := range journal[start:end] {
-			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files})
+			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files})
+		}
+		// The journal keeps an offer to retry for good: once its messages
+		// went again, or the user wrote on, den holds nothing to retry.
+		if n := len(list); n > 0 && end == len(journal) && list[n-1].Retry == events.RetryAgain && !s.chat.Holds(r.Context(), id) {
+			list[n-1].Retry = ""
 		}
 		if !paged {
 			reply(w, list)
@@ -350,6 +361,17 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
+		// The user confirmed the delete, so a turn that runs there stops
+		// first rather than keeping the session.
+		if s.chat.StopSession(r.Context(), id) {
+			settle, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			err := s.chat.Settle(settle, id)
+			cancel()
+			if err != nil {
+				fail(w, http.StatusConflict, errors.New("the turn in this session has not stopped yet"))
+				return
+			}
+		}
 		if status, err := s.drop(r.Context(), id); err != nil {
 			fail(w, status, err)
 			return
@@ -471,7 +493,47 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
+		// With a session, only its turn stops; without, everything does.
+		var req struct {
+			Session string `json:"session"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Session != "" {
+			reply(w, map[string]bool{"stopped": s.chat.StopSession(r.Context(), req.Session)})
+			return
+		}
 		reply(w, map[string]bool{"stopped": s.chat.Stop(r.Context())})
+	})
+
+	mux.HandleFunc("POST /sessions/{id}/retry", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		err := s.chat.Retry(r.Context(), id)
+		switch {
+		case errors.Is(err, chat.ErrNothingHeld):
+			fail(w, http.StatusConflict, err)
+			return
+		case err != nil:
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, map[string]string{"id": id})
+	})
+
+	mux.HandleFunc("POST /sessions/{id}/continue", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		err := s.chat.Continue(r.Context(), id)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
+			return
+		case err != nil:
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, map[string]string{"id": id})
 	})
 
 	mux.HandleFunc("GET /questions", func(w http.ResponseWriter, r *http.Request) {
@@ -588,6 +650,8 @@ type message struct {
 	Text   string    `json:"text"`
 	At     time.Time `json:"at"`
 	Failed bool      `json:"failed,omitempty"`
+	// Retry says what the user can do about a failed turn, as events.Event's.
+	Retry string `json:"retry,omitempty"`
 	// Files are the files den sent with it, each of which
 	// GET /sessions/{id}/files/{file} returns.
 	Files []events.Attachment `json:"files,omitempty"`

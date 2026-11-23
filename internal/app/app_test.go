@@ -46,6 +46,26 @@ func (f *fakeChat) Start(_ context.Context, text string, files []chat.File) (str
 
 func (f *fakeChat) Stop(context.Context) bool { return false }
 
+func (f *fakeChat) StopSession(_ context.Context, session string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posted = append(f.posted, "stop:"+session)
+	return false
+}
+
+func (f *fakeChat) Settle(context.Context, string) error { return nil }
+
+func (f *fakeChat) Retry(_ context.Context, session string) error {
+	if session != "s1" {
+		return chat.ErrNothingHeld
+	}
+	return nil
+}
+
+func (f *fakeChat) Continue(context.Context, string) error { return nil }
+
+func (f *fakeChat) Holds(context.Context, string) bool { return false }
+
 func (f *fakeChat) Open(context.Context, string) error { return nil }
 
 func (f *fakeChat) Archive(context.Context, string, bool) error { return nil }
@@ -185,6 +205,16 @@ func TestServer(t *testing.T) {
 
 	if status, body := call("PUT", "/effort", token, `{"effort":"high"}`); status != http.StatusOK || !strings.Contains(body, `"effort":"high"`) {
 		t.Fatalf("effort: %d %s", status, body)
+	}
+
+	if status, _ := call("POST", "/sessions/s1/retry", token, ""); status != http.StatusOK {
+		t.Fatalf("retry: %d", status)
+	}
+	if status, _ := call("POST", "/sessions/s2/retry", token, ""); status != http.StatusConflict {
+		t.Fatalf("retry with nothing held: %d", status)
+	}
+	if status, body := call("POST", "/stop", token, `{"session":"s9"}`); status != http.StatusOK || c.posted[len(c.posted)-1] != "stop:s9" {
+		t.Fatalf("stop one session: %d %s %v", status, body, c.posted)
 	}
 
 	if err := os.WriteFile(filepath.Join(cfg.Space, "AGENTS.md"), []byte("## User\n\nLives in New York.\n"), 0o644); err != nil {

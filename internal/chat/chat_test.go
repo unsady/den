@@ -1756,3 +1756,121 @@ func TestArchiveIdle(t *testing.T) {
 		t.Fatal("no event")
 	}
 }
+
+func TestTurnRecovery(t *testing.T) {
+	_, _, c := startChatWith(t, nil)
+	list, stop := c.Events.Listen()
+	defer stop()
+	ctx := context.Background()
+
+	reply := func() events.Event {
+		t.Helper()
+		for {
+			select {
+			case e := <-list:
+				if e.Type == events.Reply {
+					return e
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no reply")
+			}
+		}
+	}
+
+	// A turn that failed before a step holds its message to send again.
+	session, err := c.Start(ctx, "flaky one", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); !e.Failed || e.Retry != events.RetryAgain {
+		t.Fatalf("reply %+v", e)
+	}
+	if err := c.Retry(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); e.Failed || !strings.Contains(e.Text, "msg=flaky one") {
+		t.Fatalf("retried reply %+v", e)
+	}
+	if err := c.Retry(ctx, session); !errors.Is(err, ErrNothingHeld) {
+		t.Fatalf("second retry: %v", err)
+	}
+
+	// Writing on forgets what was held.
+	session, err = c.Start(ctx, "flaky two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); e.Retry != events.RetryAgain {
+		t.Fatalf("reply %+v", e)
+	}
+	if err := c.Post(ctx, "never mind", session, nil); err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); !strings.Contains(e.Text, "msg=never mind") {
+		t.Fatalf("reply %+v", e)
+	}
+	if err := c.Retry(ctx, session); !errors.Is(err, ErrNothingHeld) {
+		t.Fatalf("retry after writing on: %v", err)
+	}
+
+	// A turn that failed after a step goes on instead.
+	session, err = c.Start(ctx, "broken", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); !e.Failed || e.Retry != events.RetryContinue {
+		t.Fatalf("reply %+v", e)
+	}
+	if err := c.Continue(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	if e := reply(); !strings.Contains(e.Text, "msg="+carryOn) {
+		t.Fatalf("continued reply %+v", e)
+	}
+
+	// Stopping one session leaves the other's turn running.
+	slow, err := c.Start(ctx, "slow one", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := c.Start(ctx, "slow two", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.mu.Lock()
+		both := c.turns[slow] != nil && c.turns[other] != nil
+		c.mu.Unlock()
+		if both {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the turns did not start")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !c.StopSession(ctx, slow) {
+		t.Fatal("nothing stopped")
+	}
+	if e := reply(); e.Session != other || !strings.Contains(e.Text, "msg=slow two") {
+		t.Fatalf("reply %+v", e)
+	}
+	settle, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := c.Settle(settle, slow); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTurnRecoveryInTelegram(t *testing.T) {
+	_, telegram := startChat(t, nil)
+
+	// The failure carries the button, which sends the message again.
+	telegram.message(42, "flaky in telegram")
+	telegram.expect(t, "fx failed: the provider is down")
+	telegram.expectButtons(t, "rt:s1")
+	telegram.press("rt:s1")
+	telegram.expectAnswer(t, "")
+	telegram.expect(t, "resume=s1 msg=flaky in telegram lines=1")
+}

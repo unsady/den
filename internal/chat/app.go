@@ -97,6 +97,7 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 	}
 
 	c.published(entries)
+	c.wroteOn(entries)
 	if c.steer(ctx, entries) {
 		return nil
 	}

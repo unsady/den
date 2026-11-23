@@ -90,6 +90,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 
 	c.mu.Lock()
 	c.bg[id] = cancel
+	c.turns[session] = cancel
 	c.mu.Unlock()
 	const after = " Its answer comes here; reply to it to go on there."
 	var started int64
@@ -145,6 +146,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 
 		c.mu.Lock()
 		delete(c.bg, id)
+		delete(c.turns, session)
 		c.mu.Unlock()
 		if run.Err() == context.Canceled {
 			// /stop already answered; den stopping says so.

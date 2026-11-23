@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/unsady/den/internal/events"
@@ -121,10 +122,12 @@ func (c *Chat) turn(ctx context.Context) bool {
 		}
 	}
 	t.prompt = strings.Join(texts, "\n\n")
+	t.messages = messages
 	run, stop := context.WithCancel(ctx)
 	c.mu.Lock()
 	t.own = !joined || c.stop != nil
 	c.attached[session] = []Upload{}
+	c.turns[session] = stop
 	if t.own {
 		c.bg[t.id] = stop
 		t.agent = runner.NewAgent(c.cfg)
@@ -168,6 +171,9 @@ type chatTurn struct {
 	choice  runner.Choice
 	prompt  string
 	images  []string
+	// messages are the inbox's messages the turn runs, which den holds
+	// when it fails before its agent takes a step.
+	messages []store.Message
 	// asked says the user wrote, and telegram that Telegram's chat is in
 	// the session, so the turn answers there as well as in the app.
 	asked, telegram bool
@@ -206,6 +212,8 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		c.showProgress(ctx, steps, done, t.telegram && !t.own)
 		close(shown)
 	}()
+	// Each step is a tool call, the only way a turn changes anything.
+	var stepped atomic.Bool
 	req := runner.Request{
 		Prompt:   t.prompt,
 		Provider: t.choice.Provider,
@@ -214,6 +222,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		Resume:   session,
 		Images:   t.images,
 		Progress: func(line string) {
+			stepped.Store(true)
 			if text, ok := step(line); ok {
 				c.step(session, text)
 			}
@@ -249,15 +258,20 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	if t.own {
 		delete(c.bg, t.id)
 	} else {
+		delete(c.turns, session)
 		c.stop = nil
 	}
 	c.mu.Unlock()
 	if t.own {
 		// A message fx runs as a turn of its own after this one ends
-		// before fx stops, and the session stays busy until then.
+		// before fx stops, and the session stays busy until then, which
+		// a stop of the session ends too.
 		defer func() {
 			t.agent.Settle(turn)
 			t.agent.Close()
+			c.mu.Lock()
+			delete(c.turns, session)
+			c.mu.Unlock()
 		}()
 	} else {
 		// The user's time away counts from the end of the chat's turn.
@@ -302,8 +316,12 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	if !silent {
 		text = answer(reply, !reply.New)
 	}
+	retry := ""
+	if reply.Error != "" {
+		retry = c.recovery(session, t.messages, stepped.Load())
+	}
 	// The app shows each session apart, so its reply needs no label.
-	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Files: c.keep(session, files)})
+	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Retry: retry, Files: c.keep(session, files)})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
 	if label := c.Label(session); label != "" {
@@ -316,7 +334,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 
 	if telegram, err := notify.Load(c.cfg); err == nil {
 		call, cancel := context.WithTimeout(ctx, time.Minute)
-		ids, err := telegram.SendIDs(call, text)
+		ids, err := c.sendFailure(call, telegram, text, session, retry)
 		cancel()
 		if err != nil {
 			log.Printf("chat: send: %v", err)

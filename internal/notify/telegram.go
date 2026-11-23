@@ -193,6 +193,15 @@ func (t *Telegram) EditHTML(ctx context.Context, id int64, text string, rows [][
 	return t.call(ctx, "editMessageText", body, nil)
 }
 
+// ClearButtons removes the buttons under message id.
+func (t *Telegram) ClearButtons(ctx context.Context, id int64) error {
+	return t.call(ctx, "editMessageReplyMarkup", map[string]any{
+		"chat_id":      t.chatID,
+		"message_id":   id,
+		"reply_markup": map[string]any{"inline_keyboard": [][]Button{}},
+	}, nil)
+}
+
 // React puts an emoji reaction on message id.
 func (t *Telegram) React(ctx context.Context, id int64, emoji string) error {
 	return t.call(ctx, "setMessageReaction", map[string]any{

@@ -153,11 +153,12 @@ func (s *Store) SetArchived(ctx context.Context, id string, archived bool) error
 }
 
 // ArchiveIdle puts the sessions last used before `before` in the archive,
-// except those in keep and those with messages in the inbox, and returns
+// except those in keep and those with messages in the inbox or held, and returns
 // their ids.
 func (s *Store) ArchiveIdle(ctx context.Context, before time.Time, keep []string) ([]string, error) {
 	query := `UPDATE sessions SET archived = 1 WHERE archived = 0 AND updated < ?
-		AND id NOT IN (SELECT session_id FROM inbox)`
+		AND id NOT IN (SELECT session_id FROM inbox)
+		AND id NOT IN (SELECT session_id FROM held)`
 	args := []any{unix(before)}
 	if len(keep) > 0 {
 		query += ` AND id NOT IN (?` + repeat(", ?", len(keep)-1) + `)`
