@@ -57,6 +57,7 @@ Inside its container the agent works with full access and reaches the internet, 
 - [Chat, jobs, and models](docs/chat.md): the bot's commands, the app, jobs, models, memory
 - [Services](docs/services.md): your own APIs, GitHub, Google, mail, search
 - [Voice](docs/voice.md): transcribing voice messages
+- [Backups](docs/backup.md): den's state, encrypted, to a folder and S3
 - [Security](docs/security.md): how den keeps secrets and what waits for you
 - [Reference](docs/reference.md): commands, settings, the container's layout
 - [Development](docs/development.md): building den yourself

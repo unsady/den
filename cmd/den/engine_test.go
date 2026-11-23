@@ -34,6 +34,15 @@ func TestRunArgs(t *testing.T) {
 	if got := strings.Join(docker.runArgs(c), " "); !strings.Contains(got, " -p [fd7a::1]:4400:4400 ") {
 		t.Errorf("published on IPv6: %s", got)
 	}
+
+	// The backups folder is mounted only once backups are set up.
+	if got := strings.Join(docker.runArgs(c), " "); strings.Contains(got, "backups") {
+		t.Errorf("a backups folder without backups: %s", got)
+	}
+	c.Backups = "/home/me/backups"
+	if got := strings.Join(docker.runArgs(c), " "); !strings.Contains(got, " -v /home/me/backups:/var/backups/den -e DEN_BACKUPS=/var/backups/den ") {
+		t.Errorf("backups: %s", got)
+	}
 }
 
 func TestPickEngine(t *testing.T) {

@@ -58,6 +58,7 @@ Usage:
   den disconnect google | mail
   den app token | unpair        Make the app's token, which replaces the last one,
                                 or forget it (root only)
+  den backup [ls]               Back up den's state now, or list the backups (root only)
   den serve                     Run the daemon: scheduler, notifications, and chat
   den init                      Create the agent's space if it is missing
 
@@ -128,6 +129,8 @@ func run(args []string) error {
 		return disconnectCommand(cfg, args[1:])
 	case "app":
 		return appCommand(cfg, args[1:])
+	case "backup", "backups":
+		return backupCommand(cfg, args[1:])
 	case "serve":
 		return daemon.Serve(cfg)
 	case "init":

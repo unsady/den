@@ -14,10 +14,11 @@
 | `den connect`, `den connect google`, `mail`, `codex`, `grok`, `claude` | Gmail, Calendar, and Drive, a mailbox, a ChatGPT, Grok or Claude subscription; alone, a list to pick from |
 | `den service add`, `ls`, `rm` | Your own APIs; `add` alone asks for each detail |
 | `den secret set <name>`, `ls`, `rm` | Any other secret, such as `github_token`; asks for its value |
+| `den backup setup`, `den backup`, `ls`, `restore <file>` | Encrypted backups of den's state to a folder and S3: [Backups](backup.md) |
 | `den stats [--since 2h] [--json]` | How the model providers did |
 | `den fx`, `den shell` | fx or a shell as the agent |
 
-Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
+Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, the folder for backups (`backups`), and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
 
 The agent's files live in that folder on your computer. den's state and secrets live in the volume `den`, which keeps file permissions and survives `den update`. A shared folder may not keep permissions inside the container, so never put secrets in it.
 
@@ -28,6 +29,7 @@ The agent's files live in that folder on your computer. den's state and secrets 
 /usr/share/den/skills/   built-in skills, read-only
 /var/lib/den/            den's state: jobs, runs, chat, model calls   (volume)
   secrets/               root only
+/var/backups/den/        backups, encrypted                           (your folder, once set up)
 /run/den/den.sock        the socket the agent's den command talks to
 /home/agent/             the agent's home                             (your folder)
   .fx/                   fx settings and sessions

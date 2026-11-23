@@ -63,6 +63,9 @@ func (e engine) runArgs(c hostConfig) []string {
 			"--pids-limit", "512")
 	}
 	args = append(args, "-v", c.Home+":/home/agent", "-v", c.Volume+":/var/lib/den")
+	if c.Backups != "" {
+		args = append(args, "-v", c.Backups+":"+backupsMount, "-e", "DEN_BACKUPS="+backupsMount)
+	}
 	if c.App != "" {
 		port := fmt.Sprint(app.Port)
 		args = append(args, "-p", net.JoinHostPort(c.App, port)+":"+port)
@@ -72,6 +75,9 @@ func (e engine) runArgs(c hostConfig) []string {
 	}
 	return append(args, c.Image)
 }
+
+// backupsMount is where the container sees the host's backups folder.
+const backupsMount = "/var/backups/den"
 
 // inContainer reports whether den runs in its own image, where the
 // commands go to the den daemon rather than to a container.
