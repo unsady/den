@@ -290,7 +290,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	// A turn may end without a word, such as one that answers a plain "ok"
 	// or that the agent marked quiet; files it sent go without a word.
 	silent := false
-	if reply.Error == "" && (quiet || runner.LegacySilent(reply.Output, session)) {
+	if reply.Error == "" && quiet {
 		if len(files) == 0 {
 			log.Printf("chat: the turn had nothing to tell")
 			return

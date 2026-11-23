@@ -7,7 +7,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -28,22 +27,6 @@ import (
 //
 //go:embed system.md
 var systemPrompt string
-
-// Silent is the reply that tells den a job has nothing to deliver.
-const Silent = "SILENT"
-
-// LegacySilent reports whether a reply is exactly Silent, the way agents
-// said they had nothing to send before den quiet, and logs each one under
-// who, the job or session that sent it. It is removed on 2026-12-03, when
-// the word stops working.
-func LegacySilent(reply, who string) bool {
-	if strings.TrimSpace(reply) != Silent {
-		return false
-	}
-
-	log.Printf("%s replied %s; den quiet replaces it, and the word stops working on 2026-12-03", who, Silent)
-	return true
-}
 
 const deliveredNote = "This is the scheduled den job %s. It runs in a fresh session without the user's chat history. " +
 	"Your final reply is sent to the user as a notification: only the result, short and self-contained, not what you did to get it. " +

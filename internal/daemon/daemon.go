@@ -440,7 +440,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		}
 
 		// The mark is consumed once, for the delivery and the session below.
-		quiet := d.chat.Quieted(run.SessionID, run.Started) || runner.LegacySilent(run.Output, "job "+j.Name)
+		quiet := d.chat.Quieted(run.SessionID, run.Started)
 		run.Delivered = d.deliver(j, run, quiet)
 		// A run that has nothing for the user leaves nothing to go on
 		// with, so its session goes. One den failed to send keeps it.

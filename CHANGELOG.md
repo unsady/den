@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Removed
+
+- A reply that is exactly SILENT is sent like any other; the agent stays quiet with `den quiet`.
+
 ### Added
 
 - Backups: `den backup setup` backs up den's state, such as its sessions, jobs, and secrets, every 6 hours and before each `den update`, to a folder on your computer and an S3 bucket if you like. Each backup is encrypted to a key that stays on your computer, so neither den nor the agent can read it. `den backup restore` brings one back. [Backups](docs/backup.md) has the details.

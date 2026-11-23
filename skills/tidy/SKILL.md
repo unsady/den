@@ -24,8 +24,6 @@ You keep `~/space` easy to find things in. Most nights there is little or nothin
    - When the job's prompt asks for the file or carries rules of its own, move those rules into the skill and replace the job with one whose prompt only names the skill and mode, with the same name, schedule, and slot. The `den` skill explains jobs.
    - Fold what still matters from the files into the topic's note, and delete them.
 
-   Until 2026-12-03: a job's prompt or a skill that tells you to reply `SILENT` says it in plain words instead, such as "send nothing when it succeeds". Find them with `den job ls` and `rg -l SILENT .fx/skills notes`, and replace such a job as above.
-
 3. Rewrite each skill over about 600 words, which `wc -w .fx/skills/*/SKILL.md` shows: merge rules, and drop the history of past runs, such as their dates and results. Keep the limits that rules set.
 
 4. Check the notes' descriptions. Each note starts with frontmatter whose `description` says what the note holds in one phrase of at most 15 words:

@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"github.com/unsady/den/internal/store"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/unsady/den/internal/store"
 )
 
 // The chat's agent runs fx acp, which fakeFX hands to this test binary:
@@ -95,7 +96,7 @@ func fakeACP(args []string) {
 		}
 		reply, stop := "", "end_turn"
 		switch {
-		case strings.HasPrefix(first, "slow"):
+		case strings.HasPrefix(first, "slow"), strings.HasPrefix(first, "[den: quiet"):
 			if !wait(time.Second) {
 				stop = "cancelled"
 			}
@@ -107,8 +108,6 @@ func fakeACP(args []string) {
 			if !wait(time.Second) {
 				stop = "cancelled"
 			}
-		case strings.HasPrefix(first, "[den: quiet") || first == "ok":
-			reply = "SILENT"
 		}
 
 		mu.Lock()
