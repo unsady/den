@@ -1367,6 +1367,20 @@ func TestAppTurn(t *testing.T) {
 		t.Fatalf("cursor moved to %s", c.cursor(appClient))
 	}
 
+	// Quick capture starts a session of its own too, and the agent alone
+	// reads den's note on it.
+	captured, err := c.Capture(context.Background(), "buy milk", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := next(events.Message); e.Session != captured || e.Text != "buy milk" {
+		t.Fatalf("message %+v", e)
+	}
+	if e := next(events.Reply); e.Session != captured || !strings.Contains(e.Text, "quick capture.") {
+		t.Fatalf("reply %+v", e)
+	}
+	next(events.Idle)
+
 	// Files from the app are saved, and a picture among them is attached.
 	png := "\x89PNG\r\n\x1a\n picture"
 	files := []File{{Name: "shot.png", Data: []byte(png)}, {Name: "notes.txt", Data: []byte("notes")}}

@@ -44,6 +44,13 @@ func (f *fakeChat) Start(_ context.Context, text string, files []chat.File) (str
 	return "s1", nil
 }
 
+func (f *fakeChat) Capture(_ context.Context, text string, files []chat.File) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posted = append(f.posted, "capture:"+text)
+	return "s2", nil
+}
+
 func (f *fakeChat) Stop(context.Context) bool { return false }
 
 func (f *fakeChat) StopSession(_ context.Context, session string) bool {
@@ -201,6 +208,9 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("POST", "/messages", token, `{"text":"hi","new":true,"session":"s1"}`); status != http.StatusBadRequest {
 		t.Fatalf("new with a session: %d", status)
+	}
+	if status, body := call("POST", "/messages", token, `{"text":"https://example.com","capture":true}`); status != http.StatusOK || !strings.Contains(body, `"session":"s2"`) || c.posted[len(c.posted)-1] != "capture:https://example.com" {
+		t.Fatalf("capture: %d %s %v", status, body, c.posted)
 	}
 
 	if status, body := call("PUT", "/effort", token, `{"effort":"high"}`); status != http.StatusOK || !strings.Contains(body, `"effort":"high"`) {
