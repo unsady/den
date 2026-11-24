@@ -29,6 +29,11 @@ const (
 	Step = "step"
 	// Reply is the agent's answer to a turn.
 	Reply = "reply"
+	// Draft is the reply of the running turn as the agent writes it, whole
+	// each time; an empty one says what it wrote went to a step instead.
+	// The Reply that ends the turn takes its place, and Idle drops one
+	// that none took.
+	Draft = "draft"
 	// Idle says the turn ended, with or without a reply.
 	Idle = "idle"
 	// Result is a job's reply or failure.

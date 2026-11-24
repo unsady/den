@@ -88,9 +88,15 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		switch ev.Kind {
 		case acp.KindText:
 			last.WriteString(ev.Text)
+			if req.Draft != nil {
+				req.Draft(last.String())
+			}
 		case acp.KindToolCall:
 			said := strings.TrimSpace(last.String())
 			last.Reset()
+			if said != "" && req.Draft != nil {
+				req.Draft("")
+			}
 			if req.Progress != nil {
 				req.Progress(stepLine(ev))
 			}

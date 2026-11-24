@@ -164,6 +164,9 @@ func (c *Chat) step(session, text string) {
 	}
 }
 
+// draftEvery is how often at most the app hears the reply grow.
+const draftEvery = 150 * time.Millisecond
+
 // chatTurn is a turn of the chat's, from the messages it runs.
 type chatTurn struct {
 	id      string
@@ -214,6 +217,9 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	}()
 	// Each step is a tool call, the only way a turn changes anything.
 	var stepped atomic.Bool
+	// The app shows the reply as the agent writes it, a few times a
+	// second: the Reply that ends the turn has the text in full.
+	var drafted time.Time
 	req := runner.Request{
 		Prompt:   t.prompt,
 		Provider: t.choice.Provider,
@@ -244,6 +250,14 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			case steps <- progress{said: text}:
 			default:
 			}
+		},
+		Draft: func(text string) {
+			text = strings.TrimSpace(text)
+			if text != "" && time.Since(drafted) < draftEvery {
+				return
+			}
+			drafted = time.Now()
+			c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
 		},
 	}
 	reply := t.agent.Ask(turn, req)
