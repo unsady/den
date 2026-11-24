@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/unsady/den/internal/config"
 )
 
 // serve answers every download with body and counts the requests.
@@ -137,5 +139,39 @@ func TestCheck(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestTranscripts(t *testing.T) {
+	cfg := config.Config{State: t.TempDir()}
+	c := New(cfg)
+	project := filepath.Join(ConfigDir(cfg), "projects", "-var-lib-den-claude-work")
+	for _, f := range []string{"a.jsonl", "a/tool-results/x.txt", "b.jsonl"} {
+		path := filepath.Join(project, f)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c.forget("a")
+	c.forget("../b")
+	if _, err := os.Stat(filepath.Join(project, "a.jsonl")); !os.IsNotExist(err) {
+		t.Errorf("a.jsonl is kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "a")); !os.IsNotExist(err) {
+		t.Errorf("a's folder is kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "b.jsonl")); err != nil {
+		t.Errorf("b.jsonl is gone: %v", err)
+	}
+
+	if err := Sweep(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ConfigDir(cfg), "projects")); !os.IsNotExist(err) {
+		t.Errorf("projects is kept: %v", err)
 	}
 }

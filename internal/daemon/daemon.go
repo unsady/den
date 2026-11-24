@@ -137,6 +137,9 @@ func Serve(cfg config.Config) error {
 			log.Printf("transcribe: %v", err)
 		}
 	}()
+	if err := claude.Sweep(cfg); err != nil {
+		log.Printf("claude: %v", err)
+	}
 	if c := claude.New(cfg); c.Connected() {
 		if err := c.Register(); err != nil {
 			log.Printf("claude: %v", err)

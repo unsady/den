@@ -38,6 +38,12 @@ var platforms = map[string]string{
 	"amd64": "linux-x64",
 }
 
+// Sweep removes every transcript claude kept. The bridge remembers what
+// it can resume only while den runs, so at den's start none can be.
+func Sweep(cfg config.Config) error {
+	return os.RemoveAll(filepath.Join(ConfigDir(cfg), "projects"))
+}
+
 // Releases is where claude is downloaded from. Tests point it at a local
 // server.
 var Releases = "https://downloads.claude.ai/claude-code-releases"
