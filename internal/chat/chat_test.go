@@ -1279,10 +1279,7 @@ func TestAppTurn(t *testing.T) {
 	if e := next(events.Message); e.Text != "hello" {
 		t.Fatalf("message %+v", e)
 	}
-	// The reply shows as the agent writes it, then whole.
-	if e := next(events.Draft); e.Text != "resume=none msg=hello lines=1" {
-		t.Fatalf("draft %+v", e)
-	}
+	// A reply this short comes whole, with no draft before it.
 	first := next(events.Reply)
 	if first.Text != "resume=none msg=hello lines=1" || first.Session == "" {
 		t.Fatalf("reply %+v", first)
