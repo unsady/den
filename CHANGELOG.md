@@ -13,7 +13,7 @@ release notes.
 - The app shows what the agent remembers about you, the Soul, User, and Notes sections of its memory, and lets you edit them. den commits the change to the space.
 - A turn that fails before the agent takes a step offers Retry, in the app and in Telegram, which sends the same message again; one that fails later offers Continue, which asks the agent to go on.
 - The app's stop button stops the turn of the session it is in, and leaves the others running. `/stop` in Telegram still stops everything.
-- The app's Today card: today's Google Calendar events, the reminders still to come, the replies of jobs that came quietly in the night, and the agent's to-do list in `~/space/today.md`, which you tick off in the app. The nightly tidy drops the ticked items.
+- Today in the app, behind a calendar button in its bar: today's Google Calendar events, the reminders still to come, the replies of jobs that came quietly in the night, and the agent's to-do list in `~/space/today.md`, which you tick off in the app. The nightly tidy drops the ticked items.
 - `den job edit` changes a job's title, schedule, model, or prompt in place, so it keeps its runs. The agent used to remove the job and add it again.
 
 ### Fixed

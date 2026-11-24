@@ -1,4 +1,4 @@
-// Package today gathers the user's day for the app's Today card: the
+// Package today gathers the user's day for the app's Today view: the
 // events of their Google Calendar, the reminders still to come today,
 // the replies of the jobs that ran in the night's quiet hours, and the
 // to-dos the agent keeps in the space's today.md, which the user ticks off
@@ -28,7 +28,7 @@ const File = "today.md"
 // agent changed the list since the app read it.
 var ErrChanged = errors.New("the list changed since it was read")
 
-// Day is what the Today card shows.
+// Day is what the app's Today view shows.
 type Day struct {
 	// Date is the day's date, such as 2026-11-23.
 	Date   string  `json:"date"`

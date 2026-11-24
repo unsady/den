@@ -11,7 +11,7 @@ import (
 	"github.com/unsady/den/internal/today"
 )
 
-// calendarClient reads the user's calendar for the Today card.
+// calendarClient reads the user's calendar for the app's Today view.
 var calendarClient = &http.Client{Timeout: 10 * time.Second}
 
 // today gathers the user's day for the app.
