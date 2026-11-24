@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
@@ -168,6 +169,11 @@ func (c *Chat) step(session, text string) {
 // draftEvery is how often at most the app hears the reply grow.
 const draftEvery = 150 * time.Millisecond
 
+// draftStart is how long in characters the text since the last step grows
+// before the app sees it: what the agent says before a step is mostly
+// shorter, so it does not show and vanish, at any speed of the model.
+const draftStart = 200
+
 // drafter passes on the reply a turn writes, whole, at most once per
 // draftEvery, and the latest text once that time is up, so the end of it
 // shows while the agent pauses.
@@ -188,6 +194,9 @@ func (d *drafter) set(text string) {
 		return
 	}
 	d.text = strings.TrimSpace(text)
+	if d.text != "" && utf8.RuneCountInString(d.text) < draftStart {
+		return
+	}
 	wait := draftEvery - time.Since(d.sent)
 	if d.text == "" || wait <= 0 {
 		d.send()
