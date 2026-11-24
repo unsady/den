@@ -19,6 +19,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/store"
+	"github.com/unsady/den/internal/today"
 )
 
 type fakeChat struct {
@@ -121,7 +122,11 @@ func TestServer(t *testing.T) {
 		dropped = append(dropped, id)
 		return http.StatusOK, nil
 	}
-	s := New(cfg, c, a, drop, hub)
+	gather := func(context.Context) (today.Day, error) {
+		tasks, err := today.Tasks(cfg)
+		return today.Day{Date: "2026-11-23", Tasks: tasks}, err
+	}
+	s := New(cfg, c, a, drop, gather, hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.keep(ctx)
@@ -225,6 +230,24 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("PUT", "/memory", token, `{"user":"Lives in Boston.","version":"old"}`); status != http.StatusConflict {
 		t.Fatalf("stale memory: %d", status)
+	}
+
+	if err := os.WriteFile(filepath.Join(cfg.Space, "today.md"), []byte("- [ ] Buy oat milk\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, got := call("GET", "/today", token, "")
+	if status != http.StatusOK || !strings.Contains(got, `"tasks":[{"text":"Buy oat milk","done":false}]`) {
+		t.Fatalf("today: %d %s", status, got)
+	}
+	if status, _ := call("PUT", "/today/tasks/0", token, `{"text":"Buy milk","done":true}`); status != http.StatusConflict {
+		t.Fatalf("stale tick: %d", status)
+	}
+	if status, _ := call("PUT", "/today/tasks/x", token, `{"done":true}`); status != http.StatusBadRequest {
+		t.Fatalf("bad index: %d", status)
+	}
+	status, got = call("PUT", "/today/tasks/0", token, `{"text":"Buy oat milk","done":true}`)
+	if status != http.StatusOK || !strings.Contains(got, `"done":true`) {
+		t.Fatalf("tick: %d %s", status, got)
 	}
 
 	if status, _ := call("POST", "/questions/q1", token, `{"answer":"yes"}`); status != http.StatusBadRequest {

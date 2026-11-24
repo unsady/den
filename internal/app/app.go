@@ -35,6 +35,7 @@ import (
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/memory"
 	"github.com/unsady/den/internal/store"
+	"github.com/unsady/den/internal/today"
 )
 
 // Port is where the server listens in the container.
@@ -74,11 +75,15 @@ type Asker interface {
 // Drop deletes a session and returns the HTTP status that suits its error.
 type Drop func(ctx context.Context, id string) (int, error)
 
+// Today gathers the user's day.
+type Today func(ctx context.Context) (today.Day, error)
+
 type Server struct {
 	cfg    config.Config
 	chat   Chat
 	ask    Asker
 	drop   Drop
+	today  Today
 	events *events.Hub
 
 	mu sync.Mutex
@@ -93,8 +98,8 @@ type Server struct {
 // keptResults is how many results and notices the server keeps.
 const keptResults = 50
 
-func New(cfg config.Config, chat Chat, ask Asker, drop Drop, hub *events.Hub) *Server {
-	return &Server{cfg: cfg, chat: chat, ask: ask, drop: drop, events: hub, runs: map[string]string{}}
+func New(cfg config.Config, chat Chat, ask Asker, drop Drop, today Today, hub *events.Hub) *Server {
+	return &Server{cfg: cfg, chat: chat, ask: ask, drop: drop, today: today, events: hub, runs: map[string]string{}}
 }
 
 // Serve listens on addr until ctx ends.
@@ -490,6 +495,50 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, m)
+	})
+
+	mux.HandleFunc("GET /today", func(w http.ResponseWriter, r *http.Request) {
+		day, err := s.today(r.Context())
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, day)
+	})
+
+	// Ticks the to-do at its index in the list, or unticks it, while it
+	// still reads the text the app showed.
+	mux.HandleFunc("PUT /today/tasks/{index}", func(w http.ResponseWriter, r *http.Request) {
+		index, err := strconv.Atoi(r.PathValue("index"))
+		if err != nil || index < 0 {
+			fail(w, http.StatusBadRequest, fmt.Errorf("no to-do %q", r.PathValue("index")))
+			return
+		}
+		var req struct {
+			Text string `json:"text"`
+			Done bool   `json:"done"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+
+		err = today.Check(s.cfg, index, req.Text, req.Done)
+		switch {
+		case errors.Is(err, today.ErrChanged):
+			fail(w, http.StatusConflict, err)
+			return
+		case err != nil:
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		day, err := s.today(r.Context())
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, day)
 	})
 
 	mux.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
