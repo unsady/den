@@ -22,6 +22,7 @@ release notes.
 
 ### Fixed
 
+- Replies from OpenCode's models no longer end early, and an unreachable models.dev no longer slows every turn (fx den.9).
 - Deleting a session in the app stops the turn that runs there, instead of refusing until it ends.
 - A renamed job shows its new title in the app at once, on its past runs too, instead of after its next run.
 - A session deleted in Telegram, by the agent, or as a job run with nothing to say leaves the app at once, and one deleted while the app was away leaves its archive.
