@@ -506,7 +506,8 @@ func (s *Server) Handler() http.Handler {
 		reply(w, day)
 	})
 
-	// Ticks the to-do at its index in the list, or unticks it.
+	// Ticks the to-do at its index in the list, or unticks it, while it
+	// still reads the text the app showed.
 	mux.HandleFunc("PUT /today/tasks/{index}", func(w http.ResponseWriter, r *http.Request) {
 		index, err := strconv.Atoi(r.PathValue("index"))
 		if err != nil || index < 0 {
@@ -514,17 +515,17 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		var req struct {
-			Done    bool   `json:"done"`
-			Version string `json:"version"`
+			Text string `json:"text"`
+			Done bool   `json:"done"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
 
-		err = today.Check(s.cfg, index, req.Done, req.Version)
+		err = today.Check(s.cfg, index, req.Text, req.Done)
 		switch {
-		case errors.Is(err, today.ErrChanged), errors.Is(err, today.ErrNoTask):
+		case errors.Is(err, today.ErrChanged):
 			fail(w, http.StatusConflict, err)
 			return
 		case err != nil:

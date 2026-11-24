@@ -18,21 +18,21 @@ const list = "# Today\n\n- [ ] Buy oat milk\n- [x] Call the bank\n  * [ ] Ask ab
 
 func TestTasks(t *testing.T) {
 	cfg := config.Config{Space: t.TempDir()}
-	tasks, version, err := Tasks(cfg)
-	if err != nil || len(tasks) != 0 || version != "" {
-		t.Fatalf("no list: %v %q %v", tasks, version, err)
+	tasks, err := Tasks(cfg)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("no list: %v %v", tasks, err)
 	}
 
 	if err := os.WriteFile(filepath.Join(cfg.Space, File), []byte(list), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tasks, version, err = Tasks(cfg)
+	tasks, err = Tasks(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Task{{"Buy oat milk", false}, {"Call the bank", true}, {"Ask about the card", false}}
-	if len(tasks) != len(want) || version == "" {
-		t.Fatalf("Tasks = %+v %q", tasks, version)
+	if len(tasks) != len(want) {
+		t.Fatalf("Tasks = %+v", tasks)
 	}
 	for i := range want {
 		if tasks[i] != want[i] {
@@ -66,8 +66,7 @@ func TestCheck(t *testing.T) {
 	git("commit", "-q", "-m", "Plan the day")
 	cfg := config.Config{Space: space}
 
-	_, version, _ := Tasks(cfg)
-	if err := Check(cfg, 2, true, version); err != nil {
+	if err := Check(cfg, 2, "Ask about the card", true); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
@@ -78,17 +77,17 @@ func TestCheck(t *testing.T) {
 		t.Errorf("commit = %q", got)
 	}
 
-	if err := Check(cfg, 1, false, version); !errors.Is(err, ErrChanged) {
-		t.Errorf("stale version: %v", err)
+	// The agent moved the to-dos: the app's index no longer finds its text.
+	if err := Check(cfg, 0, "Call the bank", false); !errors.Is(err, ErrChanged) {
+		t.Errorf("moved to-do: %v", err)
 	}
-	_, version, _ = Tasks(cfg)
-	if err := Check(cfg, 3, true, version); !errors.Is(err, ErrNoTask) {
+	if err := Check(cfg, 3, "Water the plants", true); !errors.Is(err, ErrChanged) {
 		t.Errorf("past the list: %v", err)
 	}
-	if err := Check(cfg, 1, false, version); err != nil {
+	if err := Check(cfg, 1, "Call the bank", false); err != nil {
 		t.Fatal(err)
 	}
-	if tasks, _, _ := Tasks(cfg); tasks[1].Done {
+	if tasks, _ := Tasks(cfg); tasks[1].Done {
 		t.Error("the bank stayed ticked")
 	}
 }

@@ -7,8 +7,6 @@ package today
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -26,11 +24,9 @@ import (
 // File is the to-do list in the space.
 const File = "today.md"
 
-// ErrChanged says the list changed since the version the app read.
+// ErrChanged says the to-do the app ticked is no longer where it was: the
+// agent changed the list since the app read it.
 var ErrChanged = errors.New("the list changed since it was read")
-
-// ErrNoTask says the list has no to-do at the index the app gave.
-var ErrNoTask = errors.New("no such to-do")
 
 // Day is what the Today card shows.
 type Day struct {
@@ -43,8 +39,6 @@ type Day struct {
 	Jobs     []Job    `json:"jobs"`
 	Night    []Result `json:"night"`
 	Tasks    []Task   `json:"tasks"`
-	// Version names the to-do list's content, empty when there is no list.
-	Version string `json:"version"`
 }
 
 // Event is an event of the user's calendar.
@@ -56,13 +50,11 @@ type Event struct {
 	AllDay bool `json:"allDay,omitempty"`
 }
 
-// Job is a reminder, or another one-time job, still to come today.
+// Job is a reminder still to come today.
 type Job struct {
 	Name  string    `json:"name"`
 	Title string    `json:"title"`
 	At    time.Time `json:"at"`
-	// Once says the job is a reminder or another one-time job.
-	Once bool `json:"once,omitempty"`
 }
 
 // Result is the reply of a job that ran in the night.
@@ -126,11 +118,11 @@ func FirstLine(text string) string {
 // task matches a to-do line: a list item that starts with a checkbox.
 var task = regexp.MustCompile(`^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$`)
 
-// Tasks reads the to-do list and its version. A missing file has none.
-func Tasks(cfg config.Config) ([]Task, string, error) {
+// Tasks reads the to-do list. A missing file has none.
+func Tasks(cfg config.Config) ([]Task, error) {
 	data, err := read(cfg)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	tasks := []Task{}
@@ -139,25 +131,23 @@ func Tasks(cfg config.Config) ([]Task, string, error) {
 			tasks = append(tasks, Task{Text: strings.TrimSpace(m[4]), Done: m[2] != " "})
 		}
 	}
-	return tasks, version(data), nil
+	return tasks, nil
 }
 
 // writing holds one Check at a time.
 var writing sync.Mutex
 
-// Check ticks the to-do at index, or with done false unticks it, when the
-// list is still at version want, and commits it when it can.
-func Check(cfg config.Config, index int, done bool, want string) error {
-	// Two ticks at once would both pass the version check.
+// Check ticks the to-do at index, or with done false unticks it, when that
+// to-do still reads text, and commits it when it can. A tick names its
+// to-do rather than the list's version, so ticks that overlap, from one
+// device or two, all land.
+func Check(cfg config.Config, index int, text string, done bool) error {
 	writing.Lock()
 	defer writing.Unlock()
 
 	data, err := read(cfg)
 	if err != nil {
 		return err
-	}
-	if version(data) != want {
-		return ErrChanged
 	}
 
 	all := strings.Split(string(data), "\n")
@@ -168,6 +158,9 @@ func Check(cfg config.Config, index int, done bool, want string) error {
 			continue
 		}
 		if n == index {
+			if strings.TrimSpace(m[4]) != text {
+				return ErrChanged
+			}
 			at = i
 			mark := " "
 			if done {
@@ -179,14 +172,22 @@ func Check(cfg config.Config, index int, done bool, want string) error {
 		n++
 	}
 	if at < 0 {
-		return ErrNoTask
+		return ErrChanged
 	}
 
-	text := strings.Join(all, "\n")
-	if text == string(data) {
+	changed := strings.Join(all, "\n")
+	if changed == string(data) {
 		return nil
 	}
-	if err := proc.WriteFile(cfg, filepath.Join(cfg.Space, File), []byte(text), 0o644); err != nil {
+	// The agent may have written the list since it was read: its change
+	// stays, and the tick is refused. What is left is the moment between
+	// this read and the write.
+	if now, err := read(cfg); err != nil {
+		return err
+	} else if string(now) != string(data) {
+		return ErrChanged
+	}
+	if err := proc.WriteFile(cfg, filepath.Join(cfg.Space, File), []byte(changed), 0o644); err != nil {
 		return err
 	}
 
@@ -225,15 +226,6 @@ func read(cfg config.Config) ([]byte, error) {
 		return nil, nil
 	}
 	return proc.ReadFile(cfg, path)
-}
-
-// version names the file's content; empty for a missing file.
-func version(data []byte) string {
-	if data == nil {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:8])
 }
 
 // commit commits the file alone, so what else the agent has changed in the

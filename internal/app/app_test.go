@@ -123,8 +123,8 @@ func TestServer(t *testing.T) {
 		return http.StatusOK, nil
 	}
 	gather := func(context.Context) (today.Day, error) {
-		tasks, version, err := today.Tasks(cfg)
-		return today.Day{Date: "2026-11-23", Tasks: tasks, Version: version}, err
+		tasks, err := today.Tasks(cfg)
+		return today.Day{Date: "2026-11-23", Tasks: tasks}, err
 	}
 	s := New(cfg, c, a, drop, gather, hub)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -239,15 +239,13 @@ func TestServer(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(got, `"tasks":[{"text":"Buy oat milk","done":false}]`) {
 		t.Fatalf("today: %d %s", status, got)
 	}
-	var day today.Day
-	json.Unmarshal([]byte(got), &day)
-	if status, _ := call("PUT", "/today/tasks/0", token, `{"done":true,"version":"old"}`); status != http.StatusConflict {
+	if status, _ := call("PUT", "/today/tasks/0", token, `{"text":"Buy milk","done":true}`); status != http.StatusConflict {
 		t.Fatalf("stale tick: %d", status)
 	}
 	if status, _ := call("PUT", "/today/tasks/x", token, `{"done":true}`); status != http.StatusBadRequest {
 		t.Fatalf("bad index: %d", status)
 	}
-	status, got = call("PUT", "/today/tasks/0", token, `{"done":true,"version":"`+day.Version+`"}`)
+	status, got = call("PUT", "/today/tasks/0", token, `{"text":"Buy oat milk","done":true}`)
 	if status != http.StatusOK || !strings.Contains(got, `"done":true`) {
 		t.Fatalf("tick: %d %s", status, got)
 	}

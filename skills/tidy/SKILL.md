@@ -45,7 +45,7 @@ You keep `~/space` easy to find things in. Most nights there is little or nothin
    touch .tidy-stamp
    ```
 
-7. Reply with one to three short lines on what changed, such as "Folded the news-daily reports into notes/news.md; the job no longer writes them." Write them in the language the user writes to you in. If nothing changed, run `den quiet` instead.
+7. Reply with one to three short lines on what changed, such as "Folded the news-daily reports into notes/news.md; the job no longer writes them." Write them in the language the user writes to you in. If nothing else changed, run `den quiet` instead.
 
 ## Do not
 

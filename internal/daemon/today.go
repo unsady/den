@@ -20,11 +20,11 @@ func (d *daemon) today(ctx context.Context) (today.Day, error) {
 	start, end := today.Bounds(now)
 	day := today.Day{Date: start.Format(time.DateOnly), Events: []today.Event{}, Jobs: []today.Job{}, Night: []today.Result{}}
 
-	tasks, version, err := today.Tasks(d.cfg)
+	tasks, err := today.Tasks(d.cfg)
 	if err != nil {
 		return today.Day{}, err
 	}
-	day.Tasks, day.Version = tasks, version
+	day.Tasks = tasks
 
 	list, err := d.store.List()
 	if err != nil {
@@ -38,24 +38,26 @@ func (d *daemon) today(ctx context.Context) (today.Day, error) {
 		if !j.Once || j.NextRun.Before(now) || !j.NextRun.Before(end) {
 			continue
 		}
-		day.Jobs = append(day.Jobs, today.Job{Name: j.Name, Title: j.Title, At: j.NextRun, Once: j.Once})
+		day.Jobs = append(day.Jobs, today.Job{Name: j.Name, Title: j.Title, At: j.NextRun})
 	}
 	sort.SliceStable(day.Jobs, func(a, b int) bool { return day.Jobs[a].At.Before(day.Jobs[b].At) })
 
-	// What came in the quiet hours arrived without a sound, so the card
-	// shows it in the morning.
+	// What repeating jobs sent in the quiet hours arrived without a sound,
+	// so the day shows it in the morning. A reminder rang, and its job is
+	// gone once it ran.
 	from, to := today.Night(now)
 	runs, err := d.db.RunsBetween(ctx, from, to)
 	if err != nil {
 		return today.Day{}, err
 	}
 	for _, run := range runs {
-		if !run.Delivered || run.SessionID == "" {
+		title, repeating := titles[run.Job]
+		if !run.Delivered || run.SessionID == "" || !repeating {
 			continue
 		}
-		title := titles[run.Job]
-		if title == "" {
-			title = run.Job
+		// The user may have deleted the session since.
+		if _, err := d.db.Session(ctx, run.SessionID); err != nil {
+			continue
 		}
 		text := run.Output
 		if run.Error != "" {
