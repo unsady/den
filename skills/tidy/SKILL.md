@@ -36,21 +36,19 @@ You keep `~/space` easy to find things in. Most nights there is little or nothin
 
    Add a missing one, shorten a longer one, and fix one that no longer matches the note. When two notes cover the same topic, merge them into one.
 
-5. In `today.md`, delete the ticked items, `- [x] …`, and those with a time, such as `- [ ] 15:00 …`, which were yesterday's; the other open ones stay for the new day. This is routine: leave it out of your reply.
-
-6. Commit only the paths you changed, since other sessions may have work in progress here, then stamp:
+5. Commit only the paths you changed, since other sessions may have work in progress here, then stamp:
 
    ```bash
    git add -- <paths> && git commit -m "tidy: <what changed>"
    touch .tidy-stamp
    ```
 
-7. Reply with one to three short lines on what changed, such as "Folded the news-daily reports into notes/news.md; the job no longer writes them." Write them in the language the user writes to you in. If nothing else changed, run `den quiet` instead.
+6. Reply with one to three short lines on what changed, such as "Folded the news-daily reports into notes/news.md; the job no longer writes them." Write them in the language the user writes to you in. If nothing changed, run `den quiet` instead.
 
 ## Do not
 
 - Change what a note says beyond merging and removing logs: facts and the user's decisions stay.
-- Delete data a job reads, such as a database or a script, or anything outside `notes/`, `.fx/skills/`, and `today.md`.
+- Delete data a job reads, such as a database or a script, or anything outside `notes/` and `.fx/skills/`.
 - Change a job's schedule, slot, or what it does.
 
 ## Local findings

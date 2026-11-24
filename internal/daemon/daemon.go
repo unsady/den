@@ -311,6 +311,7 @@ func (d *daemon) loop() {
 	for {
 		d.runDue()
 		d.archiveIdle()
+		d.newDay(time.Now())
 		select {
 		case <-d.ctx.Done():
 			return

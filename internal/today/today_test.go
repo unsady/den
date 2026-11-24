@@ -96,3 +96,37 @@ func TestCheck(t *testing.T) {
 		t.Errorf("file = %q", data)
 	}
 }
+
+func TestTimes(t *testing.T) {
+	for text, want := range map[string]Task{
+		"9:30 Standup":            {Time: "09:30", Text: "Standup"},
+		"15:00–16:00 Gym":         {Time: "15:00–16:00", Text: "Gym"},
+		"15:00 - 16:00 Gym":       {Time: "15:00–16:00", Text: "Gym"},
+		"15:00, call the dentist": {Time: "15:00", Text: "call the dentist"},
+		"15:00":                   {Text: "15:00"},
+		"Call at 15:00":           {Text: "Call at 15:00"},
+	} {
+		if got := parse(text, false); got != want {
+			t.Errorf("parse(%q) = %+v, want %+v", text, got, want)
+		}
+	}
+}
+
+func TestClear(t *testing.T) {
+	cfg := config.Config{Space: t.TempDir()}
+	if err := Clear(cfg); err != nil {
+		t.Fatalf("no list: %v", err)
+	}
+
+	path := filepath.Join(cfg.Space, File)
+	if err := os.WriteFile(path, []byte(list), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Clear(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if want := "# Today\n\n- [ ] 25:00 Not a time\n- [ ] Buy oat milk\n  * [ ] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"; string(data) != want {
+		t.Errorf("file = %q", data)
+	}
+}

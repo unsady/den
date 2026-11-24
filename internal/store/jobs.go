@@ -263,12 +263,6 @@ func (s *Store) Runs(ctx context.Context, job string, n int) ([]Run, error) {
 	return s.runs(ctx, `WHERE job = ? ORDER BY started DESC, id DESC LIMIT ?`, job, n)
 }
 
-// RunsBetween returns the runs of every job that started at from or later
-// and before to, oldest first.
-func (s *Store) RunsBetween(ctx context.Context, from, to time.Time) ([]Run, error) {
-	return s.runs(ctx, `WHERE started >= ? AND started < ? ORDER BY started, id`, unix(from), unix(to))
-}
-
 func (s *Store) runs(ctx context.Context, where string, args ...any) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT job, session_id, started, duration, output, error, stderr, delivered, model, input_tokens, output_tokens

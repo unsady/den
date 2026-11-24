@@ -35,8 +35,8 @@ type Day struct {
 
 // Task is a to-do of the list.
 type Task struct {
-	// Time is when in the day it is, such as 15:00, for an item that
-	// starts with one.
+	// Time is when in the day it is, such as 15:00 or 15:00–16:00, for an
+	// item that starts with one.
 	Time string `json:"time,omitempty"`
 	Text string `json:"text"`
 	Done bool   `json:"done"`
@@ -54,8 +54,9 @@ func Read(cfg config.Config, now time.Time) (Day, error) {
 // task matches a to-do line: a list item that starts with a checkbox.
 var task = regexp.MustCompile(`^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$`)
 
-// clock matches the time an item starts with, such as 15:00 or 9:30.
-var clock = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)\s+(\S.*)$`)
+// clock matches the time an item starts with, such as 15:00 or 9:30, or
+// the span, such as 15:00–16:00.
+var clock = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)((?:\s*[-–]\s*\d{1,2}:\d{2})?)[\s,]+(\S.*)$`)
 
 // parse is the to-do of an item's text after its checkbox.
 func parse(text string, done bool) Task {
@@ -65,7 +66,11 @@ func parse(text string, done bool) Task {
 		if len(hour) == 1 {
 			hour = "0" + hour
 		}
-		return Task{Time: hour + ":" + m[2], Text: m[3], Done: done}
+		at := hour + ":" + m[2]
+		if end := strings.TrimLeft(m[3], "-– \t"); end != "" {
+			at += "–" + end
+		}
+		return Task{Time: at, Text: m[4], Done: done}
 	}
 	return Task{Text: text, Done: done}
 }
@@ -145,7 +150,41 @@ func Check(cfg config.Config, index int, text string, done bool) error {
 
 	// The tick is saved once written; the agent's next commit takes it when
 	// this one fails.
-	if err := commit(cfg); err != nil {
+	if err := commit(cfg, "Tick a to-do in the app"); err != nil {
+		log.Printf("today: %v", err)
+	}
+	return nil
+}
+
+// Clear drops the past day's ticked to-dos and those at a time, which were
+// that day's, and commits the list when it can. The other open to-dos stay
+// for the new day.
+func Clear(cfg config.Config) error {
+	writing.Lock()
+	defer writing.Unlock()
+
+	data, err := read(cfg)
+	if err != nil || data == nil {
+		return err
+	}
+
+	all := strings.Split(string(data), "\n")
+	var kept []string
+	for i, line := range lines(string(data)) {
+		if m := task.FindStringSubmatch(line); m != nil {
+			if t := parse(m[4], m[2] != " "); t.Done || t.Time != "" {
+				continue
+			}
+		}
+		kept = append(kept, all[i])
+	}
+	if len(kept) == len(all) {
+		return nil
+	}
+	if err := proc.WriteFile(cfg, filepath.Join(cfg.Space, File), []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		return err
+	}
+	if err := commit(cfg, "Clear the past day's to-dos"); err != nil {
 		log.Printf("today: %v", err)
 	}
 	return nil
@@ -182,12 +221,12 @@ func read(cfg config.Config) ([]byte, error) {
 
 // commit commits the file alone, so what else the agent has changed in the
 // space stays for its own commit.
-func commit(cfg config.Config) error {
+func commit(cfg config.Config, message string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	script := `cd "$1" && git add -- "$2" && { git diff --cached --quiet -- "$2" || git commit -q -m "Tick a to-do in the app" -- "$2"; }`
-	cmd, err := proc.Command(ctx, cfg, "/bin/sh", "-c", script, "commit", cfg.Space, File)
+	script := `cd "$1" && git add -- "$2" && { git diff --cached --quiet -- "$2" || git commit -q -m "$3" -- "$2"; }`
+	cmd, err := proc.Command(ctx, cfg, "/bin/sh", "-c", script, "commit", cfg.Space, File, message)
 	if err != nil {
 		return err
 	}
