@@ -533,12 +533,14 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
-		day, err := s.today(r.Context())
+		// The to-dos alone: the rest of the day, such as the calendar, is
+		// no answer to a tick and takes long to read.
+		tasks, err := today.Tasks(s.cfg)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
-		reply(w, day)
+		reply(w, map[string]any{"tasks": tasks})
 	})
 
 	mux.HandleFunc("POST /stop", func(w http.ResponseWriter, r *http.Request) {
