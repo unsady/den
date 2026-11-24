@@ -572,6 +572,7 @@ func (c *Claude) retire(s *session, why string) {
 	if cs.claudeID != "" {
 		c.bridge.closed = append(c.bridge.closed, cs)
 		if len(c.bridge.closed) > maxClosed {
+			c.forget(c.bridge.closed[0].claudeID)
 			c.bridge.closed = c.bridge.closed[1:]
 		}
 	}
@@ -940,4 +941,17 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// forget removes the transcript of a conversation the bridge can no longer
+// resume: claude keeps it, with what the user said, until it is deleted.
+func (c *Claude) forget(claudeID string) {
+	if claudeID == "" || strings.ContainsAny(claudeID, `/\.`) {
+		return
+	}
+	files, _ := filepath.Glob(filepath.Join(ConfigDir(c.cfg), "projects", "*", claudeID+".jsonl"))
+	for _, f := range files {
+		os.Remove(f)
+		os.RemoveAll(strings.TrimSuffix(f, ".jsonl"))
+	}
 }

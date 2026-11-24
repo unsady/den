@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Fixed
+
+- Claude conversations no longer pile up on disk: den deletes Claude's copy of one once it can no longer resume it, and all of them when it starts.
+
 ## v0.16.0
 
 ### Added
