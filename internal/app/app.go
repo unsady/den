@@ -49,6 +49,7 @@ const tokenFile = "app_token"
 type Chat interface {
 	Post(ctx context.Context, text, session string, files []chat.File) error
 	Start(ctx context.Context, text string, files []chat.File) (string, error)
+	Capture(ctx context.Context, text string, files []chat.File) (string, error)
 	Stop(ctx context.Context) bool
 	StopSession(ctx context.Context, session string) bool
 	Settle(ctx context.Context, session string) error
@@ -433,6 +434,9 @@ func (s *Server) Handler() http.Handler {
 			// New starts a session of its own for it, whose ID the answer
 			// gives.
 			New bool `json:"new"`
+			// Capture marks what the user sent with quick capture, for the
+			// agent to put away; it starts a session of its own as New does.
+			Capture bool `json:"capture"`
 			// Files are what the user attached, in base64.
 			Files []chat.File `json:"files"`
 		}
@@ -444,14 +448,18 @@ func (s *Server) Handler() http.Handler {
 			fail(w, http.StatusBadRequest, errors.New("nothing to send"))
 			return
 		}
-		if req.New && req.Session != "" {
+		if (req.New || req.Capture) && req.Session != "" {
 			fail(w, http.StatusBadRequest, errors.New("a new message goes to no session"))
 			return
 		}
 
 		// The turn outlives the request; its reply comes as an event.
-		if req.New {
-			session, err := s.chat.Start(context.WithoutCancel(r.Context()), req.Text, req.Files)
+		if req.New || req.Capture {
+			start := s.chat.Start
+			if req.Capture {
+				start = s.chat.Capture
+			}
+			session, err := start(context.WithoutCancel(r.Context()), req.Text, req.Files)
 			if err != nil {
 				fail(w, http.StatusInternalServerError, err)
 				return

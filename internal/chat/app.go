@@ -44,7 +44,7 @@ func (c *Chat) Post(ctx context.Context, text, session string, files []File) err
 		c.runBackground(ctx, nil, task)
 		return nil
 	}
-	return c.post(ctx, text, session, files)
+	return c.post(ctx, text, session, files, "")
 }
 
 // Start gives text and files from the app to a new session of their own,
@@ -56,11 +56,27 @@ func (c *Chat) Start(ctx context.Context, text string, files []File) (string, er
 		return "", err
 	}
 
-	return session, c.post(ctx, text, session, files)
+	return session, c.post(ctx, text, session, files, "")
 }
 
-// post gives text and files to session, the chat's when it is empty.
-func (c *Chat) post(ctx context.Context, text, session string, files []File) error {
+// captured is what den tells the agent of a message sent with quick capture.
+const captured = "[den: the user sent this with quick capture. Put it where it belongs, such as in a note, a to-do for today, or a reminder, and reply in one line with where.]"
+
+// Capture gives text and files the user sent with quick capture, from the
+// share sheet or a hotkey, to a new session of their own, where the agent
+// puts them away, and returns the session's ID.
+func (c *Chat) Capture(ctx context.Context, text string, files []File) (string, error) {
+	session := newSession()
+	if err := c.store.AddSession(context.Background(), store.Session{ID: session, Kind: store.KindChat}); err != nil {
+		return "", err
+	}
+
+	return session, c.post(ctx, text, session, files, captured)
+}
+
+// post gives text and files to session, the chat's when it is empty, with
+// den's note for the agent before them, when there is one.
+func (c *Chat) post(ctx context.Context, text, session string, files []File, note string) error {
 	entries := []entry{{text: text}}
 	if len(files) > 0 {
 		entries = nil
@@ -84,6 +100,12 @@ func (c *Chat) post(ctx context.Context, text, session string, files []File) err
 			entries[0].text = caption + "\n" + entries[0].text
 			entries[0].shown = caption
 		}
+	}
+	if note != "" {
+		if entries[0].shown == "" && entries[0].file == nil {
+			entries[0].shown = entries[0].text
+		}
+		entries[0].text = note + "\n" + entries[0].text
 	}
 
 	if session == "" {

@@ -8,6 +8,7 @@ release notes.
 
 ### Added
 
+- Quick capture: share text, a link, or a picture to den from the iPhone's share sheet, or press Control-Option-D on the Mac, and the agent puts it away in a note, a to-do for today, or a reminder, and says where.
 - An archive for the app: a session unused for 3 days, with nothing waiting in it, leaves the feed for the archive, and the app can archive one by hand. A new message brings it back. The agent archives sessions with `den sessions archive` when you ask it to tidy the feed.
 - Backups: `den backup setup` backs up den's state, such as its sessions, jobs, and secrets, every 6 hours and before each `den update`, to a folder on your computer and an S3 bucket if you like. Each backup is encrypted to a key that stays on your computer, so neither den nor the agent can read it. `den backup restore` brings one back. [Backups](docs/backup.md) has the details.
 - The app shows what the agent remembers about you, the Soul, User, and Notes sections of its memory, and lets you edit them. den commits the change to the space.
