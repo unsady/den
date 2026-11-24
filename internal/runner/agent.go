@@ -88,9 +88,15 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		switch ev.Kind {
 		case acp.KindText:
 			last.WriteString(ev.Text)
+			if req.Draft != nil {
+				req.Draft(last.String())
+			}
 		case acp.KindToolCall:
 			said := strings.TrimSpace(last.String())
 			last.Reset()
+			if said != "" && req.Draft != nil {
+				req.Draft("")
+			}
 			if req.Progress != nil {
 				req.Progress(stepLine(ev))
 			}
@@ -105,6 +111,9 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	if len(prompt.Images) > 0 && blind(err) {
 		// What fx said before it refused, such as that it could not reach
 		// its catalog of models, is not part of the reply.
+		if last.Len() > 0 && req.Draft != nil {
+			req.Draft("")
+		}
 		last.Reset()
 		prompt.Images = nil
 		prompt.Text += "\n" + noImages

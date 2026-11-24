@@ -94,6 +94,10 @@ type Request struct {
 	// Said, when set, receives what the agent wrote before a step, right
 	// after that step's line went to Progress.
 	Said func(text string)
+	// Draft, when set, receives the text the agent has written since its
+	// last step, whole, each time it grows, and an empty text once a step
+	// takes it as what the agent said before the step.
+	Draft func(text string)
 }
 
 // Reply is what one turn produced. Error is empty on success.

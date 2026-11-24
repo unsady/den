@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -164,6 +165,65 @@ func (c *Chat) step(session, text string) {
 	}
 }
 
+// draftEvery is how often at most the app hears the reply grow.
+const draftEvery = 150 * time.Millisecond
+
+// drafter passes on the reply a turn writes, whole, at most once per
+// draftEvery, and the latest text once that time is up, so the end of it
+// shows while the agent pauses.
+type drafter struct {
+	publish func(text string)
+
+	mu    sync.Mutex
+	text  string
+	sent  time.Time
+	timer *time.Timer
+	ended bool
+}
+
+func (d *drafter) set(text string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.ended {
+		return
+	}
+	d.text = strings.TrimSpace(text)
+	wait := draftEvery - time.Since(d.sent)
+	if d.text == "" || wait <= 0 {
+		d.send()
+	} else if d.timer == nil {
+		d.timer = time.AfterFunc(wait, d.flush)
+	}
+}
+
+func (d *drafter) flush() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.ended {
+		d.send()
+	}
+}
+
+// send passes on the text; d.mu is held.
+func (d *drafter) send() {
+	if d.timer != nil {
+		d.timer.Stop()
+		d.timer = nil
+	}
+	d.sent = time.Now()
+	d.publish(d.text)
+}
+
+// end stops it once the turn ends: its reply follows.
+func (d *drafter) end() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.ended = true
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+}
+
 // chatTurn is a turn of the chat's, from the messages it runs.
 type chatTurn struct {
 	id      string
@@ -214,6 +274,11 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	}()
 	// Each step is a tool call, the only way a turn changes anything.
 	var stepped atomic.Bool
+	// The app shows the reply as the agent writes it; the Reply that ends
+	// the turn has the text in full.
+	drafts := &drafter{publish: func(text string) {
+		c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
+	}}
 	req := runner.Request{
 		Prompt:   t.prompt,
 		Provider: t.choice.Provider,
@@ -245,8 +310,10 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			default:
 			}
 		},
+		Draft: drafts.set,
 	}
 	reply := t.agent.Ask(turn, req)
+	drafts.end()
 	close(done)
 	<-shown
 	quiet := c.Quieted(session, started)

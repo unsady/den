@@ -15,6 +15,7 @@ release notes.
 - The app's stop button stops the turn of the session it is in, and leaves the others running. `/stop` in Telegram still stops everything.
 - Today in the app, behind a calendar button in its bar: the agent's plan for your day in `~/space/today.md`, to-dos and things at a set time, such as an interview at 15:00, which you tick off in the app. At midnight den drops the ticked items and the past day's timed ones.
 - The app keeps what you type as a draft, so it comes back after the app closes or crashes, and on the phone it stays when you move between screens. Attached files are not kept.
+- The app shows the agent's reply as it writes it, instead of all at once when the turn ends.
 - `den job edit` changes a job's title, schedule, model, or prompt in place, so it keeps its runs. The agent used to remove the job and add it again.
 
 ### Fixed
