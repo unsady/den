@@ -35,6 +35,7 @@ import (
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/push"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/search"
 	"github.com/unsady/den/internal/seed"
@@ -249,6 +250,7 @@ func Serve(cfg config.Config) error {
 	go d.loop()
 	go d.backups()
 	d.wg.Go(func() { d.chat.Run(ctx) })
+	go push.New(cfg).Run(ctx, d.events)
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.events)
 		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {

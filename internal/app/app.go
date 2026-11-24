@@ -34,6 +34,7 @@ import (
 	"github.com/unsady/den/internal/config"
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/memory"
+	"github.com/unsady/den/internal/push"
 	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/today"
 )
@@ -634,6 +635,22 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, map[string]string{"id": id})
+	})
+
+	// A phone gives its token for pushes each time it starts.
+	mux.HandleFunc("POST /devices", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := push.Add(s.cfg, req.Token); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("GET /questions", func(w http.ResponseWriter, r *http.Request) {

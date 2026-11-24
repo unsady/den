@@ -121,7 +121,7 @@ func (f *fakeAsker) Answer(id, outcome string) (string, bool) {
 }
 
 func TestServer(t *testing.T) {
-	cfg := config.Config{Secrets: t.TempDir(), Sessions: t.TempDir(), Space: t.TempDir()}
+	cfg := config.Config{State: t.TempDir(), Secrets: t.TempDir(), Sessions: t.TempDir(), Space: t.TempDir()}
 	hub := &events.Hub{Dir: t.TempDir()}
 	c, a := &fakeChat{}, &fakeAsker{}
 	var dropped []string
@@ -227,6 +227,17 @@ func TestServer(t *testing.T) {
 	if status, _ := call("POST", "/sessions/s2/retry", token, ""); status != http.StatusConflict {
 		t.Fatalf("retry with nothing held: %d", status)
 	}
+	// A phone gives its token for pushes.
+	if status, body := call("POST", "/devices", token, `{"token":"ab12"}`); status != http.StatusNoContent {
+		t.Errorf("POST /devices = %d %s", status, body)
+	}
+	if status, _ := call("POST", "/devices", token, `{"token":"<b>"}`); status != http.StatusBadRequest {
+		t.Errorf("POST /devices with a bad token = %d", status)
+	}
+	if data, _ := os.ReadFile(filepath.Join(cfg.State, "push_devices.json")); string(data) != `[{"token":"ab12"}]` {
+		t.Errorf("devices = %s", data)
+	}
+
 	if status, body := call("POST", "/stop", token, `{"session":"s9"}`); status != http.StatusOK || c.posted[len(c.posted)-1] != "stop:s9" {
 		t.Fatalf("stop one session: %d %s %v", status, body, c.posted)
 	}

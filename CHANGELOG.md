@@ -6,6 +6,10 @@ release notes.
 
 ## Unreleased
 
+### Added
+
+- Push notifications for the phone app: a reply, a job's result, a notice, or a question reaches the phone while the app is closed, once den has an Apple push key (`apns.p8` and `apns.json` among its secrets).
+
 ### Fixed
 
 - Claude conversations no longer pile up on disk: den deletes Claude's copy of one once it can no longer resume it, and all of them when it starts.
