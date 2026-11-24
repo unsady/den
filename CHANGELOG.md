@@ -6,6 +6,8 @@ release notes.
 
 ## Unreleased
 
+## v0.16.0
+
 ### Added
 
 - Search in the app: find a message in any session, archived ones too, by the words it holds.
