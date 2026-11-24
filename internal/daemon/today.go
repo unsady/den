@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"slices"
 	"sort"
 	"time"
 
+	"github.com/unsady/den/internal/store"
 	"github.com/unsady/den/internal/today"
 )
 
@@ -30,9 +32,10 @@ func (d *daemon) today(ctx context.Context) (today.Day, error) {
 	if err != nil {
 		return today.Day{}, err
 	}
-	titles := map[string]string{}
+	// The repeating jobs, whose replies in the night came quietly.
+	repeating := map[string]bool{}
 	for _, j := range list {
-		titles[j.Name] = j.Title
+		repeating[j.Name] = !j.Once
 		// A reminder is part of the day's plan, as an event is; a repeating
 		// job is routine that tells nothing of the day.
 		if !j.Once || j.NextRun.Before(now) || !j.NextRun.Before(end) {
@@ -44,27 +47,31 @@ func (d *daemon) today(ctx context.Context) (today.Day, error) {
 
 	// What repeating jobs sent in the quiet hours arrived without a sound,
 	// so the day shows it in the morning. A reminder rang, and its job is
-	// gone once it ran.
+	// gone once it ran. A repeating job deleted since leaves its replies
+	// out too: den cannot tell it from a reminder.
 	from, to := today.Night(now)
 	runs, err := d.db.RunsBetween(ctx, from, to)
 	if err != nil {
 		return today.Day{}, err
 	}
 	for _, run := range runs {
-		title, repeating := titles[run.Job]
-		if !run.Delivered || run.SessionID == "" || !repeating {
+		if !run.Delivered || run.SessionID == "" || !repeating[run.Job] {
 			continue
 		}
 		// The user may have deleted the session since.
-		if _, err := d.db.Session(ctx, run.SessionID); err != nil {
+		session, err := d.db.Session(ctx, run.SessionID)
+		if errors.Is(err, store.ErrNotFound) {
 			continue
+		}
+		if err != nil {
+			return today.Day{}, err
 		}
 		text := run.Output
 		if run.Error != "" {
 			text = run.Error
 		}
 		day.Night = append(day.Night, today.Result{
-			Session: run.SessionID, Title: title, At: run.Started, Text: today.FirstLine(text), Failed: run.Error != "",
+			Session: run.SessionID, Title: session.Title, At: run.Started, Text: today.FirstLine(text), Failed: run.Error != "",
 		})
 	}
 
