@@ -88,3 +88,32 @@ func TestSlowListener(t *testing.T) {
 		t.Fatalf("the fast listener got %+v", e)
 	}
 }
+
+func TestSlowListenerMissesDrafts(t *testing.T) {
+	var h Hub
+	list, stop := h.Listen()
+	defer stop()
+
+	for range buffer * 2 {
+		h.Publish(Event{Type: Draft, Session: "s1", Text: "more"})
+	}
+	for range buffer {
+		<-list
+	}
+	select {
+	case _, open := <-list:
+		t.Fatalf("got more, open %v", open)
+	default:
+	}
+
+	// Anything else it has no room for drops it.
+	for range buffer + 1 {
+		h.Publish(Event{Type: Step, Session: "s1"})
+	}
+	for range buffer {
+		<-list
+	}
+	if _, open := <-list; open {
+		t.Error("a listener that fell behind is kept")
+	}
+}

@@ -159,7 +159,12 @@ func (h *Hub) Publish(e Event) {
 	for l := range h.listeners {
 		select {
 		case l <- e:
+			continue
 		default:
+		}
+		// A draft is whole each time, so a listener with no room for one
+		// misses nothing the next does not bring.
+		if e.Type != Draft {
 			delete(h.listeners, l)
 			close(l)
 		}
