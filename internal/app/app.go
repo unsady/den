@@ -370,12 +370,6 @@ func (s *Server) Handler() http.Handler {
 		if limit <= 0 {
 			limit = 50
 		}
-		found, err := events.Search(s.events.Dir, query.Get("q"), limit)
-		if err != nil {
-			fail(w, http.StatusInternalServerError, err)
-			return
-		}
-
 		all, err := s.chat.Sessions(r.Context(), store.Everywhere, "", nil, 1<<20)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
@@ -386,13 +380,17 @@ func (s *Server) Handler() http.Handler {
 			sessions[l.ID] = l
 		}
 
+		// A journal den keeps no session for is one it is deleting.
+		kept := func(id string) bool { _, ok := sessions[id]; return ok }
+		found, err := events.Search(r.Context(), s.events.Dir, query.Get("q"), limit, kept)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+
 		results := []hit{}
 		for _, e := range found {
-			// A journal den keeps no session for is one it is deleting.
-			l, ok := sessions[e.Session]
-			if !ok {
-				continue
-			}
+			l := sessions[e.Session]
 			results = append(results, hit{
 				Session: session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated},
 				Message: message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files},
@@ -743,13 +741,13 @@ type session struct {
 	Updated  time.Time `json:"updated"`
 }
 
-// message is one message of a session as the user saw it.
 // hit is a message search found, with its session.
 type hit struct {
 	Session session `json:"session"`
 	Message message `json:"message"`
 }
 
+// message is one message of a session as the user saw it.
 type message struct {
 	// Key is the event's that brought it, empty in a journal older than keys.
 	Key string `json:"key,omitempty"`

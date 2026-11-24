@@ -41,7 +41,7 @@ func TestDrafter(t *testing.T) {
 	d.end()
 	d.set("late")
 	time.Sleep(2 * draftEvery)
-	if s := got(); s[len(s)-1] != "" || slices.Contains(s, "late") {
+	if s := got(); len(s) < 3 || s[len(s)-1] != "" || slices.Contains(s, "late") {
 		t.Fatalf("sent %q", s)
 	}
 }
