@@ -129,7 +129,13 @@ func (s *Server) keep(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case e := <-list:
+		case e, open := <-list:
+			// The hub dropped a listener that fell behind: listen again.
+			if !open {
+				stop()
+				list, stop = s.events.Listen()
+				continue
+			}
 			s.mu.Lock()
 			switch {
 			case e.Type == events.Run && e.Text == "":
