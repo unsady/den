@@ -40,7 +40,6 @@ import (
 	"github.com/unsady/den/internal/seed"
 	"github.com/unsady/den/internal/sessions"
 	"github.com/unsady/den/internal/store"
-	"github.com/unsady/den/internal/today"
 	"github.com/unsady/den/internal/transcribe"
 	"github.com/unsady/den/internal/usage"
 )
@@ -248,7 +247,7 @@ func Serve(cfg config.Config) error {
 	go d.backups()
 	d.wg.Go(func() { d.chat.Run(ctx) })
 	go func() {
-		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.today, d.events)
+		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.events)
 		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
 			log.Printf("app: %v", err)
 		}
@@ -312,6 +311,7 @@ func (d *daemon) loop() {
 	for {
 		d.runDue()
 		d.archiveIdle()
+		d.newDay(time.Now())
 		select {
 		case <-d.ctx.Done():
 			return
@@ -616,7 +616,7 @@ func quietly(j jobs.Job, now time.Time) bool {
 	case j.Name == reflectJob, j.Name == tidyJob:
 		return true
 	}
-	return today.Quiet(now)
+	return now.Hour() >= 23 || now.Hour() < 8
 }
 
 // send is notify that returns the ids of the messages it sent, quiet ones

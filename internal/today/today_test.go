@@ -1,20 +1,17 @@
 package today
 
 import (
-	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/unsady/den/internal/config"
 )
 
-const list = "# Today\n\n- [ ] Buy oat milk\n- [x] Call the bank\n  * [ ] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"
+const list = "# Today\n\n- [ ] 15:00 Interview\n- [ ] 25:00 Not a time\n- [ ] Buy oat milk\n- [x] Call the bank\n  * [ ] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"
 
 func TestTasks(t *testing.T) {
 	cfg := config.Config{Space: t.TempDir()}
@@ -30,7 +27,7 @@ func TestTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Task{{"Buy oat milk", false}, {"Call the bank", true}, {"Ask about the card", false}}
+	want := []Task{{"15:00", "Interview", false}, {"", "25:00 Not a time", false}, {"", "Buy oat milk", false}, {"", "Call the bank", true}, {"", "Ask about the card", false}}
 	if len(tasks) != len(want) {
 		t.Fatalf("Tasks = %+v", tasks)
 	}
@@ -66,11 +63,11 @@ func TestCheck(t *testing.T) {
 	git("commit", "-q", "-m", "Plan the day")
 	cfg := config.Config{Space: space}
 
-	if err := Check(cfg, 2, "Ask about the card", true); err != nil {
+	if err := Check(cfg, 4, "Ask about the card", true); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
-	if want := "# Today\n\n- [ ] Buy oat milk\n- [x] Call the bank\n  * [x] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"; string(data) != want {
+	if want := "# Today\n\n- [ ] 15:00 Interview\n- [ ] 25:00 Not a time\n- [ ] Buy oat milk\n- [x] Call the bank\n  * [x] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"; string(data) != want {
 		t.Fatalf("file = %q", data)
 	}
 	if got := git("log", "-1", "--name-only", "--format=%s"); got != "Tick a to-do in the app\n\ntoday.md\n" {
@@ -81,71 +78,55 @@ func TestCheck(t *testing.T) {
 	if err := Check(cfg, 0, "Call the bank", false); !errors.Is(err, ErrChanged) {
 		t.Errorf("moved to-do: %v", err)
 	}
-	if err := Check(cfg, 3, "Water the plants", true); !errors.Is(err, ErrChanged) {
+	if err := Check(cfg, 5, "Water the plants", true); !errors.Is(err, ErrChanged) {
 		t.Errorf("past the list: %v", err)
 	}
-	if err := Check(cfg, 1, "Call the bank", false); err != nil {
+	if err := Check(cfg, 3, "Call the bank", false); err != nil {
 		t.Fatal(err)
 	}
-	if tasks, _ := Tasks(cfg); tasks[1].Done {
+	if tasks, _ := Tasks(cfg); tasks[3].Done {
 		t.Error("the bank stayed ticked")
 	}
-}
 
-func TestNight(t *testing.T) {
-	loc := time.FixedZone("NY", -5*3600)
-	from, to := Night(time.Date(2026, 3, 1, 9, 30, 0, 0, loc))
-	if !from.Equal(time.Date(2026, 2, 28, 23, 0, 0, 0, loc)) || !to.Equal(time.Date(2026, 3, 1, 8, 0, 0, 0, loc)) {
-		t.Errorf("night = %s – %s", from, to)
-	}
-	if !Quiet(from) || Quiet(to) || !Quiet(to.Add(-time.Minute)) {
-		t.Error("quiet hours")
-	}
-}
-
-func TestEvents(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" || r.URL.Query().Get("singleEvents") != "true" {
-			http.Error(w, "bad", http.StatusUnauthorized)
-			return
-		}
-		w.Write([]byte(`{"items":[
-			{"summary":"Holiday","start":{"date":"2026-11-23"},"end":{"date":"2026-11-24"}},
-			{"summary":"Standup","start":{"dateTime":"2026-11-23T14:00:00Z"},"end":{"dateTime":"2026-11-23T14:15:00Z"}},
-			{"summary":"Gone","status":"cancelled","start":{"dateTime":"2026-11-23T15:00:00Z"},"end":{"dateTime":"2026-11-23T16:00:00Z"}},
-			{"summary":"Declined","attendees":[{"self":true,"responseStatus":"declined"}],"start":{"dateTime":"2026-11-23T16:00:00Z"},"end":{"dateTime":"2026-11-23T17:00:00Z"}},
-			{"start":{"dateTime":"2026-11-23T18:00:00Z"},"end":{"dateTime":"2026-11-23T19:00:00Z"}}
-		]}`))
-	}))
-	defer srv.Close()
-	calendarURL = srv.URL
-
-	loc := time.FixedZone("NY", -5*3600)
-	from, to := Bounds(time.Date(2026, 11, 23, 10, 0, 0, 0, loc))
-	events, err := Events(context.Background(), srv.Client(), "tok", from, to)
-	if err != nil {
+	// A tick names the to-do by its text alone; its time stays in the file.
+	if err := Check(cfg, 0, "Interview", true); err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 3 {
-		t.Fatalf("events = %+v", events)
-	}
-	if e := events[0]; e.Title != "Holiday" || !e.AllDay || !e.Start.Equal(from) {
-		t.Errorf("all-day = %+v", e)
-	}
-	if e := events[1]; e.Title != "Standup" || e.AllDay || e.Start.Hour() != 9 {
-		t.Errorf("timed = %+v", e)
-	}
-	if events[2].Title != "(no title)" {
-		t.Errorf("untitled = %+v", events[2])
-	}
-
-	if _, err := Events(context.Background(), srv.Client(), "bad", from, to); err == nil {
-		t.Error("a refused token read events")
+	if data, _ := os.ReadFile(path); !strings.HasPrefix(string(data), "# Today\n\n- [x] 15:00 Interview\n") {
+		t.Errorf("file = %q", data)
 	}
 }
 
-func TestFirstLine(t *testing.T) {
-	if got := FirstLine("\n\n  Rain at noon.  \nMore."); got != "Rain at noon." {
-		t.Errorf("FirstLine = %q", got)
+func TestTimes(t *testing.T) {
+	for text, want := range map[string]Task{
+		"9:30 Standup":            {Time: "09:30", Text: "Standup"},
+		"15:00–16:00 Gym":         {Time: "15:00–16:00", Text: "Gym"},
+		"15:00 - 16:00 Gym":       {Time: "15:00–16:00", Text: "Gym"},
+		"15:00, call the dentist": {Time: "15:00", Text: "call the dentist"},
+		"15:00":                   {Text: "15:00"},
+		"Call at 15:00":           {Text: "Call at 15:00"},
+	} {
+		if got := parse(text, false); got != want {
+			t.Errorf("parse(%q) = %+v, want %+v", text, got, want)
+		}
+	}
+}
+
+func TestClear(t *testing.T) {
+	cfg := config.Config{Space: t.TempDir()}
+	if err := Clear(cfg); err != nil {
+		t.Fatalf("no list: %v", err)
+	}
+
+	path := filepath.Join(cfg.Space, File)
+	if err := os.WriteFile(path, []byte(list), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Clear(cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if want := "# Today\n\n- [ ] 25:00 Not a time\n- [ ] Buy oat milk\n  * [ ] Ask about the card\n\n```\n- [ ] not a to-do\n```\n- [ ]   \nSome text.\n"; string(data) != want {
+		t.Errorf("file = %q", data)
 	}
 }

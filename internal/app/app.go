@@ -75,15 +75,11 @@ type Asker interface {
 // Drop deletes a session and returns the HTTP status that suits its error.
 type Drop func(ctx context.Context, id string) (int, error)
 
-// Today gathers the user's day.
-type Today func(ctx context.Context) (today.Day, error)
-
 type Server struct {
 	cfg    config.Config
 	chat   Chat
 	ask    Asker
 	drop   Drop
-	today  Today
 	events *events.Hub
 
 	mu sync.Mutex
@@ -98,8 +94,8 @@ type Server struct {
 // keptResults is how many results and notices the server keeps.
 const keptResults = 50
 
-func New(cfg config.Config, chat Chat, ask Asker, drop Drop, today Today, hub *events.Hub) *Server {
-	return &Server{cfg: cfg, chat: chat, ask: ask, drop: drop, today: today, events: hub, runs: map[string]string{}}
+func New(cfg config.Config, chat Chat, ask Asker, drop Drop, hub *events.Hub) *Server {
+	return &Server{cfg: cfg, chat: chat, ask: ask, drop: drop, events: hub, runs: map[string]string{}}
 }
 
 // Serve listens on addr until ctx ends.
@@ -498,7 +494,7 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("GET /today", func(w http.ResponseWriter, r *http.Request) {
-		day, err := s.today(r.Context())
+		day, err := today.Read(s.cfg, time.Now())
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
@@ -533,8 +529,6 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 
-		// The to-dos alone: the rest of the day, such as the calendar, is
-		// no answer to a tick and takes long to read.
 		tasks, err := today.Tasks(s.cfg)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)

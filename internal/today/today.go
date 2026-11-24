@@ -1,8 +1,6 @@
-// Package today gathers the user's day for the app's Today view: the
-// events of their Google Calendar, the reminders still to come today,
-// the replies of the jobs that ran in the night's quiet hours, and the
-// to-dos the agent keeps in the space's today.md, which the user ticks off
-// in the app.
+// Package today keeps the user's day for the app's Today view: the to-dos
+// the agent writes in the space's today.md, some at a time of the day,
+// which the user ticks off in the app.
 package today
 
 import (
@@ -31,92 +29,51 @@ var ErrChanged = errors.New("the list changed since it was read")
 // Day is what the app's Today view shows.
 type Day struct {
 	// Date is the day's date, such as 2026-11-23.
-	Date   string  `json:"date"`
-	Events []Event `json:"events"`
-	// Calendar says why the events are missing when the calendar is
-	// connected but den could not read it.
-	Calendar string   `json:"calendar,omitempty"`
-	Jobs     []Job    `json:"jobs"`
-	Night    []Result `json:"night"`
-	Tasks    []Task   `json:"tasks"`
-}
-
-// Event is an event of the user's calendar.
-type Event struct {
-	Title string    `json:"title"`
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
-	// AllDay events have dates and no times; Start is the day's midnight.
-	AllDay bool `json:"allDay,omitempty"`
-}
-
-// Job is a reminder still to come today.
-type Job struct {
-	Name  string    `json:"name"`
-	Title string    `json:"title"`
-	At    time.Time `json:"at"`
-}
-
-// Result is the reply of a job that ran in the night.
-type Result struct {
-	Session string    `json:"session"`
-	Title   string    `json:"title"`
-	At      time.Time `json:"at"`
-	// Text is the reply's first line.
-	Text   string `json:"text"`
-	Failed bool   `json:"failed,omitempty"`
+	Date  string `json:"date"`
+	Tasks []Task `json:"tasks"`
 }
 
 // Task is a to-do of the list.
 type Task struct {
+	// Time is when in the day it is, such as 15:00 or 15:00–16:00, for an
+	// item that starts with one.
+	Time string `json:"time,omitempty"`
 	Text string `json:"text"`
 	Done bool   `json:"done"`
 }
 
-// Night is the span of the quiet hours that ended on the morning of the
-// day of now: from 23:00 the evening before until 08:00. Jobs' replies
-// arrive without a sound then.
-func Night(now time.Time) (time.Time, time.Time) {
-	y, m, d := now.Date()
-	return time.Date(y, m, d-1, NightStart, 0, 0, 0, now.Location()),
-		time.Date(y, m, d, NightEnd, 0, 0, 0, now.Location())
-}
-
-// The hours the quiet night starts and ends.
-const (
-	NightStart = 23
-	NightEnd   = 8
-)
-
-// Quiet says whether t is in the quiet hours.
-func Quiet(t time.Time) bool {
-	return t.Hour() >= NightStart || t.Hour() < NightEnd
-}
-
-// Bounds are the start of the day of now and of the day after it.
-func Bounds(now time.Time) (time.Time, time.Time) {
-	y, m, d := now.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, now.Location()), time.Date(y, m, d+1, 0, 0, 0, 0, now.Location())
-}
-
-// FirstLine is the first line of text that has any, cut to a length a
-// card shows.
-func FirstLine(text string) string {
-	for line := range strings.SplitSeq(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if r := []rune(line); len(r) > 140 {
-			return string(r[:139]) + "…"
-		}
-		return line
+// Read reads the day of now.
+func Read(cfg config.Config, now time.Time) (Day, error) {
+	tasks, err := Tasks(cfg)
+	if err != nil {
+		return Day{}, err
 	}
-	return ""
+	return Day{Date: now.Format(time.DateOnly), Tasks: tasks}, nil
 }
 
 // task matches a to-do line: a list item that starts with a checkbox.
 var task = regexp.MustCompile(`^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$`)
+
+// clock matches the time an item starts with, such as 15:00 or 9:30, or
+// the span, such as 15:00–16:00.
+var clock = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)((?:\s*[-–]\s*\d{1,2}:\d{2})?)[\s,]+(\S.*)$`)
+
+// parse is the to-do of an item's text after its checkbox.
+func parse(text string, done bool) Task {
+	text = strings.TrimSpace(text)
+	if m := clock.FindStringSubmatch(text); m != nil {
+		hour := m[1]
+		if len(hour) == 1 {
+			hour = "0" + hour
+		}
+		at := hour + ":" + m[2]
+		if end := strings.TrimLeft(m[3], "-– \t"); end != "" {
+			at += "–" + end
+		}
+		return Task{Time: at, Text: m[4], Done: done}
+	}
+	return Task{Text: text, Done: done}
+}
 
 // Tasks reads the to-do list. A missing file has none.
 func Tasks(cfg config.Config) ([]Task, error) {
@@ -128,7 +85,7 @@ func Tasks(cfg config.Config) ([]Task, error) {
 	tasks := []Task{}
 	for _, line := range lines(string(data)) {
 		if m := task.FindStringSubmatch(line); m != nil && strings.TrimSpace(m[4]) != "" {
-			tasks = append(tasks, Task{Text: strings.TrimSpace(m[4]), Done: m[2] != " "})
+			tasks = append(tasks, parse(m[4], m[2] != " "))
 		}
 	}
 	return tasks, nil
@@ -138,7 +95,7 @@ func Tasks(cfg config.Config) ([]Task, error) {
 var writing sync.Mutex
 
 // Check ticks the to-do at index, or with done false unticks it, when that
-// to-do still reads text, and commits it when it can. A tick names its
+// to-do still reads text, its time aside, and commits it when it can. A tick names its
 // to-do rather than the list's version, so ticks that overlap, from one
 // device or two, all land.
 func Check(cfg config.Config, index int, text string, done bool) error {
@@ -158,7 +115,7 @@ func Check(cfg config.Config, index int, text string, done bool) error {
 			continue
 		}
 		if n == index {
-			if strings.TrimSpace(m[4]) != text {
+			if parse(m[4], false).Text != text {
 				return ErrChanged
 			}
 			at = i
@@ -193,7 +150,41 @@ func Check(cfg config.Config, index int, text string, done bool) error {
 
 	// The tick is saved once written; the agent's next commit takes it when
 	// this one fails.
-	if err := commit(cfg); err != nil {
+	if err := commit(cfg, "Tick a to-do in the app"); err != nil {
+		log.Printf("today: %v", err)
+	}
+	return nil
+}
+
+// Clear drops the past day's ticked to-dos and those at a time, which were
+// that day's, and commits the list when it can. The other open to-dos stay
+// for the new day.
+func Clear(cfg config.Config) error {
+	writing.Lock()
+	defer writing.Unlock()
+
+	data, err := read(cfg)
+	if err != nil || data == nil {
+		return err
+	}
+
+	all := strings.Split(string(data), "\n")
+	var kept []string
+	for i, line := range lines(string(data)) {
+		if m := task.FindStringSubmatch(line); m != nil {
+			if t := parse(m[4], m[2] != " "); t.Done || t.Time != "" {
+				continue
+			}
+		}
+		kept = append(kept, all[i])
+	}
+	if len(kept) == len(all) {
+		return nil
+	}
+	if err := proc.WriteFile(cfg, filepath.Join(cfg.Space, File), []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		return err
+	}
+	if err := commit(cfg, "Clear the past day's to-dos"); err != nil {
 		log.Printf("today: %v", err)
 	}
 	return nil
@@ -230,12 +221,12 @@ func read(cfg config.Config) ([]byte, error) {
 
 // commit commits the file alone, so what else the agent has changed in the
 // space stays for its own commit.
-func commit(cfg config.Config) error {
+func commit(cfg config.Config, message string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	script := `cd "$1" && git add -- "$2" && { git diff --cached --quiet -- "$2" || git commit -q -m "Tick a to-do in the app" -- "$2"; }`
-	cmd, err := proc.Command(ctx, cfg, "/bin/sh", "-c", script, "commit", cfg.Space, File)
+	script := `cd "$1" && git add -- "$2" && { git diff --cached --quiet -- "$2" || git commit -q -m "$3" -- "$2"; }`
+	cmd, err := proc.Command(ctx, cfg, "/bin/sh", "-c", script, "commit", cfg.Space, File, message)
 	if err != nil {
 		return err
 	}
