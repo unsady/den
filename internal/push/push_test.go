@@ -75,9 +75,9 @@ func TestNote(t *testing.T) {
 		want Note
 		ok   bool
 	}{
-		{events.Event{Type: events.Reply, Session: "s1", Text: "Done\n\nall  of it"}, Note{"den", "Done all of it", "s1"}, true},
-		{events.Event{Type: events.Result, Session: "j1", Title: "Weather", Text: "Sunny"}, Note{"Weather", "Sunny", "j1"}, true},
-		{events.Event{Type: events.Ask, What: "Send the mail"}, Note{"den", "Send the mail", ""}, true},
+		{events.Event{Type: events.Reply, Session: "s1", Text: "Done\n\nall  of it"}, Note{Title: "den", Body: "Done all of it", Session: "s1"}, true},
+		{events.Event{Type: events.Result, Session: "j1", Title: "Weather", Job: "weather", Text: "Sunny", Quiet: true}, Note{Title: "Weather", Body: "Sunny", Session: "j1", Job: "weather", Quiet: true}, true},
+		{events.Event{Type: events.Ask, What: "Send the mail"}, Note{Title: "den", Body: "Send the mail"}, true},
 		{events.Event{Type: events.Step, Session: "s1", Text: "Reading"}, Note{}, false},
 		{events.Event{Type: events.Reply, Session: "s1"}, Note{}, false},
 	}
@@ -111,6 +111,7 @@ func TestSend(t *testing.T) {
 
 	// Production knows aa11, the sandbox bb22; cc33 is gone.
 	var got []string
+	sound := "default"
 	server := func(name string, known string) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := strings.TrimPrefix(r.URL.Path, "/3/device/")
@@ -120,10 +121,14 @@ func TestSend(t *testing.T) {
 				t.Errorf("headers %v", r.Header)
 			}
 			var payload struct {
+				Aps struct {
+					Sound string `json:"sound"`
+				} `json:"aps"`
 				Session string `json:"session"`
+				Job     string `json:"job"`
 			}
 			json.Unmarshal(body, &payload)
-			if payload.Session != "s1" {
+			if payload.Session != "s1" || payload.Job != "weather" || payload.Aps.Sound != sound {
 				t.Errorf("payload %s", body)
 			}
 			switch {
@@ -145,15 +150,16 @@ func TestSend(t *testing.T) {
 
 	Add(cfg, "bb22")
 	Add(cfg, "cc33")
-	p.Send(t.Context(), Note{Title: "den", Body: "Done", Session: "s1"})
+	p.Send(t.Context(), Note{Title: "den", Body: "Done", Session: "s1", Job: "weather"})
 	want := "production aa11,production bb22,sandbox bb22,production cc33"
 	if strings.Join(got, ",") != want {
 		t.Errorf("sent %v, want %s", got, want)
 	}
 
-	// bb22 goes to the sandbox from now on, and cc33 is dropped.
-	got = nil
-	p.Send(t.Context(), Note{Title: "den", Body: "Again", Session: "s1"})
+	// bb22 goes to the sandbox from now on, and cc33 is dropped. A quiet
+	// one has no sound.
+	got, sound = nil, ""
+	p.Send(t.Context(), Note{Title: "den", Body: "Again", Session: "s1", Job: "weather", Quiet: true})
 	if want := "production aa11,sandbox bb22"; strings.Join(got, ",") != want {
 		t.Errorf("sent %v, want %s", got, want)
 	}

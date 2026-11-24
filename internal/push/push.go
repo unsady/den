@@ -99,8 +99,9 @@ type Pusher struct {
 	client *http.Client
 
 	// jwt is the signed token Apple takes, made again before it gets old.
-	jwt  string
-	made time.Time
+	signing sync.Mutex
+	jwt     string
+	made    time.Time
 }
 
 func New(cfg config.Config) *Pusher {
@@ -110,7 +111,7 @@ func New(cfg config.Config) *Pusher {
 // Run sends each event worth telling until ctx ends.
 func (p *Pusher) Run(ctx context.Context, hub *events.Hub) {
 	list, stop := hub.Listen()
-	defer stop()
+	defer func() { stop() }()
 	for {
 		select {
 		case <-ctx.Done():
@@ -122,8 +123,9 @@ func (p *Pusher) Run(ctx context.Context, hub *events.Hub) {
 				list, stop = hub.Listen()
 				continue
 			}
+			// Apple may be slow: the hub drops a listener that falls behind.
 			if n, ok := note(e); ok {
-				p.Send(ctx, n)
+				go p.Send(ctx, n)
 			}
 		}
 	}
@@ -132,13 +134,16 @@ func (p *Pusher) Run(ctx context.Context, hub *events.Hub) {
 // Note is what a push says.
 type Note struct {
 	Title, Body string
-	// Session is where it came, which a tap opens.
-	Session string
+	// Session is where it came, which a tap opens, and Job the job of a
+	// run's session, whose runs it opens.
+	Session, Job string
+	// Quiet comes without a sound.
+	Quiet bool
 }
 
 // note is what e says as a push, and false for an event not worth one.
 func note(e events.Event) (Note, bool) {
-	n := Note{Title: e.Title, Body: e.Text, Session: e.Session}
+	n := Note{Title: e.Title, Body: e.Text, Session: e.Session, Job: e.Job, Quiet: e.Quiet}
 	switch e.Type {
 	case events.Reply, events.Result, events.Notice:
 	case events.Ask:
@@ -167,30 +172,51 @@ func (p *Pusher) Send(ctx context.Context, n Note) {
 	}
 
 	mu.Lock()
-	defer mu.Unlock()
-
 	list := load(p.cfg)
+	mu.Unlock()
 	if len(list) == 0 {
 		return
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert":     map[string]string{"title": n.Title, "body": n.Body},
-			"sound":     "default",
-			"thread-id": n.Session,
-		},
-		"session": n.Session,
-	})
+	aps := map[string]any{
+		"alert":     map[string]string{"title": n.Title, "body": n.Body},
+		"thread-id": n.Session,
+	}
+	if !n.Quiet {
+		aps["sound"] = "default"
+	}
+	payload, _ := json.Marshal(map[string]any{"aps": aps, "session": n.Session, "job": n.Job})
 
-	var kept []device
+	// The posts go without the lock, so a phone that gives its token
+	// meanwhile does not wait on Apple.
+	gone := map[string]bool{}
+	sandbox := map[string]bool{}
 	for _, d := range list {
-		gone, err := p.post(ctx, info.Topic, jwt, &d, payload)
+		was := d.Sandbox
+		dropped, err := p.post(ctx, info.Topic, jwt, &d, payload)
 		if err != nil {
 			log.Printf("push: %v", err)
 		}
-		if !gone {
-			kept = append(kept, d)
+		if dropped {
+			gone[d.Token] = true
+		} else if d.Sandbox != was {
+			sandbox[d.Token] = d.Sandbox
 		}
+	}
+	if len(gone) == 0 && len(sandbox) == 0 {
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	var kept []device
+	for _, d := range load(p.cfg) {
+		if gone[d.Token] {
+			continue
+		}
+		if s, ok := sandbox[d.Token]; ok {
+			d.Sandbox = s
+		}
+		kept = append(kept, d)
 	}
 	if err := save(p.cfg, kept); err != nil {
 		log.Printf("push: %v", err)
@@ -270,8 +296,8 @@ func (p *Pusher) credentials() (info, string, error) {
 		return i, "", fmt.Errorf("%s needs key_id, team_id and topic", InfoFile)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	p.signing.Lock()
+	defer p.signing.Unlock()
 	if p.jwt != "" && time.Since(p.made) < 40*time.Minute {
 		return i, p.jwt, nil
 	}
