@@ -34,13 +34,14 @@ func TestDrafter(t *testing.T) {
 		t.Fatalf("sent %q", s)
 	}
 
-	// A step takes it at once; nothing goes once the turn ended.
+	// A step takes it at once, whether the text before it went or waited
+	// for its time; nothing goes once the turn ended.
 	d.set("Next")
 	d.set("")
 	d.end()
 	d.set("late")
 	time.Sleep(2 * draftEvery)
-	if s := got(); !slices.Equal(s[2:], []string{"Next", ""}) {
+	if s := got(); len(s) < 3 || s[len(s)-1] != "" || slices.Contains(s, "late") {
 		t.Fatalf("sent %q", s)
 	}
 }

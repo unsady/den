@@ -60,7 +60,7 @@ func (c *Chat) Start(ctx context.Context, text string, files []File) (string, er
 }
 
 // captured is what den tells the agent of a message sent with quick capture.
-const captured = "[den: the user sent this with quick capture. Put it where it belongs, such as in a note, a to-do for today, or a reminder, and reply in one line with where.]"
+const captured = "[den: the user sent this with quick capture. If it asks for something, do it; if not, put it where it belongs, such as in a note, a to-do for today, or a reminder, and reply in one line with where.]"
 
 // Capture gives text and files the user sent with quick capture, from the
 // share sheet or a hotkey, to a new session of their own, where the agent

@@ -77,7 +77,11 @@ func (f *fakeChat) Open(context.Context, string) error { return nil }
 
 func (f *fakeChat) Archive(context.Context, string, bool) error { return nil }
 
-func (f *fakeChat) Sessions(context.Context, store.Shelf, string, *store.Mark, int) ([]store.Session, error) {
+func (f *fakeChat) Sessions(_ context.Context, shelf store.Shelf, _ string, _ *store.Mark, _ int) ([]store.Session, error) {
+	// Search asks for every session; den keeps only s1 here.
+	if shelf == store.Everywhere {
+		return []store.Session{{ID: "s1", Kind: store.KindChat, Title: "Trip"}}, nil
+	}
 	return nil, nil
 }
 
@@ -296,6 +300,20 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("GET", "/sessions/s1?limit=x", token, ""); status != http.StatusBadRequest {
 		t.Fatalf("bad limit: %d", status)
+	}
+
+	// Search finds messages in any session den keeps, the latest first,
+	// each with its session.
+	hub.Publish(events.Event{Type: events.Reply, Session: "gone", Text: "Three more"})
+	var found struct {
+		Results []struct {
+			Session struct{ ID, Title string }
+			Message struct{ Text string }
+		}
+	}
+	_, body = call("GET", "/search?q=three", token, "")
+	if err := json.Unmarshal([]byte(body), &found); err != nil || len(found.Results) != 1 || found.Results[0].Session.Title != "Trip" || found.Results[0].Message.Text != "Three" {
+		t.Fatalf("search: %s", body)
 	}
 
 	if status, _ := call("DELETE", "/sessions/s1", token, ""); status != http.StatusOK || strings.Join(dropped, "|") != "s1" {

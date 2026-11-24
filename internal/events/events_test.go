@@ -1,10 +1,12 @@
 package events
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestJournal(t *testing.T) {
@@ -34,6 +36,35 @@ func TestJournal(t *testing.T) {
 	h.Forget("job1")
 	if _, err := Journal(h.Dir, "job1"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("forgotten: %v", err)
+	}
+}
+
+func TestSearch(t *testing.T) {
+	h := &Hub{Dir: t.TempDir()}
+	at := time.Now()
+	h.Publish(Event{Type: Message, Session: "s1", Text: "Book a table in Lisbon", At: at})
+	h.Publish(Event{Type: Reply, Session: "s1", Text: "Booked: Taberna, 8 pm", At: at.Add(time.Second)})
+	h.Publish(Event{Type: Step, Session: "s1", Text: "Reading lisbon.md"})
+	h.Publish(Event{Type: Reply, Session: "s2", Text: "Lisbon flights are cheaper on Tuesday", At: at.Add(2 * time.Second)})
+
+	all := func(string) bool { return true }
+	found, err := Search(context.Background(), h.Dir, "  LISBON ", 10, all)
+	if err != nil || len(found) != 2 || found[0].Session != "s2" || found[1].Text != "Book a table in Lisbon" {
+		t.Fatalf("found %+v, %v", found, err)
+	}
+	if found, _ := Search(context.Background(), h.Dir, "lisbon table", 10, all); len(found) != 1 || found[0].Session != "s1" {
+		t.Fatalf("both words %+v", found)
+	}
+	if found, _ := Search(context.Background(), h.Dir, "lisbon", 1, all); len(found) != 1 || found[0].Session != "s2" {
+		t.Fatalf("limit %+v", found)
+	}
+	if found, _ := Search(context.Background(), h.Dir, " ", 10, all); len(found) != 0 {
+		t.Fatalf("no words %+v", found)
+	}
+	// A session left out takes no place in the limit.
+	only := func(s string) bool { return s == "s1" }
+	if found, _ := Search(context.Background(), h.Dir, "lisbon", 1, only); len(found) != 1 || found[0].Session != "s1" {
+		t.Fatalf("kept %+v", found)
 	}
 }
 

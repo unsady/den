@@ -358,6 +358,47 @@ func (s *Server) Handler() http.Handler {
 		reply(w, page)
 	})
 
+	// ?q= finds the messages of every session, archived ones too, that
+	// hold each of its words, the latest first, each with its session.
+	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		limit, _, err := pageLimit(query.Get("limit"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if limit <= 0 {
+			limit = 50
+		}
+		all, err := s.chat.Sessions(r.Context(), store.Everywhere, "", nil, 1<<20)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		sessions := make(map[string]store.Session, len(all))
+		for _, l := range all {
+			sessions[l.ID] = l
+		}
+
+		// A journal den keeps no session for is one it is deleting.
+		kept := func(id string) bool { _, ok := sessions[id]; return ok }
+		found, err := events.Search(r.Context(), s.events.Dir, query.Get("q"), limit, kept)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		results := []hit{}
+		for _, e := range found {
+			l := sessions[e.Session]
+			results = append(results, hit{
+				Session: session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated},
+				Message: message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files},
+			})
+		}
+		reply(w, map[string]any{"results": results})
+	})
+
 	mux.HandleFunc("GET /sessions/{id}/files/{file}", func(w http.ResponseWriter, r *http.Request) {
 		id, file := r.PathValue("id"), r.PathValue("file")
 		if strings.ContainsAny(id+file, `/\`) || id == ".." || file == ".." {
@@ -698,6 +739,12 @@ type session struct {
 	// Archived marks a session in the archive.
 	Archived bool      `json:"archived,omitempty"`
 	Updated  time.Time `json:"updated"`
+}
+
+// hit is a message search found, with its session.
+type hit struct {
+	Session session `json:"session"`
+	Message message `json:"message"`
 }
 
 // message is one message of a session as the user saw it.
