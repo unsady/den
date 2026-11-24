@@ -35,6 +35,7 @@ import (
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/proc"
+	"github.com/unsady/den/internal/push"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/search"
 	"github.com/unsady/den/internal/seed"
@@ -249,6 +250,7 @@ func Serve(cfg config.Config) error {
 	go d.loop()
 	go d.backups()
 	d.wg.Go(func() { d.chat.Run(ctx) })
+	go push.New(cfg).Run(ctx, d.events)
 	go func() {
 		a := app.New(cfg, d.chat, d.ask, d.deleteSession, d.events)
 		if err := a.Serve(ctx, fmt.Sprintf(":%d", app.Port)); err != nil {
@@ -566,10 +568,11 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool) bool {
 	if run.Error != "" {
 		result = text
 	}
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != ""})
+	quiet = quietly(j, time.Now())
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != "", Quiet: quiet})
 
 	// A reply to the job's message continues its session in the chat.
-	ids, err := d.send(text, quietly(j, time.Now()))
+	ids, err := d.send(text, quiet)
 	if err != nil {
 		log.Printf("job %s: deliver: %v", j.Name, err)
 		return false

@@ -89,6 +89,9 @@ type Event struct {
 	Model string `json:"model,omitempty"`
 	// Failed marks a job's failure, or a turn's.
 	Failed bool `json:"failed,omitempty"`
+	// Quiet marks a job's result that comes without a sound, such as at
+	// night.
+	Quiet bool `json:"quiet,omitempty"`
 	// Retry says what the user can do about a failed turn: RetryAgain or
 	// RetryContinue.
 	Retry string `json:"retry,omitempty"`
