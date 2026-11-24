@@ -36,7 +36,7 @@ You keep `~/space` easy to find things in. Most nights there is little or nothin
 
    Add a missing one, shorten a longer one, and fix one that no longer matches the note. When two notes cover the same topic, merge them into one.
 
-5. In `today.md`, delete the ticked items, `- [x] …`; the open ones stay for the new day. This is routine: leave it out of your reply.
+5. In `today.md`, delete the ticked items, `- [x] …`, and those with a time, such as `- [ ] 15:00 …`, which were yesterday's; the other open ones stay for the new day. This is routine: leave it out of your reply.
 
 6. Commit only the paths you changed, since other sessions may have work in progress here, then stamp:
 
