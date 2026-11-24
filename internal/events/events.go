@@ -13,9 +13,11 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -271,4 +273,51 @@ func Journal(dir, session string) ([]Event, error) {
 		}
 	}
 	return list, scanner.Err()
+}
+
+// Search returns the kept events of every session whose text holds each of
+// words, in any case, the latest first, at most limit of them. Words are
+// taken apart by spaces; none finds nothing.
+func Search(dir, words string, limit int) ([]Event, error) {
+	terms := strings.Fields(strings.ToLower(words))
+	if len(terms) == 0 {
+		return nil, nil
+	}
+
+	names, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	var found []Event
+	for _, name := range names {
+		list, err := Journal(dir, strings.TrimSuffix(filepath.Base(name), ".jsonl"))
+		if err != nil {
+			// A session deleted meanwhile has nothing to find.
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		for _, e := range list {
+			if holds(strings.ToLower(e.Text), terms) {
+				found = append(found, e)
+			}
+		}
+	}
+
+	slices.SortFunc(found, func(a, b Event) int { return b.At.Compare(a.At) })
+	if len(found) > limit {
+		found = found[:limit]
+	}
+	return found, nil
+}
+
+// holds reports whether text holds each of terms.
+func holds(text string, terms []string) bool {
+	for _, t := range terms {
+		if !strings.Contains(text, t) {
+			return false
+		}
+	}
+	return true
 }

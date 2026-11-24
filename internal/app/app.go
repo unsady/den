@@ -358,6 +358,49 @@ func (s *Server) Handler() http.Handler {
 		reply(w, page)
 	})
 
+	// ?q= finds the messages of every session, archived ones too, that
+	// hold each of its words, the latest first, each with its session.
+	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		limit, _, err := pageLimit(query.Get("limit"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if limit <= 0 {
+			limit = 50
+		}
+		found, err := events.Search(s.events.Dir, query.Get("q"), limit)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+
+		all, err := s.chat.Sessions(r.Context(), store.Everywhere, "", nil, 1<<20)
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		sessions := make(map[string]store.Session, len(all))
+		for _, l := range all {
+			sessions[l.ID] = l
+		}
+
+		results := []hit{}
+		for _, e := range found {
+			// A journal den keeps no session for is one it is deleting.
+			l, ok := sessions[e.Session]
+			if !ok {
+				continue
+			}
+			results = append(results, hit{
+				Session: session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated},
+				Message: message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files},
+			})
+		}
+		reply(w, map[string]any{"results": results})
+	})
+
 	mux.HandleFunc("GET /sessions/{id}/files/{file}", func(w http.ResponseWriter, r *http.Request) {
 		id, file := r.PathValue("id"), r.PathValue("file")
 		if strings.ContainsAny(id+file, `/\`) || id == ".." || file == ".." {
@@ -701,6 +744,12 @@ type session struct {
 }
 
 // message is one message of a session as the user saw it.
+// hit is a message search found, with its session.
+type hit struct {
+	Session session `json:"session"`
+	Message message `json:"message"`
+}
+
 type message struct {
 	// Key is the event's that brought it, empty in a journal older than keys.
 	Key string `json:"key,omitempty"`
