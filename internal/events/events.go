@@ -28,7 +28,8 @@ import (
 const (
 	// Message is the user's message to the chat's session, from any client.
 	Message = "message"
-	// Step is the running turn's latest step, such as "Reading notes.md".
+	// Step is the running turn's latest step, such as "Reading notes.md",
+	// or none while the model thinks.
 	Step = "step"
 	// Reply is the agent's answer to a turn.
 	Reply = "reply"
@@ -103,9 +104,6 @@ type Event struct {
 	Options []string `json:"options,omitempty"`
 	// Source names where a question's action goes, such as "Gmail".
 	Source string `json:"source,omitempty"`
-	// Thinking marks a Step whose text is the model's latest line of
-	// reasoning rather than a step.
-	Thinking bool `json:"thinking,omitempty"`
 	// Archived is where an Archived event put its session.
 	Archived bool `json:"archived,omitempty"`
 	// Files are the files a reply or a File event carries.

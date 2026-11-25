@@ -12,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/unsady/den/internal/acp"
 	"github.com/unsady/den/internal/config"
@@ -99,23 +98,21 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 	// The reply is what the agent wrote after its last step. What it said
 	// before a step, such as "Reddit gives a stub, trying the old site", is
 	// not part of the answer but says what it does, so it goes to Said.
-	var last, thought strings.Builder
+	var last strings.Builder
 	ooms := proc.OOMKills()
-	// A step or the reply ends what the model thought before it.
-	thoughtDone := func() {
-		if thought.Len() > 0 && req.Thinking != nil {
-			req.Thinking("")
-		}
-		thought.Reset()
-	}
+	// The model thinks from its first thought after a step, or after what
+	// it wrote, until its next step or text.
+	thinking := false
 	onEvent := func(ev acp.Event) {
 		switch ev.Kind {
 		case acp.KindThought:
-			thought.WriteString(ev.Text)
-			if req.Thinking != nil {
-				req.Thinking(thoughtLine(thought.String()))
+			if !thinking && req.Thinking != nil {
+				req.Thinking()
 			}
+			thinking = true
 		case acp.KindRecovery:
+			// The model thinks anew once fx gets through.
+			thinking = false
 			if req.Recovering != nil {
 				req.Recovering(ev.Text)
 			}
@@ -134,13 +131,13 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 				})
 			}
 		case acp.KindText:
-			thoughtDone()
+			thinking = false
 			last.WriteString(ev.Text)
 			if req.Draft != nil {
 				req.Draft(last.String())
 			}
 		case acp.KindToolCall:
-			thoughtDone()
+			thinking = false
 			said := strings.TrimSpace(last.String())
 			last.Reset()
 			if said != "" && req.Draft != nil {
@@ -168,7 +165,6 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		prompt.Text += "\n" + noImages
 		res, err = conn.Prompt(prompting, session, prompt, onEvent)
 	}
-	thoughtDone()
 	reply.Output = strings.TrimSpace(last.String())
 	reply.InputTokens = int64(res.InputTokens)
 	reply.OutputTokens = int64(res.OutputTokens)
@@ -418,23 +414,4 @@ func stepLine(ev acp.Event) string {
 		}
 	}
 	return ev.Title
-}
-
-// thoughtWidth is how many characters of the model's reasoning a step line
-// shows.
-const thoughtWidth = 160
-
-// thoughtLine is the latest line of the model's reasoning, as far as it
-// got, without Markdown's emphasis, such as "Comparing the two flights".
-func thoughtLine(text string) string {
-	lines := strings.Split(strings.TrimSpace(text), "\n")
-	line := ""
-	for i := len(lines) - 1; i >= 0 && line == ""; i-- {
-		line = strings.TrimSpace(strings.Trim(strings.TrimSpace(lines[i]), "*#_"))
-	}
-	if utf8.RuneCountInString(line) <= thoughtWidth {
-		return line
-	}
-	runes := []rune(line)
-	return "…" + strings.TrimSpace(string(runes[len(runes)-thoughtWidth:]))
 }

@@ -111,6 +111,10 @@ func fakeACP(args []string) {
 		case strings.HasPrefix(first, "broken"):
 			tool("Reading", "path", "a.txt")
 			reply, stop = "the provider is down", "refused"
+		case strings.HasPrefix(first, "essay"):
+			// A long reply, written in two parts with a pause between.
+			update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": strings.Repeat("a", 250)}})
+			time.Sleep(200 * time.Millisecond)
 		case strings.HasPrefix(first, "thinking"):
 			// The model thinks, loses its provider, and fx resends until
 			// den gives up.

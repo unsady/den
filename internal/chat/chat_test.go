@@ -58,6 +58,8 @@ type fakeTelegram struct {
 	buttons []string
 	// labels are the texts of those buttons.
 	labels []string
+	// drafts are the texts of the drafts shown, in order.
+	drafts []string
 }
 
 // press queues a press of a button with the given data.
@@ -166,6 +168,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.sent <- body["text"].(string)
 		result = map[string]any{"message_id": 7}
+	case strings.HasSuffix(r.URL.Path, "/sendMessageDraft"):
+		f.mu.Lock()
+		f.drafts = append(f.drafts, body["text"].(string))
+		f.mu.Unlock()
 	case strings.HasSuffix(r.URL.Path, "/answerCallbackQuery"):
 		f.answered <- body["text"].(string)
 	case strings.HasSuffix(r.URL.Path, "/getFile"):
@@ -1659,6 +1665,31 @@ func seed(t *testing.T, c *Chat, sessions ...store.Session) {
 	}
 }
 
+// TestTelegramDraft checks that Telegram's chat sees a long reply as a
+// draft while it is written, and then the reply itself.
+func TestTelegramDraft(t *testing.T) {
+	defer func(d time.Duration) { telegramDraftEvery = d }(telegramDraftEvery)
+	telegramDraftEvery = 10 * time.Millisecond
+
+	_, telegram := startChat(t, nil)
+	telegram.message(42, "essay")
+	var reply string
+	select {
+	case reply = <-telegram.sent:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
+	if !strings.HasPrefix(reply, strings.Repeat("a", 250)+"resume=") {
+		t.Fatalf("reply %q", reply)
+	}
+	telegram.mu.Lock()
+	drafts := slices.Clone(telegram.drafts)
+	telegram.mu.Unlock()
+	if len(drafts) == 0 || drafts[0] != strings.Repeat("a", 250) {
+		t.Fatalf("drafts %q", drafts)
+	}
+}
+
 // TestRunning checks that a client reading the setup sees each running turn
 // with its latest step, and no longer once it ends.
 func TestRunning(t *testing.T) {
@@ -1772,9 +1803,9 @@ func TestArchiveIdle(t *testing.T) {
 	}
 }
 
-// TestThinkingAndGivingUp checks that the step line shows what the model
-// thinks, then why fx resends, and that a turn whose model fx cannot reach
-// fails with its message held to retry.
+// TestThinkingAndGivingUp checks that the step line says the model thinks,
+// then why fx resends, and that a turn whose model fx cannot reach fails
+// with its message held to retry.
 func TestThinkingAndGivingUp(t *testing.T) {
 	defer func(d time.Duration) { giveUp = d }(giveUp)
 	giveUp = 500 * time.Millisecond
@@ -1792,11 +1823,7 @@ func TestThinkingAndGivingUp(t *testing.T) {
 		case e := <-list:
 			switch e.Type {
 			case events.Step:
-				line := e.Text
-				if e.Thinking {
-					line = "thinking: " + line
-				}
-				lines = append(lines, line)
+				lines = append(lines, e.Text)
 				continue
 			case events.Reply:
 			default:
@@ -1810,8 +1837,8 @@ func TestThinkingAndGivingUp(t *testing.T) {
 		}
 		break
 	}
-	thought := slices.Index(lines, "thinking: Comparing the two flights")
-	if thought < 0 || slices.Index(lines, "Gateway error · next try in 2s") != thought+1 {
+	// One empty step for the two thoughts, then why fx waits.
+	if len(lines) < 2 || lines[0] != "" || lines[1] != "Gateway error · next try in 2s" {
 		t.Fatalf("steps %q", lines)
 	}
 }
