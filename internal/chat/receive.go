@@ -280,10 +280,13 @@ func (c *Chat) steeredTurn(key string, reply runner.Reply) {
 	// fx ran the message as a turn after den passed it, so a mark from
 	// before that belongs to the turn it was meant for.
 	quiet := c.Quieted(reply.SessionID, st.at)
+	// fx starts the turn itself, so den has no stamp of the memory from
+	// before it, and goes by the agent's lines alone.
+	note := MemoryNote(false, c.Remembered(reply.SessionID, st.at))
 	if reply.Error == "" && quiet {
 		return
 	}
-	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != ""})
+	c.Events.Publish(events.Event{Type: events.Reply, Session: reply.SessionID, Text: answer(reply, true), Failed: reply.Error != "", Memory: note})
 	if !c.inTelegram(reply.SessionID) {
 		return
 	}

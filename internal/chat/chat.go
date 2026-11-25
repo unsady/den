@@ -183,7 +183,7 @@ type Chat struct {
 	quiet map[string]time.Time
 	// remembered holds the lines each session's agent left on what it
 	// changed in its memory, until the turn that left them ends.
-	remembered map[string]remembered
+	remembered map[string][]remembered
 }
 
 // Quiet marks the running turn in session as one with nothing to send.
@@ -351,7 +351,7 @@ func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Ch
 		steered:    map[string]steered{},
 		titled:     map[string]bool{},
 		quiet:      map[string]time.Time{},
-		remembered: map[string]remembered{},
+		remembered: map[string][]remembered{},
 		steps:      map[string]string{},
 		Events:     &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}

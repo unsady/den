@@ -156,11 +156,17 @@ func TestChanged(t *testing.T) {
 	space := t.TempDir()
 	cfg := config.Config{Space: space}
 	path := filepath.Join(space, File)
+
+	// Creating the file is a change.
+	stamp := Stamp(cfg)
 	if err := os.WriteFile(path, []byte(seeded), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if !Changed(cfg, stamp) {
+		t.Error("a created file did not change")
+	}
 
-	stamp := Stamp(cfg)
+	stamp = Stamp(cfg)
 	if Changed(cfg, stamp) {
 		t.Error("an untouched file changed")
 	}

@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/memory"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/store"
@@ -128,6 +129,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 		defer cancel()
 		defer release()
 		agent := runner.NewAgent(c.cfg)
+		started, stamp := time.Now(), memory.Stamp(c.cfg)
 		reply := agent.Ask(run, runner.Request{
 			Prompt:   task,
 			Provider: m.Provider,
@@ -136,6 +138,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 			Resume:   session,
 		})
 		agent.Close()
+		note := MemoryNote(memory.Changed(c.cfg, stamp), c.Remembered(session, started))
 		log.Printf("chat: background turn in %s", reply.Duration)
 		if reply.InputTokens > 0 || reply.OutputTokens > 0 {
 			c.usage.Add("chat", time.Now(), reply.InputTokens, reply.OutputTokens)
@@ -163,7 +166,7 @@ func (c *Chat) runBackground(ctx context.Context, telegram *notify.Telegram, tas
 			return
 		}
 		c.Events.Publish(events.Event{Type: events.Message, At: asked, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: task})
-		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: answer(reply, false), Failed: reply.Error != ""})
+		c.Events.Publish(events.Event{Type: events.Reply, Session: session, Title: s.Title, Kind: string(store.KindBackground), Text: answer(reply, false), Failed: reply.Error != "", Memory: note})
 		if !c.inTelegram(session) {
 			return
 		}

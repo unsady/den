@@ -1939,7 +1939,7 @@ func TestTurnRecoveryInTelegram(t *testing.T) {
 }
 
 func TestRemembered(t *testing.T) {
-	c := &Chat{remembered: map[string]remembered{}}
+	c := &Chat{remembered: map[string][]remembered{}}
 	started := time.Now()
 
 	if lines := c.Remembered("s1", started); lines != nil {
@@ -1968,12 +1968,18 @@ func TestRemembered(t *testing.T) {
 		t.Errorf("the lines were not consumed: %q", lines)
 	}
 
-	// Lines left before the turn started belong to an earlier one.
+	// A line left before the turn started belongs to an earlier one, and
+	// does not take the turn's own lines with it.
 	if err := c.Remember("s1", "Old"); err != nil {
 		t.Fatal(err)
 	}
-	if lines := c.Remembered("s1", time.Now().Add(time.Second)); lines != nil {
-		t.Errorf("lines from an earlier turn counted: %q", lines)
+	next := time.Now().Add(time.Millisecond)
+	time.Sleep(2 * time.Millisecond)
+	if err := c.Remember("s1", "New"); err != nil {
+		t.Fatal(err)
+	}
+	if lines := c.Remembered("s1", next); !slices.Equal(lines, []string{"New"}) {
+		t.Errorf("lines = %q, want the turn's own", lines)
 	}
 }
 

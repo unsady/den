@@ -18,11 +18,10 @@ const (
 	rememberedLines = 3
 )
 
-// remembered is what a session's agent left, and when it left the first
-// line.
+// remembered is a line the agent left, and when.
 type remembered struct {
-	at    time.Time
-	lines []string
+	at   time.Time
+	line string
 }
 
 // Remember keeps line as one of what the agent in session changed in its
@@ -39,30 +38,28 @@ func (c *Chat) Remember(session, line string) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r, ok := c.remembered[session]
-	if !ok {
-		r = remembered{at: time.Now()}
-	}
-	if len(r.lines) >= rememberedLines {
+	held := c.remembered[session]
+	if len(held) >= rememberedLines {
 		return fmt.Errorf("this turn already has %d lines; merge them into fewer", rememberedLines)
 	}
-	r.lines = append(r.lines, line)
-	c.remembered[session] = r
+	c.remembered[session] = append(held, remembered{at: time.Now(), line: line})
 	return nil
 }
 
 // Remembered returns what the agent in session left during the turn that
-// started at since, and forgets it; lines from before since belong to an
-// earlier turn and do not count.
+// started at since, and forgets all it left; lines from before since belong
+// to an earlier turn, such as a command that outlived it, and do not count.
 func (c *Chat) Remembered(session string, since time.Time) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r, ok := c.remembered[session]
-	delete(c.remembered, session)
-	if !ok || r.at.Before(since) {
-		return nil
+	var lines []string
+	for _, r := range c.remembered[session] {
+		if !r.at.Before(since) {
+			lines = append(lines, r.line)
+		}
 	}
-	return r.lines
+	delete(c.remembered, session)
+	return lines
 }
 
 // MemoryNote is what a reply says of the memory: nil when the turn neither
