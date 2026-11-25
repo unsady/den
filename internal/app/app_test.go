@@ -71,6 +71,16 @@ func (f *fakeChat) Retry(_ context.Context, session string) error {
 
 func (f *fakeChat) Continue(context.Context, string) error { return nil }
 
+func (f *fakeChat) Compact(_ context.Context, session string) error {
+	switch session {
+	case "s1":
+		return nil
+	case "busy":
+		return chat.ErrBusy
+	}
+	return chat.ErrUnknown
+}
+
 func (f *fakeChat) Holds(context.Context, string) bool { return false }
 
 func (f *fakeChat) Open(context.Context, string) error { return nil }
@@ -226,6 +236,19 @@ func TestServer(t *testing.T) {
 	}
 	if status, _ := call("POST", "/sessions/s2/retry", token, ""); status != http.StatusConflict {
 		t.Fatalf("retry with nothing held: %d", status)
+	}
+	// Compacting starts and runs on; a busy session or an unknown one
+	// refuses.
+	for id, want := range map[string]int{"s1": http.StatusAccepted, "busy": http.StatusConflict, "nope": http.StatusNotFound} {
+		if status, body := call("POST", "/sessions/"+id+"/compact", token, ""); status != want {
+			t.Fatalf("compact %s: %d %s", id, status, body)
+		}
+	}
+	// The feed keeps where den compacted a session, with no text.
+	hub.Publish(events.Event{Type: events.Compacted, Session: "squeezed", Before: 140_000, Context: 11_000})
+	hub.Publish(events.Event{Type: events.Context, Session: "squeezed", Context: 12_000})
+	if _, body := call("GET", "/sessions/squeezed", token, ""); !strings.Contains(body, `"compacted":{"before":140000,"after":11000}`) || strings.Count(body, `"key"`) != 1 {
+		t.Fatalf("a compacted session: %s", body)
 	}
 	// A phone gives its token for pushes.
 	if status, body := call("POST", "/devices", token, `{"token":"ab12"}`); status != http.StatusNoContent {

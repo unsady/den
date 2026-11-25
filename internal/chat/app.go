@@ -199,6 +199,8 @@ type Model struct {
 	Effort string `json:"effort,omitempty"`
 	// Efforts are its levels, none when it has no choice.
 	Efforts []string `json:"efforts,omitempty"`
+	// Window is its context window in tokens, 0 when unknown.
+	Window int `json:"window,omitempty"`
 }
 
 // Setup is what the app shows of the chat.
@@ -321,7 +323,7 @@ func (c *Chat) describe(provider, model, effort string) Model {
 	if name == "" {
 		name = model
 	}
-	return Model{Provider: provider, Model: model, Name: name, Effort: effort, Efforts: c.efforts(provider, model)}
+	return Model{Provider: provider, Model: model, Name: name, Effort: effort, Efforts: c.efforts(provider, model), Window: c.window(provider, model)}
 }
 
 // catalogName reads the model's name from fx's catalog of the provider, or

@@ -2,12 +2,14 @@ package chat
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/unsady/den/internal/acp"
+	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/store"
 )
@@ -29,26 +31,27 @@ var (
 // compact compacts the chat's session when the user has been away and it
 // is long enough to be worth it.
 func (c *Chat) compact(ctx context.Context) {
-	used := c.sizeOf(c.cursor(store.Telegram))
-	if c.waiting() || c.agentBusy() || used < compactAbove {
+	session := c.cursor(store.Telegram)
+	if c.waiting() || c.agentBusy() || c.sizeOf(session) < compactAbove {
 		return
 	}
-	if _, err := c.squeezeSession(ctx, false); err != nil {
+	if _, err := c.squeezeSession(ctx, session, false); err != nil {
 		log.Printf("chat: compacting failed: %v", err)
 	}
 }
 
-// compactNow compacts the session at the user's request, for /compact, and
-// says how it went.
+// compactNow compacts the chat's session at the user's request, for
+// /compact, and says how it went.
 func (c *Chat) compactNow(ctx context.Context) string {
-	if !c.saved(c.cursor(store.Telegram)) {
+	session := c.cursor(store.Telegram)
+	if !c.saved(session) {
 		return "There is no session to compact yet."
 	}
 
 	// It takes a while, so the chat shows den typing meanwhile.
 	done := make(chan struct{})
 	go c.showTyping(ctx, done)
-	out, err := c.squeezeSession(ctx, true)
+	out, err := c.squeezeSession(ctx, session, true)
 	close(done)
 	switch {
 	case err != nil:
@@ -59,13 +62,41 @@ func (c *Chat) compactNow(ctx context.Context) string {
 	return fmt.Sprintf("🗜 Compacted the session: %s → %s tokens.", tokens(out.Before), tokens(out.After))
 }
 
-// compacted records that fx compacted session, from used tokens to after.
-// fx compacts a session in place, under its id.
+// Compact starts compacting session for the app, which hears how it went
+// from the session's events. It refuses while a turn, a job or a /bg task
+// runs in the session.
+func (c *Chat) Compact(ctx context.Context, session string) error {
+	if !c.saved(session) {
+		return ErrUnknown
+	}
+	c.mu.Lock()
+	busy, life := c.busy[session] > 0 || c.stopping, c.life
+	c.mu.Unlock()
+	if busy {
+		return ErrBusy
+	}
+
+	c.background.Go(func() {
+		if _, err := c.squeezeSession(life, session, true); err != nil {
+			log.Printf("chat: compacting %s failed: %v", session, err)
+		}
+	})
+	return nil
+}
+
+// ErrUnknown is Compact's error for a session fx has not saved.
+var ErrUnknown = errors.New("no such session")
+
+// compacted records that fx compacted session, from used tokens to after,
+// and puts the mark in the session's feed. fx compacts a session in place,
+// under its id. Unless quiet, the session's next reply in Telegram says it.
 func (c *Chat) compacted(session string, used, after int, quiet bool) {
 	ctx := context.Background()
 	if err := c.store.SetContext(ctx, session, after); err != nil {
 		log.Printf("chat: compacted session %s: %v", session, err)
 	}
+	c.Events.Publish(events.Event{Type: events.Compacted, Session: session, Before: used, Context: after})
+
 	if quiet {
 		used = 0
 	}
@@ -86,39 +117,67 @@ func (c *Chat) sizeOf(session string) int {
 	return s.Context
 }
 
-// squeezeSession has fx compact the chat's session in place, and returns
-// what came of it. The next reply in the session tells the user, unless
-// they asked for it, as quiet says.
-func (c *Chat) squeezeSession(ctx context.Context, quiet bool) (acp.Compaction, error) {
-	session := c.cursor(store.Telegram)
+// squeezeSession has fx compact session in place, on the session's model,
+// and returns what came of it. The app sees it start and end; the next
+// reply in Telegram tells the user, unless they asked for it, as quiet
+// says.
+func (c *Chat) squeezeSession(ctx context.Context, session string, quiet bool) (out acp.Compaction, err error) {
 	if session == "" {
-		return acp.Compaction{}, errors.New("no session")
+		return out, errors.New("no session")
 	}
-	if c.waiting() {
-		return acp.Compaction{}, errors.New("a message is waiting")
+	choice, err := c.choiceOf(session)
+	if err != nil {
+		return out, err
 	}
-	m := c.mainModel()
-	// The session and the chat's agent are den's alone while it compacts.
+
+	// The session is den's alone while it compacts. It compacts on the
+	// chat's agent when that is free, which drops the session it held so
+	// no fx keeps an older copy of it; else on an agent of its own, as the
+	// chat's agent then holds another session.
 	c.mu.Lock()
-	if c.stop != nil || c.busy[session] > 0 {
+	if c.busy[session] > 0 {
 		c.mu.Unlock()
-		return acp.Compaction{}, errors.New("a turn runs")
+		return out, errors.New("a turn runs")
 	}
 	turn, stop := context.WithCancel(ctx)
-	c.stop = stop
+	agent, id := c.agent, ""
+	if c.stop == nil {
+		c.stop = stop
+	} else {
+		agent, id = runner.NewAgent(c.cfg), rand.Text()
+		c.bg[id] = stop
+	}
 	release := c.occupy(session)
 	c.mu.Unlock()
 	defer stop()
 	defer release()
+	defer func() {
+		c.mu.Lock()
+		if id == "" {
+			c.stop = nil
+		} else {
+			delete(c.bg, id)
+		}
+		c.mu.Unlock()
+		if id != "" {
+			agent.Close()
+		}
 
+		// Whatever came of it, the app stops showing it run; one that
+		// compacted heard Compacted.
+		if err != nil || !out.Compacted {
+			e := events.Event{Type: events.Context, Session: session, Context: c.sizeOf(session)}
+			if err != nil {
+				e.Failed, e.Text = true, "Compacting failed: "+err.Error()
+			}
+			c.Events.Publish(e)
+		}
+	}()
+
+	c.Events.Publish(events.Event{Type: events.Compacting, Session: session})
 	log.Printf("chat: compacting session %s", session)
 	started := time.Now()
-	out, err := c.agent.Compact(turn, runner.Request{Provider: m.Provider, Model: m.Model, Effort: m.Effort, Resume: session})
-
-	c.mu.Lock()
-	c.stop = nil
-	c.mu.Unlock()
-
+	out, err = agent.Compact(turn, runner.Request{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort, Resume: session})
 	if err != nil {
 		return out, err
 	}
