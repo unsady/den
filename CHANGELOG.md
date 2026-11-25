@@ -9,7 +9,6 @@ release notes.
 ### Added
 
 - Push notifications for the phone app: a reply, a job's result, a notice, or a question reaches the phone while the app is closed, once den has an Apple push key (`apns.p8` and `apns.json` among its secrets).
-
 - While the agent works, the app's line of its steps shows what the model thinks between them, and why it waits when the model's provider does not answer, so a long pause no longer looks like a hang.
 
 ### Fixed
