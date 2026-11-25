@@ -489,20 +489,20 @@ func saveLocal(dir, name string, data []byte) error {
 	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		return err
 	}
-	if err := ownLike(path, dir); err != nil {
-		return err
-	}
+	// A snapshot the user cannot read is a failure, but the old ones still
+	// go, so the folder does not fill up while it lasts.
+	owned := ownLike(path, dir)
 
 	names, err := listLocal(dir)
 	if err != nil {
-		return err
+		return errors.Join(owned, err)
 	}
 	for _, old := range stale(names, name) {
 		if err := os.Remove(filepath.Join(dir, old)); err != nil {
-			return err
+			return errors.Join(owned, err)
 		}
 	}
-	return nil
+	return owned
 }
 
 func listLocal(dir string) ([]string, error) {
