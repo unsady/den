@@ -10,6 +10,7 @@ release notes.
 
 - `den config` shows den's settings, and `den config set` changes the container's memory or cores, or a variable of den's environment such as `DEN_WHISPER_MODEL`, and restarts den: no more editing `config.json` by hand.
 - Push notifications for the phone app: a reply, a job's result, a notice, or a question reaches the phone while the app is closed, once den has an Apple push key (`apns.p8` and `apns.json` among its secrets).
+- When a turn or a job changes the agent's memory, the app marks its reply with "Memory updated", and shows the agent's short lines on what changed, which it leaves with the new `den remembered`.
 - While the agent works, the app's line of its steps shows what the model thinks between them, and why it waits when the model's provider does not answer, so a long pause no longer looks like a hang.
 
 ### Fixed

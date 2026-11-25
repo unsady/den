@@ -110,6 +110,14 @@ type Event struct {
 	Archived bool `json:"archived,omitempty"`
 	// Files are the files a reply or a File event carries.
 	Files []Attachment `json:"files,omitempty"`
+	// Memory says a reply's or a result's turn changed the agent's memory.
+	Memory *Memory `json:"memory,omitempty"`
+}
+
+// Memory is what a turn changed in the agent's memory: the lines the agent
+// left on it, none when it left none.
+type Memory struct {
+	Lines []string `json:"lines,omitempty"`
 }
 
 // What the user can do about a failed turn. A turn that failed before its

@@ -33,6 +33,7 @@ import (
 	"github.com/unsady/den/internal/grok"
 	"github.com/unsady/den/internal/jobs"
 	"github.com/unsady/den/internal/mail"
+	"github.com/unsady/den/internal/memory"
 	"github.com/unsady/den/internal/models"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/proc"
@@ -436,6 +437,7 @@ func (d *daemon) start(j jobs.Job) bool {
 		// commands report goes there, and it is not deleted meanwhile.
 		session := store.NewID()
 		var run jobs.Run
+		stamp := memory.Stamp(d.cfg)
 		err := d.db.AddSession(d.ctx, store.Session{
 			ID: session, Kind: store.KindJob, Job: j.Name, Title: j.Title,
 			Choice: store.Choice{Provider: choice.Provider, Model: choice.Model, Effort: choice.Effort},
@@ -453,7 +455,8 @@ func (d *daemon) start(j jobs.Job) bool {
 
 		// The mark is consumed once, for the delivery and the session below.
 		quiet := d.chat.Quieted(run.SessionID, run.Started)
-		run.Delivered = d.deliver(j, run, quiet)
+		note := chat.MemoryNote(memory.Changed(d.cfg, stamp), d.chat.Remembered(run.SessionID, run.Started))
+		run.Delivered = d.deliver(j, run, quiet, note)
 		// A run that has nothing for the user leaves nothing to go on
 		// with, so its session goes. One den failed to send keeps it.
 		if silent(j, run, quiet) && run.SessionID != "" {
@@ -548,8 +551,8 @@ func (d *daemon) Forget(id string) (approve.Rule, bool) { return d.ask.Forget(id
 func (d *daemon) Actions(since time.Time) []approve.Action { return d.ask.Actions(since) }
 
 // deliver sends a run's reply, or its failure, to the user. quiet says the
-// run's agent had nothing to send.
-func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool) bool {
+// run's agent had nothing to send, and note what it changed in its memory.
+func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool, note *events.Memory) bool {
 	var text string
 	switch {
 	case run.Error != "":
@@ -574,7 +577,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool) bool {
 		result = text
 	}
 	quiet = quietly(j, time.Now())
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != "", Quiet: quiet})
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != "", Quiet: quiet, Memory: note})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quiet)
@@ -665,6 +668,14 @@ type AddRequest struct {
 type QuietRequest struct {
 	// Session is the DEN_SESSION of the agent that has nothing to send.
 	Session string `json:"session"`
+}
+
+// RememberedRequest is the body of POST /remembered: a line on what the
+// agent changed in its memory, for the user to see under its reply.
+type RememberedRequest struct {
+	// Session is the DEN_SESSION of the agent that changed it.
+	Session string `json:"session"`
+	Text    string `json:"text"`
 }
 
 // ProgressRequest is the body of POST /progress: what a running command
@@ -886,6 +897,24 @@ func (d *daemon) routes() http.Handler {
 
 		d.chat.Quiet(req.Session)
 		reply(w, http.StatusOK, map[string]bool{"quiet": true})
+	})
+
+	mux.HandleFunc("POST /remembered", func(w http.ResponseWriter, r *http.Request) {
+		var req RememberedRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Session == "" {
+			fail(w, http.StatusBadRequest, errors.New("no session"))
+			return
+		}
+
+		if err := d.chat.Remember(req.Session, req.Text); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		reply(w, http.StatusOK, map[string]bool{"remembered": true})
 	})
 
 	mux.HandleFunc("POST /progress", func(w http.ResponseWriter, r *http.Request) {

@@ -1937,3 +1937,54 @@ func TestTurnRecoveryInTelegram(t *testing.T) {
 	telegram.expectAnswer(t, "")
 	telegram.expect(t, "resume=s1 msg=flaky in telegram lines=1")
 }
+
+func TestRemembered(t *testing.T) {
+	c := &Chat{remembered: map[string]remembered{}}
+	started := time.Now()
+
+	if lines := c.Remembered("s1", started); lines != nil {
+		t.Errorf("a turn without lines has %q", lines)
+	}
+
+	if err := c.Remember("s1", "  Calling you   by your first name "); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Remember("s1", "one two three four five six seven eight nine ten eleven twelve thirteen"); err == nil {
+		t.Error("a line over the word limit was kept")
+	}
+	for _, line := range []string{"Second", "Third"} {
+		if err := c.Remember("s1", line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.Remember("s1", "Fourth"); err == nil {
+		t.Error("a fourth line was kept")
+	}
+	lines := c.Remembered("s1", started)
+	if want := []string{"Calling you by your first name", "Second", "Third"}; !slices.Equal(lines, want) {
+		t.Errorf("lines = %q, want %q", lines, want)
+	}
+	if lines := c.Remembered("s1", started); lines != nil {
+		t.Errorf("the lines were not consumed: %q", lines)
+	}
+
+	// Lines left before the turn started belong to an earlier one.
+	if err := c.Remember("s1", "Old"); err != nil {
+		t.Fatal(err)
+	}
+	if lines := c.Remembered("s1", time.Now().Add(time.Second)); lines != nil {
+		t.Errorf("lines from an earlier turn counted: %q", lines)
+	}
+}
+
+func TestMemoryNote(t *testing.T) {
+	if MemoryNote(false, nil) != nil {
+		t.Error("a turn that left memory alone has a note")
+	}
+	if note := MemoryNote(true, nil); note == nil || len(note.Lines) != 0 {
+		t.Errorf("a change without lines = %+v", note)
+	}
+	if note := MemoryNote(false, []string{"x"}); note == nil || len(note.Lines) != 1 {
+		t.Errorf("lines without a seen change = %+v", note)
+	}
+}

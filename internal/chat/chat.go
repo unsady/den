@@ -181,6 +181,9 @@ type Chat struct {
 	// quiet holds when each session's agent said it had nothing to send,
 	// until the turn that said it ends.
 	quiet map[string]time.Time
+	// remembered holds the lines each session's agent left on what it
+	// changed in its memory, until the turn that left them ends.
+	remembered map[string]remembered
 }
 
 // Quiet marks the running turn in session as one with nothing to send.
@@ -331,25 +334,26 @@ func (c *Chat) poke() {
 
 func New(cfg config.Config, den Daemon, usage *usage.Store, st *store.Store) *Chat {
 	c := &Chat{
-		cfg:      cfg,
-		den:      den,
-		usage:    usage,
-		store:    st,
-		wake:     make(chan struct{}, 1),
-		squeeze:  make(chan struct{}, 1),
-		ended:    make(chan struct{}, 1),
-		notes:    make(chan string, 1),
-		bg:       map[string]context.CancelFunc{},
-		turns:    map[string]context.CancelFunc{},
-		attached: map[string][]Upload{},
-		agent:    runner.NewAgent(cfg),
-		busy:     map[string]int{},
-		steering: map[string]*runner.Agent{},
-		steered:  map[string]steered{},
-		titled:   map[string]bool{},
-		quiet:    map[string]time.Time{},
-		steps:    map[string]string{},
-		Events:   &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
+		cfg:        cfg,
+		den:        den,
+		usage:      usage,
+		store:      st,
+		wake:       make(chan struct{}, 1),
+		squeeze:    make(chan struct{}, 1),
+		ended:      make(chan struct{}, 1),
+		notes:      make(chan string, 1),
+		bg:         map[string]context.CancelFunc{},
+		turns:      map[string]context.CancelFunc{},
+		attached:   map[string][]Upload{},
+		agent:      runner.NewAgent(cfg),
+		busy:       map[string]int{},
+		steering:   map[string]*runner.Agent{},
+		steered:    map[string]steered{},
+		titled:     map[string]bool{},
+		quiet:      map[string]time.Time{},
+		remembered: map[string]remembered{},
+		steps:      map[string]string{},
+		Events:     &events.Hub{Dir: filepath.Join(cfg.State, "journal")},
 	}
 	c.agent.OnDropped = c.undelivered
 	c.agent.OnTurn = c.steeredTurn

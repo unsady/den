@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/unsady/den/internal/events"
+	"github.com/unsady/den/internal/memory"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
 	"github.com/unsady/den/internal/sessions"
@@ -366,7 +367,9 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		},
 		GiveUp: giveUp,
 	}
+	stamp := memory.Stamp(c.cfg)
 	reply := t.agent.Ask(turn, req)
+	note := MemoryNote(memory.Changed(c.cfg, stamp), c.Remembered(session, started))
 	drafts.end()
 	thoughts.end()
 	close(done)
@@ -443,7 +446,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		retry = c.recovery(session, t.messages, stepped.Load())
 	}
 	// The app shows each session apart, so its reply needs no label.
-	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Retry: retry, Files: c.keep(session, files)})
+	c.Events.Publish(events.Event{Type: events.Reply, Session: session, Text: text, Failed: reply.Error != "", Retry: retry, Files: c.keep(session, files), Memory: note})
 	// A reply from a session other than the chat's, such as a reply to a
 	// job's message or a turn the chat left with /new, says which.
 	if label := c.Label(session); label != "" {
