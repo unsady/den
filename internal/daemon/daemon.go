@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -730,13 +731,28 @@ type MapReply struct {
 type SendRequest struct {
 	Name    string `json:"name"`
 	Caption string `json:"caption"`
-	Data    []byte `json:"data"`
+	// Source is the http(s) page the file came from.
+	Source string `json:"source,omitempty"`
+	Data   []byte `json:"data"`
 	// Session is the DEN_SESSION of the agent that sent it: the file goes
 	// with the reply of the turn running there, or to the session.
 	Session string `json:"session,omitempty"`
 	// Widget describes the file for the app to draw itself, such as a
 	// chart's data; Telegram gets the file.
 	Widget json.RawMessage `json:"widget,omitempty"`
+}
+
+// CheckSource accepts an empty source or an http(s) link, the only kind
+// the apps and Telegram open.
+func CheckSource(source string) error {
+	if source == "" {
+		return nil
+	}
+	u, err := url.Parse(source)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("source %q is not an http(s) link", source)
+	}
+	return nil
 }
 
 func (d *daemon) routes() http.Handler {
@@ -941,9 +957,13 @@ func (d *daemon) routes() http.Handler {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
+		if err := CheckSource(req.Source); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
 		ctx, cancel := context.WithTimeout(d.ctx, 5*time.Minute)
 		defer cancel()
-		upload := chat.Upload{Upload: notify.Upload{Name: filepath.Base(req.Name), Data: req.Data, Caption: req.Caption}, Widget: req.Widget}
+		upload := chat.Upload{Upload: notify.Upload{Name: filepath.Base(req.Name), Data: req.Data, Caption: req.Caption, Source: req.Source}, Widget: req.Widget}
 		if err := d.chat.Send(ctx, req.Session, upload); errors.Is(err, notify.ErrNotConfigured) {
 			fail(w, http.StatusServiceUnavailable, err)
 			return

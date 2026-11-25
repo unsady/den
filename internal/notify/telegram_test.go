@@ -76,6 +76,9 @@ func TestSendFiles(t *testing.T) {
 		for _, m := range media {
 			name := strings.TrimPrefix(m["media"], "attach://")
 			call += " " + m["type"] + ":" + r.MultipartForm.File[name][0].Filename + ":" + m["caption"]
+			if m["caption"] != "" && m["parse_mode"] != "HTML" {
+				t.Errorf("caption %q without parse_mode", m["caption"])
+			}
 		}
 		for _, field := range []string{"photo", "document"} {
 			if f := r.MultipartForm.File[field]; len(f) > 0 {
@@ -95,17 +98,17 @@ func TestSendFiles(t *testing.T) {
 	telegram := &Telegram{token: "token", chatID: "42", client: server.Client()}
 
 	ids, err := telegram.SendFiles(context.Background(), []Upload{
-		{Name: "a.png", Data: []byte("a"), Caption: "Sales"},
-		{Name: "report.pdf", Data: []byte("r")},
-		{Name: "b.jpg", Data: []byte("b")},
+		{Name: "a.png", Data: []byte("a"), Caption: "Sales <Q3>"},
+		{Name: "report.pdf", Data: []byte("r"), Source: "https://example.com/report"},
+		{Name: "b.jpg", Data: []byte("b"), Caption: "Lamp", Source: "https://www.example.com/lamp?a=1&b=2"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	want := []string{
-		"sendMediaGroup photo:a.png:Sales photo:b.jpg:",
-		"sendDocument document:report.pdf:",
+		`sendMediaGroup photo:a.png:Sales &lt;Q3&gt; photo:b.jpg:Lamp · <a href="https://www.example.com/lamp?a=1&amp;b=2">example.com</a>`,
+		`sendDocument document:report.pdf:<a href="https://example.com/report">example.com</a>`,
 	}
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(want, "\n"))

@@ -28,7 +28,7 @@ Usage:
   den job log <id|name> [-n <count>] [--json]
   den quiet                     Send nothing for this turn: end it with this command
   den remembered <line>         Tell the user in a line what you changed in memory
-  den send [--caption <text>] <file>
+  den send [--caption <text>] [--source <url>] <file>
                                 Send the user a file; an image goes as a photo
   den fetch --secret <name> [-X <method>] [-H "<name>: <value>"]... [-d <body>|@<file>|@-] [-i] <url>
                                 Send an HTTP request with a secret den holds,
