@@ -116,6 +116,20 @@ func (t *Telegram) Edit(ctx context.Context, id int64, text string) error {
 	}, nil)
 }
 
+// Draft shows text in the user's chat as a reply still being written, under
+// id, which tells one turn's draft from another's: each call replaces the
+// draft of its id, and an empty text shows "Thinking…". The draft goes when
+// a message comes, or after about half a minute, so the reply itself is
+// sent as usual. Text past one message's length is left out.
+func (t *Telegram) Draft(ctx context.Context, id int64, text string) error {
+	chunk, entities := code(clip(text))
+	body := map[string]any{"chat_id": t.chatID, "draft_id": id, "text": chunk}
+	if len(entities) > 0 {
+		body["entities"] = entities
+	}
+	return t.call(ctx, "sendMessageDraft", body, nil)
+}
+
 // Delete removes the message id that Post returned.
 func (t *Telegram) Delete(ctx context.Context, id int64) error {
 	return t.call(ctx, "deleteMessage", map[string]any{"chat_id": t.chatID, "message_id": id}, nil)

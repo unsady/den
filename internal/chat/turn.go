@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
+	mathrand "math/rand/v2"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -166,6 +167,41 @@ func (c *Chat) step(session, text string) {
 	}
 }
 
+// telegramDrafts shows the texts it is given in Telegram's chat as one
+// draft, in turn, the latest one when they come faster than Telegram
+// answers, until stop. show never waits for Telegram.
+func (c *Chat) telegramDrafts(ctx context.Context) (show func(text string), stop func()) {
+	id := mathrand.Int64N(1<<53) + 1
+	latest := make(chan string, 1)
+	go func() {
+		for text := range latest {
+			telegram, err := notify.Load(c.cfg)
+			if err != nil {
+				continue
+			}
+			call, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = telegram.Draft(call, id, text)
+			cancel()
+			if err != nil {
+				// An older Telegram, or a chat that takes no drafts: the
+				// reply comes whole, as it did.
+				log.Printf("chat: draft: %v", err)
+				for range latest {
+				}
+				return
+			}
+		}
+	}()
+	show = func(text string) {
+		select {
+		case <-latest:
+		default:
+		}
+		latest <- text
+	}
+	return show, func() { close(latest) }
+}
+
 // restep tells the app the latest step of session's running turn again,
 // after a line that took its place.
 func (c *Chat) restep(session string) {
@@ -190,12 +226,19 @@ const draftEvery = 150 * time.Millisecond
 // shorter, so it does not show and vanish, at any speed of the model.
 const draftStart = 200
 
-// drafter passes on the reply a turn writes, whole, at most once per
-// draftEvery, and the latest text once that time is up, so the end of it
-// shows while the agent pauses. A text shorter than start runes waits.
+// telegramDraftEvery is how often at most Telegram's chat sees the reply
+// grow: Telegram takes 20 drafts in 5 seconds, and the progress message
+// and typing count too.
+var telegramDraftEvery = time.Second
+
+// drafter passes on the reply a turn writes, whole, at most once per every
+// (draftEvery when it is zero), and the latest text once that time is up,
+// so the end of it shows while the agent pauses. A text shorter than start
+// runes waits.
 type drafter struct {
 	publish func(text string)
 	start   int
+	every   time.Duration
 
 	mu    sync.Mutex
 	text  string
@@ -214,7 +257,11 @@ func (d *drafter) set(text string) {
 	if d.text != "" && utf8.RuneCountInString(d.text) < d.start {
 		return
 	}
-	wait := draftEvery - time.Since(d.sent)
+	every := d.every
+	if every == 0 {
+		every = draftEvery
+	}
+	wait := every - time.Since(d.sent)
 	if d.text == "" || wait <= 0 {
 		d.send()
 	} else if d.timer == nil {
@@ -305,6 +352,14 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	drafts := &drafter{start: draftStart, publish: func(text string) {
 		c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
 	}}
+	// Telegram's chat sees it as a draft too, more slowly, which the reply
+	// takes the place of.
+	var chatDrafts *drafter
+	if t.telegram {
+		show, stop := c.telegramDrafts(ctx)
+		defer stop()
+		chatDrafts = &drafter{start: draftStart, every: telegramDraftEvery, publish: show}
+	}
 	req := runner.Request{
 		Prompt:   t.prompt,
 		Provider: t.choice.Provider,
@@ -336,7 +391,12 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			default:
 			}
 		},
-		Draft: drafts.set,
+		Draft: func(text string) {
+			drafts.set(text)
+			if chatDrafts != nil {
+				chatDrafts.set(text)
+			}
+		},
 		// The app says Thinking… for a step without words, so the user
 		// sees the model has not stalled on its last step.
 		Thinking: func() { c.Events.Publish(events.Event{Type: events.Step, Session: session}) },
@@ -361,6 +421,9 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	}
 	reply := t.agent.Ask(turn, req)
 	drafts.end()
+	if chatDrafts != nil {
+		chatDrafts.end()
+	}
 	close(done)
 	<-shown
 	quiet := c.Quieted(session, started)

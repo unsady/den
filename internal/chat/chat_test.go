@@ -58,6 +58,8 @@ type fakeTelegram struct {
 	buttons []string
 	// labels are the texts of those buttons.
 	labels []string
+	// drafts are the texts of the drafts shown, in order.
+	drafts []string
 }
 
 // press queues a press of a button with the given data.
@@ -166,6 +168,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.sent <- body["text"].(string)
 		result = map[string]any{"message_id": 7}
+	case strings.HasSuffix(r.URL.Path, "/sendMessageDraft"):
+		f.mu.Lock()
+		f.drafts = append(f.drafts, body["text"].(string))
+		f.mu.Unlock()
 	case strings.HasSuffix(r.URL.Path, "/answerCallbackQuery"):
 		f.answered <- body["text"].(string)
 	case strings.HasSuffix(r.URL.Path, "/getFile"):
@@ -1656,6 +1662,31 @@ func seed(t *testing.T, c *Chat, sessions ...store.Session) {
 			t.Fatal(err)
 		}
 		fmt.Fprintf(f, `{"op":"put","id":%q,"role":"root","title":%q,"updated":%d}`+"\n", s.ID, s.Title, s.Updated.UnixMilli())
+	}
+}
+
+// TestTelegramDraft checks that Telegram's chat sees a long reply as a
+// draft while it is written, and then the reply itself.
+func TestTelegramDraft(t *testing.T) {
+	defer func(d time.Duration) { telegramDraftEvery = d }(telegramDraftEvery)
+	telegramDraftEvery = 10 * time.Millisecond
+
+	_, telegram := startChat(t, nil)
+	telegram.message(42, "essay")
+	var reply string
+	select {
+	case reply = <-telegram.sent:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
+	if !strings.HasPrefix(reply, strings.Repeat("a", 250)+"resume=") {
+		t.Fatalf("reply %q", reply)
+	}
+	telegram.mu.Lock()
+	drafts := slices.Clone(telegram.drafts)
+	telegram.mu.Unlock()
+	if len(drafts) == 0 || drafts[0] != strings.Repeat("a", 250) {
+		t.Fatalf("drafts %q", drafts)
 	}
 }
 
