@@ -73,6 +73,18 @@ func Add(cfg config.Config, token string) error {
 	return save(cfg, append(list, device{Token: token}))
 }
 
+// Forget drops every phone, so none hears of what comes until it gives its
+// token again.
+func Forget(cfg config.Config) error {
+	mu.Lock()
+	defer mu.Unlock()
+	err := os.Remove(filepath.Join(cfg.State, devicesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // mu guards the devices file.
 var mu sync.Mutex
 

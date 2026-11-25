@@ -177,13 +177,14 @@ func Pair(cfg config.Config) (string, error) {
 	return token, nil
 }
 
-// Unpair forgets every token, so no app gets in until the next Pair.
+// Unpair forgets every token, so no app gets in until the next Pair, and
+// every phone, so none hears of what comes after.
 func Unpair(cfg config.Config) error {
 	err := os.Remove(filepath.Join(cfg.Secrets, tokenFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	return err
+	return push.Forget(cfg)
 }
 
 // allowed says whether r carries one of the tokens. The hashes are read on

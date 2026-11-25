@@ -367,7 +367,8 @@ func TestServer(t *testing.T) {
 	hub.Publish(events.Event{Type: events.Run, Session: "s1"})
 	waitSetup(`"runs":{}`, true)
 
-	// Another device pairs beside the first, and unpairing shuts both out.
+	// Another device pairs beside the first, and unpairing shuts both out,
+	// and stops the pushes to their phones.
 	again, _ := Pair(cfg)
 	for _, device := range []string{token, again} {
 		if status, _ := call("GET", "/setup", device, ""); status != http.StatusOK {
@@ -381,5 +382,8 @@ func TestServer(t *testing.T) {
 		if status, _ := call("GET", "/setup", device, ""); status != http.StatusUnauthorized {
 			t.Fatalf("after unpair: %d", status)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(cfg.State, "push_devices.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the phones stay after unpair: %v", err)
 	}
 }
