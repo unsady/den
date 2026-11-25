@@ -3,9 +3,11 @@ package chat
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log"
 	mathrand "math/rand/v2"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -169,29 +171,12 @@ func (c *Chat) step(session, text string) {
 
 // telegramDrafts shows the texts it is given in Telegram's chat as one
 // draft, in turn, the latest one when they come faster than Telegram
-// answers, until stop. show never waits for Telegram.
+// answers, while ctx lasts. show never waits for Telegram; stop drops what
+// has not gone and returns once nothing more can, so the reply that
+// follows comes after the last draft.
 func (c *Chat) telegramDrafts(ctx context.Context) (show func(text string), stop func()) {
-	id := mathrand.Int64N(1<<53) + 1
 	latest := make(chan string, 1)
-	go func() {
-		for text := range latest {
-			telegram, err := notify.Load(c.cfg)
-			if err != nil {
-				continue
-			}
-			call, cancel := context.WithTimeout(ctx, 10*time.Second)
-			err = telegram.Draft(call, id, text)
-			cancel()
-			if err != nil {
-				// An older Telegram, or a chat that takes no drafts: the
-				// reply comes whole, as it did.
-				log.Printf("chat: draft: %v", err)
-				for range latest {
-				}
-				return
-			}
-		}
-	}()
+	done := make(chan struct{})
 	show = func(text string) {
 		select {
 		case <-latest:
@@ -199,7 +184,57 @@ func (c *Chat) telegramDrafts(ctx context.Context) (show func(text string), stop
 		}
 		latest <- text
 	}
-	return show, func() { close(latest) }
+	stop = func() {
+		select {
+		case <-latest:
+		default:
+		}
+		close(latest)
+		<-done
+	}
+
+	telegram, err := notify.Load(c.cfg)
+	if err != nil {
+		go func() {
+			for range latest {
+			}
+			close(done)
+		}()
+		return show, stop
+	}
+
+	id := mathrand.Int64N(1<<53) + 1
+	go func() {
+		defer close(done)
+
+		// An empty text shows "Thinking…", which is worth it only in place
+		// of a draft that showed.
+		shown, off := false, false
+		for text := range latest {
+			if off || ctx.Err() != nil || (text == "" && !shown) {
+				continue
+			}
+
+			call, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := telegram.Draft(call, id, text)
+			cancel()
+
+			var refused *notify.APIError
+			switch {
+			case err == nil:
+				shown = true
+			case errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
+				// A Telegram or a chat that takes no drafts: the reply
+				// comes whole, as it did.
+				log.Printf("chat: draft: %v", err)
+				off = true
+			default:
+				// Too many calls, or the network: the next draft may go.
+				log.Printf("chat: draft: %v", err)
+			}
+		}
+	}()
+	return show, stop
 }
 
 // restep tells the app the latest step of session's running turn again,
@@ -352,12 +387,13 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	drafts := &drafter{start: draftStart, publish: func(text string) {
 		c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
 	}}
-	// Telegram's chat sees it as a draft too, more slowly, which the reply
-	// takes the place of.
+	// Telegram's chat sees the chat's own turn as a draft too, more slowly,
+	// which the reply takes the place of; a /bg turn's would fight it.
 	var chatDrafts *drafter
-	if t.telegram {
-		show, stop := c.telegramDrafts(ctx)
-		defer stop()
+	stopDrafts := func() {}
+	if t.telegram && !t.own {
+		var show func(string)
+		show, stopDrafts = c.telegramDrafts(turn)
 		chatDrafts = &drafter{start: draftStart, every: telegramDraftEvery, publish: show}
 	}
 	req := runner.Request{
@@ -399,7 +435,12 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 		},
 		// The app says Thinking… for a step without words, so the user
 		// sees the model has not stalled on its last step.
-		Thinking: func() { c.Events.Publish(events.Event{Type: events.Step, Session: session}) },
+		Thinking: func() {
+			c.mu.Lock()
+			c.steps[session] = ""
+			c.mu.Unlock()
+			c.Events.Publish(events.Event{Type: events.Step, Session: session})
+		},
 		// While fx cannot reach the model, the step line and the chat's
 		// progress say why, and the user gets a reply to retry before the
 		// turn's timeout.
@@ -424,6 +465,7 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	if chatDrafts != nil {
 		chatDrafts.end()
 	}
+	stopDrafts()
 	close(done)
 	<-shown
 	quiet := c.Quieted(session, started)

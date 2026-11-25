@@ -600,6 +600,17 @@ func (t *Telegram) call(ctx context.Context, method string, body any, result any
 	return t.post(ctx, method, "application/json", bytes.NewReader(data), result)
 }
 
+// APIError is Telegram's refusal of a call, such as a 400 for a method it
+// does not know or a 429 for too many calls.
+type APIError struct {
+	Method, Description string
+	Status              int
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("telegram: %s: %s (HTTP %d)", e.Method, e.Description, e.Status)
+}
+
 func (t *Telegram) post(ctx context.Context, method, contentType string, body io.Reader, result any) error {
 	url := API + "/bot" + t.token + "/" + method
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
@@ -625,7 +636,7 @@ func (t *Telegram) post(ctx context.Context, method, contentType string, body io
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&reply)
 	if !reply.OK {
-		return fmt.Errorf("telegram: %s: %s (HTTP %d)", method, reply.Description, resp.StatusCode)
+		return &APIError{Method: method, Description: reply.Description, Status: resp.StatusCode}
 	}
 	if result != nil {
 		return json.Unmarshal(reply.Result, result)

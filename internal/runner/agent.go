@@ -111,6 +111,8 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 			}
 			thinking = true
 		case acp.KindRecovery:
+			// The model thinks anew once fx gets through.
+			thinking = false
 			if req.Recovering != nil {
 				req.Recovering(ev.Text)
 			}
