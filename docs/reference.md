@@ -10,6 +10,7 @@
 | `den update` | Updates the `den` command and its image from the latest release, and recreates the container; notes, sessions, and secrets stay |
 | `den start`, `den stop`, `den restart` | The container |
 | `den status`, `den logs [-f]` | The container and the secrets den has; den's log |
+| `den config`, `set <name> <value>...`, `unset <name>` | Shows the settings, or changes some and restarts den: `memory`, `cpus`, `runtime`, or a variable of the environment, such as `DEN_WHISPER_MODEL` |
 | `den login <provider>` | Adds a model provider or changes its key |
 | `den connect`, `den connect google`, `mail`, `codex`, `grok`, `claude` | Gmail, Calendar, and Drive, a mailbox, a ChatGPT, Grok or Claude subscription; alone, a list to pick from |
 | `den service add`, `ls`, `rm` | Your own APIs; `add` alone asks for each detail |
@@ -18,7 +19,7 @@
 | `den stats [--since 2h] [--json]` | How the model providers did |
 | `den fx`, `den shell` | fx or a shell as the agent |
 
-Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it; `den sessions archive <id>` hides one from the app's feed, as the app does with a session unused for 3 days, until a new message in it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, the folder for backups (`backups`), and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
+Any other command, such as `den job ls`, runs inside the container. `den sessions ls` lists the latest sessions, and `den sessions rm <id>` deletes one and makes the chat forget it; `den sessions archive <id>` hides one from the app's feed, as the app does with a session unused for 3 days, until a new message in it. The settings are in `~/.config/den/config.json`: the container's memory and CPUs, its environment, the folder for the agent's files, the folder for backups (`backups`), and the tool that runs it (`runtime`: `container`, `docker`, or `podman`). `den config set` changes one and restarts den; after an edit by hand, `den restart` applies them. Docker and Podman start den again after the computer restarts; with Apple's `container`, run `den start`.
 
 The agent's files live in that folder on your computer. den's state and secrets live in the volume `den`, which keeps file permissions and survives `den update`. A shared folder may not keep permissions inside the container, so never put secrets in it.
 
@@ -47,7 +48,7 @@ Do not run git in the agent's home on your computer: [Security](security.md#the-
 
 ## Environment
 
-Set these in `env` in `~/.config/den/config.json`.
+Set these with `den config set <name> <value>`, which keeps them in `env` in `~/.config/den/config.json`.
 
 | Variable | Default |
 |---|---|
