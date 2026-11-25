@@ -111,6 +111,18 @@ func fakeACP(args []string) {
 		case strings.HasPrefix(first, "broken"):
 			tool("Reading", "path", "a.txt")
 			reply, stop = "the provider is down", "refused"
+		case strings.HasPrefix(first, "thinking"):
+			// The model thinks, loses its provider, and fx resends until
+			// den gives up.
+			update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": "**Planning**\n\nComparing the two"}})
+			update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": " flights"}})
+			time.Sleep(300 * time.Millisecond)
+			update(map[string]any{"sessionUpdate": "session_info_update", "_meta": map[string]any{"fx": map[string]any{
+				"modelResponseRecovery": map[string]any{"state": "waiting", "attempt": 2, "message": "Gateway error · next try in 2s"},
+			}}})
+			if !wait(5 * time.Second) {
+				stop = "cancelled"
+			}
 		case strings.HasPrefix(first, "steps"):
 			tool("Reading", "path", "a.txt")
 			tool("Running", "command", "ls")

@@ -10,7 +10,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unsady/den/internal/acp"
 	"github.com/unsady/den/internal/config"
@@ -79,19 +81,66 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		prompt.Images = append(prompt.Images, acp.Image{MimeType: http.DetectContentType(data), Data: data})
 	}
 
+	// A model that fx cannot reach for req.GiveUp ends the turn, so the
+	// user can try again rather than wait for the turn's timeout.
+	prompting, giveUp := context.WithCancel(ctx)
+	defer giveUp()
+	var (
+		down     *time.Timer
+		downText string
+		gaveUp   atomic.Bool
+	)
+	defer func() {
+		if down != nil {
+			down.Stop()
+		}
+	}()
+
 	// The reply is what the agent wrote after its last step. What it said
 	// before a step, such as "Reddit gives a stub, trying the old site", is
 	// not part of the answer but says what it does, so it goes to Said.
-	var last strings.Builder
+	var last, thought strings.Builder
 	ooms := proc.OOMKills()
+	// A step or the reply ends what the model thought before it.
+	thoughtDone := func() {
+		if thought.Len() > 0 && req.Thinking != nil {
+			req.Thinking("")
+		}
+		thought.Reset()
+	}
 	onEvent := func(ev acp.Event) {
 		switch ev.Kind {
+		case acp.KindThought:
+			thought.WriteString(ev.Text)
+			if req.Thinking != nil {
+				req.Thinking(thoughtLine(thought.String()))
+			}
+		case acp.KindRecovery:
+			if req.Recovering != nil {
+				req.Recovering(ev.Text)
+			}
+			if req.GiveUp <= 0 {
+				break
+			}
+			downText = ev.Text
+			switch {
+			case ev.Text == "" && down != nil:
+				down.Stop()
+				down = nil
+			case ev.Text != "" && down == nil:
+				down = time.AfterFunc(req.GiveUp, func() {
+					gaveUp.Store(true)
+					giveUp()
+				})
+			}
 		case acp.KindText:
+			thoughtDone()
 			last.WriteString(ev.Text)
 			if req.Draft != nil {
 				req.Draft(last.String())
 			}
 		case acp.KindToolCall:
+			thoughtDone()
 			said := strings.TrimSpace(last.String())
 			last.Reset()
 			if said != "" && req.Draft != nil {
@@ -105,7 +154,7 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 			}
 		}
 	}
-	res, err := conn.Prompt(ctx, session, prompt, onEvent)
+	res, err := conn.Prompt(prompting, session, prompt, onEvent)
 	// A model that cannot see pictures gets the prompt without them: the
 	// prompt names where each is saved.
 	if len(prompt.Images) > 0 && blind(err) {
@@ -117,14 +166,23 @@ func (a *Agent) Ask(ctx context.Context, req Request) (reply Reply) {
 		last.Reset()
 		prompt.Images = nil
 		prompt.Text += "\n" + noImages
-		res, err = conn.Prompt(ctx, session, prompt, onEvent)
+		res, err = conn.Prompt(prompting, session, prompt, onEvent)
 	}
+	thoughtDone()
 	reply.Output = strings.TrimSpace(last.String())
 	reply.InputTokens = int64(res.InputTokens)
 	reply.OutputTokens = int64(res.OutputTokens)
 	reply.Stderr = a.stderrText()
 
 	switch {
+	case gaveUp.Load() && ctx.Err() == nil:
+		// fx says the cause first, such as "Gateway error · next try in
+		// 8s · attempt 4"; the rest is about a try that will not come.
+		cause, _, _ := strings.Cut(downText, " · ")
+		reply.Error = "the model did not answer for " + strings.TrimSuffix(req.GiveUp.String(), "0s")
+		if cause != "" {
+			reply.Error += ": " + cause
+		}
 	case ctx.Err() == context.DeadlineExceeded:
 		reply.Error = fmt.Sprintf("timed out after %s", a.cfg.JobTimeout)
 	case ctx.Err() == context.Canceled:
@@ -360,4 +418,23 @@ func stepLine(ev acp.Event) string {
 		}
 	}
 	return ev.Title
+}
+
+// thoughtWidth is how many characters of the model's reasoning a step line
+// shows.
+const thoughtWidth = 160
+
+// thoughtLine is the latest line of the model's reasoning, as far as it
+// got, without Markdown's emphasis, such as "Comparing the two flights".
+func thoughtLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	line := ""
+	for i := len(lines) - 1; i >= 0 && line == ""; i-- {
+		line = strings.TrimSpace(strings.Trim(strings.TrimSpace(lines[i]), "*#_"))
+	}
+	if utf8.RuneCountInString(line) <= thoughtWidth {
+		return line
+	}
+	runes := []rune(line)
+	return "…" + strings.TrimSpace(string(runes[len(runes)-thoughtWidth:]))
 }

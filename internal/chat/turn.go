@@ -166,6 +166,22 @@ func (c *Chat) step(session, text string) {
 	}
 }
 
+// restep tells the app the latest step of session's running turn again,
+// after a line that took its place.
+func (c *Chat) restep(session string) {
+	c.mu.Lock()
+	text, ok := c.steps[session]
+	c.mu.Unlock()
+	if ok {
+		c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+	}
+}
+
+// giveUp is how long a chat turn waits for a model that fx cannot reach
+// before it fails with a reply to retry. fx waits up to 30 seconds between
+// resends, so this lets several go.
+var giveUp = 3 * time.Minute
+
 // draftEvery is how often at most the app hears the reply grow.
 const draftEvery = 150 * time.Millisecond
 
@@ -176,9 +192,10 @@ const draftStart = 200
 
 // drafter passes on the reply a turn writes, whole, at most once per
 // draftEvery, and the latest text once that time is up, so the end of it
-// shows while the agent pauses.
+// shows while the agent pauses. A text shorter than start runes waits.
 type drafter struct {
 	publish func(text string)
+	start   int
 
 	mu    sync.Mutex
 	text  string
@@ -194,7 +211,7 @@ func (d *drafter) set(text string) {
 		return
 	}
 	d.text = strings.TrimSpace(text)
-	if d.text != "" && utf8.RuneCountInString(d.text) < draftStart {
+	if d.text != "" && utf8.RuneCountInString(d.text) < d.start {
 		return
 	}
 	wait := draftEvery - time.Since(d.sent)
@@ -285,8 +302,17 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	var stepped atomic.Bool
 	// The app shows the reply as the agent writes it; the Reply that ends
 	// the turn has the text in full.
-	drafts := &drafter{publish: func(text string) {
+	drafts := &drafter{start: draftStart, publish: func(text string) {
 		c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
+	}}
+	// Between steps the app's step line shows what the model thinks, so the
+	// user sees it has not stalled, and the step again once it stops.
+	thoughts := &drafter{publish: func(text string) {
+		if text == "" {
+			c.restep(session)
+			return
+		}
+		c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text, Thinking: true})
 	}}
 	req := runner.Request{
 		Prompt:   t.prompt,
@@ -319,10 +345,30 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			default:
 			}
 		},
-		Draft: drafts.set,
+		Draft:    drafts.set,
+		Thinking: thoughts.set,
+		// While fx cannot reach the model, the step line and the chat's
+		// progress say why, and the user gets a reply to retry before the
+		// turn's timeout.
+		Recovering: func(text string) {
+			if text == "" {
+				c.restep(session)
+				return
+			}
+			c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text})
+			if t.own {
+				return
+			}
+			select {
+			case steps <- progress{said: text}:
+			default:
+			}
+		},
+		GiveUp: giveUp,
 	}
 	reply := t.agent.Ask(turn, req)
 	drafts.end()
+	thoughts.end()
 	close(done)
 	<-shown
 	quiet := c.Quieted(session, started)

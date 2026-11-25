@@ -72,17 +72,22 @@ const (
 	KindToolUpdate = "tool_update"
 	KindUsage      = "usage"
 	KindNotice     = "notice"
-	KindOther      = "other"
+	// KindRecovery is fx's report that it resends a model request that
+	// failed, such as "Gateway error · next try in 8s · attempt 4"; one
+	// with no text says the model answered again.
+	KindRecovery = "recovery"
+	KindOther    = "other"
 )
 
 // Event is one session/update of a running prompt.
 type Event struct {
 	Kind string
-	// Text is the chunk for text and thought, the title of a notice, and the
-	// output of a tool_update when it has any.
+	// Text is the chunk for text and thought, the title of a notice, the
+	// output of a tool_update when it has any, and a recovery's message.
 	Text string
 	// ToolCallID, Title, ToolKind, and Status describe a tool call. Status
-	// is also the severity of a notice.
+	// is also the severity of a notice and the state of a recovery, such as
+	// waiting.
 	ToolCallID string
 	Title      string
 	ToolKind   string
@@ -665,6 +670,11 @@ func parseEvent(raw json.RawMessage) Event {
 		Used       int             `json:"used"`
 		Size       int             `json:"size"`
 		Content    json.RawMessage `json:"content"`
+		Meta       struct {
+			Fx struct {
+				Recovery json.RawMessage `json:"modelResponseRecovery"`
+			} `json:"fx"`
+		} `json:"_meta"`
 	}
 	json.Unmarshal(raw, &u)
 
@@ -689,6 +699,20 @@ func parseEvent(raw json.RawMessage) Event {
 	case "notice":
 		ev.Kind = KindNotice
 		ev.Text, ev.Status = u.Title, u.Severity
+	case "session_info_update":
+		// fx reports its resends of a model request here, and null once
+		// one went through; an update without the key is about something
+		// else.
+		if u.Meta.Fx.Recovery == nil {
+			break
+		}
+		var r struct {
+			State   string `json:"state"`
+			Message string `json:"message"`
+		}
+		json.Unmarshal(u.Meta.Fx.Recovery, &r)
+		ev.Kind = KindRecovery
+		ev.Text, ev.Status = r.Message, r.State
 	}
 	return ev
 }

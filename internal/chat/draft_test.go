@@ -11,7 +11,7 @@ import (
 func TestDrafter(t *testing.T) {
 	var mu sync.Mutex
 	var sent []string
-	d := &drafter{publish: func(text string) {
+	d := &drafter{start: draftStart, publish: func(text string) {
 		mu.Lock()
 		sent = append(sent, text)
 		mu.Unlock()

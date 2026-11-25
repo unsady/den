@@ -1772,6 +1772,50 @@ func TestArchiveIdle(t *testing.T) {
 	}
 }
 
+// TestThinkingAndGivingUp checks that the step line shows what the model
+// thinks, then why fx resends, and that a turn whose model fx cannot reach
+// fails with its message held to retry.
+func TestThinkingAndGivingUp(t *testing.T) {
+	defer func(d time.Duration) { giveUp = d }(giveUp)
+	giveUp = 500 * time.Millisecond
+
+	_, _, c := startChatWith(t, nil)
+	list, stop := c.Events.Listen()
+	defer stop()
+
+	if _, err := c.Start(context.Background(), "thinking", nil); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for {
+		select {
+		case e := <-list:
+			switch e.Type {
+			case events.Step:
+				line := e.Text
+				if e.Thinking {
+					line = "thinking: " + line
+				}
+				lines = append(lines, line)
+				continue
+			case events.Reply:
+			default:
+				continue
+			}
+			if !e.Failed || e.Retry != events.RetryAgain || !strings.Contains(e.Text, "Gateway error") {
+				t.Fatalf("reply %+v", e)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no reply; steps %q", lines)
+		}
+		break
+	}
+	thought := slices.Index(lines, "thinking: Comparing the two flights")
+	if thought < 0 || slices.Index(lines, "Gateway error · next try in 2s") != thought+1 {
+		t.Fatalf("steps %q", lines)
+	}
+}
+
 func TestTurnRecovery(t *testing.T) {
 	_, _, c := startChatWith(t, nil)
 	list, stop := c.Events.Listen()
