@@ -12,6 +12,9 @@ release notes.
 
 ### Fixed
 
+- Deleting a session in the app while the agent works in it no longer fails now and then with "send /stop first".
+- `den app unpair` also stops the pushes to the phones that were paired.
+- Backups to a folder den cannot give to its owner still drop the old snapshots, so the folder no longer fills up, and den no longer reports a failed backup when its own restart cut one short.
 - Claude conversations no longer pile up on disk: den deletes Claude's copy of one once it can no longer resume it, and all of them when it starts.
 
 ## v0.16.0
