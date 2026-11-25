@@ -116,12 +116,14 @@ func (c *Chat) StopSession(ctx context.Context, session string) bool {
 	return stop != nil
 }
 
-// Settle waits until the turn StopSession stopped in session has ended, or
-// until ctx ends. A job that occupies the session is no turn of the chat's.
+// Settle waits until the turn StopSession stopped in session has ended and
+// let the session go, or until ctx ends. A turn leaves the running ones
+// before it sends its reply, and holds the session until it has sent it, so
+// Forget refuses the session till then.
 func (c *Chat) Settle(ctx context.Context, session string) error {
 	for {
 		c.mu.Lock()
-		running := c.turns[session] != nil
+		running := c.turns[session] != nil || c.busy[session] > 0
 		c.mu.Unlock()
 		if !running {
 			return nil

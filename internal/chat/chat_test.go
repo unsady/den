@@ -1876,6 +1876,10 @@ func TestTurnRecovery(t *testing.T) {
 	if err := c.Settle(settle, slow); err != nil {
 		t.Fatal(err)
 	}
+	// Once settled, the session can go.
+	if err := c.Forget(slow, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTurnRecoveryInTelegram(t *testing.T) {
