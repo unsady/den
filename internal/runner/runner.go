@@ -98,10 +98,9 @@ type Request struct {
 	// last step, whole, each time it grows, and an empty text once a step
 	// takes it as what the agent said before the step.
 	Draft func(text string)
-	// Thinking, when set, receives the latest line of the model's
-	// reasoning as it writes it, and an empty text once a step or the reply
-	// follows it.
-	Thinking func(text string)
+	// Thinking, when set, hears that the model began to think, after a step
+	// or what it wrote; its next step or text ends that.
+	Thinking func()
 	// Recovering, when set, receives fx's report that it resends a model
 	// request that failed, such as "Gateway error · next try in 8s", and an
 	// empty text once the model answers.

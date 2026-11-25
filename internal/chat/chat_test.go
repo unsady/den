@@ -1772,9 +1772,9 @@ func TestArchiveIdle(t *testing.T) {
 	}
 }
 
-// TestThinkingAndGivingUp checks that the step line shows what the model
-// thinks, then why fx resends, and that a turn whose model fx cannot reach
-// fails with its message held to retry.
+// TestThinkingAndGivingUp checks that the step line says the model thinks,
+// then why fx resends, and that a turn whose model fx cannot reach fails
+// with its message held to retry.
 func TestThinkingAndGivingUp(t *testing.T) {
 	defer func(d time.Duration) { giveUp = d }(giveUp)
 	giveUp = 500 * time.Millisecond
@@ -1792,11 +1792,7 @@ func TestThinkingAndGivingUp(t *testing.T) {
 		case e := <-list:
 			switch e.Type {
 			case events.Step:
-				line := e.Text
-				if e.Thinking {
-					line = "thinking: " + line
-				}
-				lines = append(lines, line)
+				lines = append(lines, e.Text)
 				continue
 			case events.Reply:
 			default:
@@ -1810,8 +1806,8 @@ func TestThinkingAndGivingUp(t *testing.T) {
 		}
 		break
 	}
-	thought := slices.Index(lines, "thinking: Comparing the two flights")
-	if thought < 0 || slices.Index(lines, "Gateway error · next try in 2s") != thought+1 {
+	// One empty step for the two thoughts, then why fx waits.
+	if len(lines) < 2 || lines[0] != "" || lines[1] != "Gateway error · next try in 2s" {
 		t.Fatalf("steps %q", lines)
 	}
 }

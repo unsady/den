@@ -2,28 +2,10 @@ package runner
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/unsady/den/internal/acp"
 )
-
-func TestThoughtLine(t *testing.T) {
-	long := strings.Repeat("a", thoughtWidth+40)
-	cases := []struct{ in, want string }{
-		{"Comparing the two", "Comparing the two"},
-		{"**Planning the trip**\n\nComparing the two flights", "Comparing the two flights"},
-		{"**Planning the trip**\n\n", "Planning the trip"},
-		{"## Heading\n", "Heading"},
-		{"  \n ", ""},
-		{"first\n" + long, "…" + long[40:]},
-	}
-	for _, c := range cases {
-		if got := thoughtLine(c.in); got != c.want {
-			t.Errorf("thoughtLine(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
 
 func TestStepLine(t *testing.T) {
 	cases := []struct{ raw, title, want string }{

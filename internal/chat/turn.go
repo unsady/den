@@ -305,15 +305,6 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	drafts := &drafter{start: draftStart, publish: func(text string) {
 		c.Events.Publish(events.Event{Type: events.Draft, Session: session, Text: text})
 	}}
-	// Between steps the app's step line shows what the model thinks, so the
-	// user sees it has not stalled, and the step again once it stops.
-	thoughts := &drafter{publish: func(text string) {
-		if text == "" {
-			c.restep(session)
-			return
-		}
-		c.Events.Publish(events.Event{Type: events.Step, Session: session, Text: text, Thinking: true})
-	}}
 	req := runner.Request{
 		Prompt:   t.prompt,
 		Provider: t.choice.Provider,
@@ -345,8 +336,10 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 			default:
 			}
 		},
-		Draft:    drafts.set,
-		Thinking: thoughts.set,
+		Draft: drafts.set,
+		// The app says Thinking… for a step without words, so the user
+		// sees the model has not stalled on its last step.
+		Thinking: func() { c.Events.Publish(events.Event{Type: events.Step, Session: session}) },
 		// While fx cannot reach the model, the step line and the chat's
 		// progress say why, and the user gets a reply to retry before the
 		// turn's timeout.
@@ -368,7 +361,6 @@ func (c *Chat) run(ctx, turn context.Context, t chatTurn) {
 	}
 	reply := t.agent.Ask(turn, req)
 	drafts.end()
-	thoughts.end()
 	close(done)
 	<-shown
 	quiet := c.Quieted(session, started)
