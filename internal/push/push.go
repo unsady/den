@@ -73,6 +73,18 @@ func Add(cfg config.Config, token string) error {
 	return save(cfg, append(list, device{Token: token}))
 }
 
+// Forget drops every phone, so none hears of what comes until it gives its
+// token again.
+func Forget(cfg config.Config) error {
+	mu.Lock()
+	defer mu.Unlock()
+	err := os.Remove(filepath.Join(cfg.State, devicesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // mu guards the devices file.
 var mu sync.Mutex
 
@@ -98,10 +110,12 @@ type Pusher struct {
 	cfg    config.Config
 	client *http.Client
 
-	// jwt is the signed token Apple takes, made again before it gets old.
+	// jwt is the signed token Apple takes, made again before it gets old,
+	// and signed for the key and team of signer.
 	signing sync.Mutex
 	jwt     string
 	made    time.Time
+	signer  info
 }
 
 func New(cfg config.Config) *Pusher {
@@ -243,6 +257,13 @@ func (p *Pusher) post(ctx context.Context, topic, jwt string, d *device, payload
 	switch {
 	case status == http.StatusOK:
 		return false, nil
+	case status == http.StatusForbidden && (reason == "ExpiredProviderToken" || reason == "InvalidProviderToken"):
+		// The next push signs a token again, as with a key the user
+		// replaced.
+		p.signing.Lock()
+		p.jwt = ""
+		p.signing.Unlock()
+		return false, fmt.Errorf("Apple refused den's token: %s", reason)
 	case status == http.StatusGone, reason == "BadDeviceToken", reason == "Unregistered":
 		return true, nil
 	default:
@@ -298,7 +319,7 @@ func (p *Pusher) credentials() (info, string, error) {
 
 	p.signing.Lock()
 	defer p.signing.Unlock()
-	if p.jwt != "" && time.Since(p.made) < 40*time.Minute {
+	if p.jwt != "" && p.signer == i && time.Since(p.made) < 40*time.Minute {
 		return i, p.jwt, nil
 	}
 
@@ -310,7 +331,7 @@ func (p *Pusher) credentials() (info, string, error) {
 	if err != nil {
 		return i, "", err
 	}
-	p.jwt, p.made = jwt, time.Now()
+	p.jwt, p.made, p.signer = jwt, time.Now(), i
 	return i, jwt, nil
 }
 

@@ -194,10 +194,27 @@ func trim(text string) string {
 	return text
 }
 
+// demote makes a heading of the top two levels in body, outside code
+// blocks, one of the third, so it stays in the section rather than end it.
+func demote(body string) string {
+	lines := strings.Split(body, "\n")
+	fenced := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			fenced = !fenced
+		}
+		if !fenced && heading(line) {
+			lines[i] = "### " + strings.TrimLeft(line, "# ")
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // put sets the body of the section name to body. A missing section goes
 // before the first of those that follow it in names, or at the end.
 func put(text, name, body string) string {
-	body = trim(body)
+	body = demote(trim(body))
 	lines := strings.Split(text, "\n")
 	block := []string{"## " + name, ""}
 	if body != "" {

@@ -32,6 +32,10 @@ func (d *daemon) backups() {
 func (d *daemon) snapshot(failing bool) bool {
 	name, err := backup.Snapshot(d.ctx, d.cfg, time.Now())
 	switch {
+	case err != nil && d.ctx.Err() != nil:
+		// den stopping cut the backup short; nothing is wrong with it.
+		log.Printf("backup: %v", err)
+		return failing
 	case err != nil:
 		log.Printf("backup: %v", err)
 		if !failing {

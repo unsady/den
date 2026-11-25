@@ -78,6 +78,10 @@ func TestPut(t *testing.T) {
 			want: "## User\n\n  - y\n",
 		},
 		{
+			name: "heading in the body stays in it", text: "## Notes\n\nx\n", section: "Notes", body: "- a\n## Tools\n- b\n```\n# kept\n```",
+			want: "## Notes\n\n- a\n### Tools\n- b\n```\n# kept\n```\n",
+		},
+		{
 			name: "no file", text: "", section: "User", body: "x",
 			want: "## User\n\nx\n",
 		},
