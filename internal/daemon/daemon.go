@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -364,6 +365,10 @@ func (d *daemon) runDue() {
 	}
 	for _, j := range due {
 		d.start(j)
+	}
+	// Taking a one-time job removes it, so the apps read the jobs again.
+	if slices.ContainsFunc(due, func(j jobs.Job) bool { return j.Once }) {
+		d.chat.JobsChanged()
 	}
 }
 
