@@ -51,6 +51,7 @@ func rememberedCommand(cfg config.Config, args []string) error {
 func sendCommand(cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("send", flag.ContinueOnError)
 	caption := fs.String("caption", "", "text under the file")
+	source := fs.String("source", "", "the http(s) page the file came from")
 	widgetFile := fs.String("widget", "", "a JSON file that describes the file for the app to draw itself, such as a chart's data")
 	rest, err := parse(fs, args)
 	if err != nil {
@@ -60,6 +61,10 @@ func sendCommand(cfg config.Config, args []string) error {
 		return fmt.Errorf("send needs one file")
 	}
 
+	if err := daemon.CheckSource(*source); err != nil {
+		return err
+	}
+
 	data, err := os.ReadFile(rest[0])
 	if err != nil {
 		return err
@@ -67,7 +72,7 @@ func sendCommand(cfg config.Config, args []string) error {
 	if len(data) > notify.MaxUpload {
 		return fmt.Errorf("%s is over Telegram's 50 MB limit for bots", rest[0])
 	}
-	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Data: data, Session: os.Getenv("DEN_SESSION")}
+	req := daemon.SendRequest{Name: filepath.Base(rest[0]), Caption: *caption, Source: *source, Data: data, Session: os.Getenv("DEN_SESSION")}
 	if *widgetFile != "" {
 		spec, err := os.ReadFile(*widgetFile)
 		if err != nil {

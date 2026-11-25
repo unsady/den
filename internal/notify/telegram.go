@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -239,11 +241,36 @@ const maxPhoto = 10 << 20
 // maxCaption stays under Telegram's 1024-character caption limit.
 const maxCaption = 1000
 
-// Upload is a file to send and the caption under it.
+// Upload is a file to send, the caption under it, and the page it came
+// from, if any.
 type Upload struct {
 	Name    string
 	Data    []byte
 	Caption string
+	Source  string
+}
+
+// caption is f's caption in Telegram's HTML format, with a link to its
+// source named by the source's site.
+func (f Upload) caption() string {
+	text := html.EscapeString(f.Caption)
+	if f.Source == "" {
+		return text
+	}
+	link := fmt.Sprintf(`<a href="%s">%s</a>`, html.EscapeString(f.Source), html.EscapeString(Site(f.Source)))
+	if text == "" {
+		return link
+	}
+	return text + " · " + link
+}
+
+// Site names the site of link, such as example.com, for a link to it.
+func Site(link string) string {
+	u, err := url.Parse(link)
+	if err != nil || u.Hostname() == "" {
+		return link
+	}
+	return strings.TrimPrefix(u.Hostname(), "www.")
 }
 
 // SendFile sends data as a file called name, or as a photo when it is a
@@ -327,8 +354,9 @@ func (t *Telegram) album(ctx context.Context, kind string, files []Upload) ([]in
 	method := "sendMediaGroup"
 	if len(files) == 1 {
 		method = map[string]string{"photo": "sendPhoto", "document": "sendDocument"}[kind]
-		if files[0].Caption != "" {
-			_ = form.WriteField("caption", files[0].Caption)
+		if text := files[0].caption(); text != "" {
+			_ = form.WriteField("caption", text)
+			_ = form.WriteField("parse_mode", "HTML")
 		}
 		part, _ := form.CreateFormFile(kind, files[0].Name)
 		_, _ = part.Write(files[0].Data)
@@ -336,8 +364,9 @@ func (t *Telegram) album(ctx context.Context, kind string, files []Upload) ([]in
 		media := make([]map[string]string, len(files))
 		for i, f := range files {
 			media[i] = map[string]string{"type": kind, "media": fmt.Sprintf("attach://f%d", i)}
-			if f.Caption != "" {
-				media[i]["caption"] = f.Caption
+			if text := f.caption(); text != "" {
+				media[i]["caption"] = text
+				media[i]["parse_mode"] = "HTML"
 			}
 		}
 		list, _ := json.Marshal(media)

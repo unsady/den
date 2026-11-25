@@ -60,7 +60,7 @@ func (c *Chat) keep(session string, files []Upload) []events.Attachment {
 			log.Printf("chat: keep a file for the app: %v", err)
 			continue
 		}
-		kept = append(kept, events.Attachment{File: file, Name: f.Name, Size: len(f.Data), Caption: f.Caption, Widget: f.Widget})
+		kept = append(kept, events.Attachment{File: file, Name: f.Name, Size: len(f.Data), Caption: f.Caption, Source: f.Source, Widget: f.Widget})
 	}
 	return kept
 }

@@ -136,6 +136,8 @@ type Attachment struct {
 	Name    string `json:"name"`
 	Size    int    `json:"size"`
 	Caption string `json:"caption,omitempty"`
+	// Source is the page it came from, such as a shop's page of a product.
+	Source string `json:"source,omitempty"`
 	// Widget describes it for the app to draw itself, such as a chart's
 	// data.
 	Widget json.RawMessage `json:"widget,omitempty"`

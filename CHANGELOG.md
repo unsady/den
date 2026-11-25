@@ -11,6 +11,7 @@ release notes.
 - Telegram shows a long reply as it is written, as a draft that the reply takes the place of, like the app does.
 - `den config` shows den's settings, and `den config set` changes the container's memory or cores, or a variable of den's environment such as `DEN_WHISPER_MODEL`, and restarts den: no more editing `config.json` by hand.
 - Push notifications for the phone app: a reply, a job's result, a notice, or a question reaches the phone while the app is closed, once den has an Apple push key (`apns.p8` and `apns.json` among its secrets).
+- `den send --source` links a file to the page it came from, such as a shop's page of a product: Telegram adds the site's name as a link to the caption, and the apps show a link icon by its caption.
 - When a turn or a job changes the agent's memory, the app marks the reply it sends with "Memory updated", and shows the agent's short lines on what changed, which it leaves with the new `den remembered`.
 - While the agent works, the app's line of its steps says Thinking… while the model thinks between steps, and why it waits when the model's provider does not answer, so a long pause no longer looks like a hang.
 
