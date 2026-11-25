@@ -4,14 +4,10 @@ den transcribes the voice messages you send, so the agent reads what you said. I
 
 ## In the container
 
-Add a [whisper.cpp model](https://huggingface.co/ggerganov/whisper.cpp) and your language to `env` in `~/.config/den/config.json`, then run `den restart`:
+Pick a [whisper.cpp model](https://huggingface.co/ggerganov/whisper.cpp) and your language, and den restarts with them:
 
-```json
-"env": {
-  "TZ": "America/New_York",
-  "DEN_WHISPER_MODEL": "small-q8_0",
-  "DEN_WHISPER_LANGUAGE": "en"
-}
+```sh
+den config set DEN_WHISPER_MODEL small-q8_0 DEN_WHISPER_LANGUAGE en
 ```
 
 den downloads the model once and starts `whisper-cli` for each voice message, so the model takes memory only while it works. On a five-second message on arm64:
@@ -26,4 +22,4 @@ den downloads the model once and starts `whisper-cli` for each voice message, so
 
 ## Through a service
 
-A service with OpenAI's transcription API works instead: for Groq, set `DEN_TRANSCRIBE_URL=https://api.groq.com/openai/v1/audio/transcriptions` and `DEN_TRANSCRIBE_MODEL=whisper-large-v3-turbo` in `env`, and run `den secret set transcribe_key`.
+A service with OpenAI's transcription API works instead: for Groq, run `den config set DEN_TRANSCRIBE_URL https://api.groq.com/openai/v1/audio/transcriptions DEN_TRANSCRIBE_MODEL whisper-large-v3-turbo` and `den secret set transcribe_key`.

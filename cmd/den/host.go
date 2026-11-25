@@ -37,6 +37,9 @@ Usage:
   den start | stop | restart
   den status                    The container, and which secrets den has
   den logs [-f]                 den's log
+  den config [set <name> <value>... | unset <name>]
+                                Show the settings, or change some, such as memory or
+                                DEN_WHISPER_MODEL, and restart den
   den fx [<args>]               Run fx as the agent, such as den fx for a terminal chat
   den shell                     A shell as the agent
   den login [--model <id>] [--base-url <url>] <provider>
@@ -68,7 +71,7 @@ Usage:
   den app unpair                Shut every app out
 
 Every other command, such as den job ls, runs in the container.
-Settings: ~/.config/den/config.json
+Settings: ~/.config/den/config.json, which den config changes
 `
 
 // hostConfig is how den runs its container.
@@ -185,6 +188,8 @@ func hostRun(args []string) error {
 		return launch(c, "Restarting den once what runs ends", recreate)
 	case "status":
 		return status(c)
+	case "config":
+		return hostConfigCommand(c, args[1:])
 	case "logs":
 		return c.run(append([]string{"logs"}, append(args[1:], c.Name)...)...)
 	case "fx":
