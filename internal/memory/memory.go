@@ -254,3 +254,30 @@ func splice(lines []string, start, end int, block []string) []string {
 	out = append(out, block...)
 	return append(out, lines[end:]...)
 }
+
+// missing is the stamp of a missing file, so creating it counts as a change.
+const missing = "missing"
+
+// Stamp names the file's content as it is now, so a caller can tell
+// whether a turn changed it; empty when it cannot be read.
+func Stamp(cfg config.Config) string {
+	data, err := read(cfg)
+	if err != nil {
+		log.Printf("memory: %v", err)
+		return ""
+	}
+	if data == nil {
+		return missing
+	}
+	return version(data)
+}
+
+// Changed says whether the file changed since it had the stamp before. A
+// stamp den could not read tells nothing.
+func Changed(cfg config.Config, before string) bool {
+	if before == "" {
+		return false
+	}
+	after := Stamp(cfg)
+	return after != "" && after != before
+}

@@ -35,7 +35,7 @@ func TestDeliverQuiet(t *testing.T) {
 	d := &daemon{}
 	run := jobs.Run{Job: "news", Output: "Three new posts."}
 
-	if d.deliver(jobs.Job{Name: "news", Title: "News"}, run, true) {
+	if d.deliver(jobs.Job{Name: "news", Title: "News"}, run, true, nil) {
 		t.Error("a quiet run was delivered")
 	}
 }

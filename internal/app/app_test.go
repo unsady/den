@@ -295,7 +295,10 @@ func TestServer(t *testing.T) {
 	// Asked for pages, a session gives its latest messages first, each page
 	// with where the one before it ends.
 	hub.Publish(events.Event{Type: events.Reply, Session: "s1", Text: "Two"})
-	hub.Publish(events.Event{Type: events.Reply, Session: "s1", Text: "Three"})
+	hub.Publish(events.Event{Type: events.Reply, Session: "s1", Text: "Three", Memory: &events.Memory{Lines: []string{"Calling you by name"}}})
+	if _, body := call("GET", "/sessions/s1?limit=1", token, ""); !strings.Contains(body, `"memory":{"lines":["Calling you by name"]}`) {
+		t.Fatalf("a reply that changed the memory: %s", body)
+	}
 	var page struct {
 		Messages []struct{ Text string }
 		Before   string

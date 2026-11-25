@@ -151,3 +151,32 @@ func TestReadWrite(t *testing.T) {
 		t.Errorf("stale Write = %v, want ErrChanged", err)
 	}
 }
+
+func TestChanged(t *testing.T) {
+	space := t.TempDir()
+	cfg := config.Config{Space: space}
+	path := filepath.Join(space, File)
+
+	// Creating the file is a change.
+	stamp := Stamp(cfg)
+	if err := os.WriteFile(path, []byte(seeded), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !Changed(cfg, stamp) {
+		t.Error("a created file did not change")
+	}
+
+	stamp = Stamp(cfg)
+	if Changed(cfg, stamp) {
+		t.Error("an untouched file changed")
+	}
+	if err := os.WriteFile(path, []byte(seeded+"- More.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !Changed(cfg, stamp) {
+		t.Error("an edited file did not change")
+	}
+	if Changed(cfg, "") {
+		t.Error("a stamp den could not read told of a change")
+	}
+}

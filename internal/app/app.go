@@ -341,7 +341,7 @@ func (s *Server) Handler() http.Handler {
 
 		list := []message{}
 		for _, e := range journal[start:end] {
-			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files})
+			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files, Memory: e.Memory})
 		}
 		// The journal keeps an offer to retry for good: once its messages
 		// went again, or the user wrote on, den holds nothing to retry.
@@ -395,7 +395,7 @@ func (s *Server) Handler() http.Handler {
 			l := sessions[e.Session]
 			results = append(results, hit{
 				Session: session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated},
-				Message: message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files},
+				Message: message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Files: e.Files, Memory: e.Memory},
 			})
 		}
 		reply(w, map[string]any{"results": results})
@@ -779,6 +779,8 @@ type message struct {
 	// Files are the files den sent with it, each of which
 	// GET /sessions/{id}/files/{file} returns.
 	Files []events.Attachment `json:"files,omitempty"`
+	// Memory says its turn changed the agent's memory, as events.Event's.
+	Memory *events.Memory `json:"memory,omitempty"`
 }
 
 // API is the version of what den and the app say to each other. It goes up

@@ -59,7 +59,7 @@ func (c *Chat) status(ctx context.Context) string {
 		lines = append(lines, "Context: known after the next reply")
 	}
 
-	if inUse, total := memory(); total > 0 {
+	if inUse, total := ram(); total > 0 {
 		lines = append(lines, fmt.Sprintf("Memory: %s of %s", size(inUse), size(total)))
 	}
 
@@ -166,9 +166,9 @@ func size(n int64) string {
 	return fmt.Sprintf("%d MB", n>>20)
 }
 
-// memory reads the machine's used and total memory. The container is its
+// ram reads the machine's used and total memory. The container is its
 // own virtual machine, so that is the container's.
-func memory() (used, total int64) {
+func ram() (used, total int64) {
 	f, err := os.Open("/proc/meminfo")
 	if err != nil {
 		return 0, 0

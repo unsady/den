@@ -21,6 +21,7 @@ The Soul, User, and Notes sections of `~/space/AGENTS.md` are loaded into every 
 - Give a rule about the length or form of replies a limit you can check, such as "at most 40 words, no lists, no links", and agree on it with the user before you save it. "Short" or "1-2 sentences" lets a later session stretch the sentences.
 - When the user corrects a rule or sets one that contradicts another, replace the old line rather than adding an exception or keeping both.
 - How to do a kind of task belongs in a skill under `.fx/skills/<name>/SKILL.md`, not in these sections.
+- After you change these sections, tell the user what changed with `den remembered "<line>"`, once per change and at most three times a turn: a line of at most 12 words, in the language the user writes to you in, such as `den remembered "Calling you by your first name"`. The apps show it under your reply.
 
 ## Your space
 
