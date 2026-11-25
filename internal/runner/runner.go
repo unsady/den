@@ -98,6 +98,18 @@ type Request struct {
 	// last step, whole, each time it grows, and an empty text once a step
 	// takes it as what the agent said before the step.
 	Draft func(text string)
+	// Thinking, when set, receives the latest line of the model's
+	// reasoning as it writes it, and an empty text once a step or the reply
+	// follows it.
+	Thinking func(text string)
+	// Recovering, when set, receives fx's report that it resends a model
+	// request that failed, such as "Gateway error · next try in 8s", and an
+	// empty text once the model answers.
+	Recovering func(text string)
+	// GiveUp, when set, ends the turn with an error once fx has resent a
+	// failed model request for this long without an answer. Zero waits as
+	// long as the turn may run.
+	GiveUp time.Duration
 }
 
 // Reply is what one turn produced. Error is empty on success.

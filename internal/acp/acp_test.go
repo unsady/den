@@ -250,6 +250,10 @@ func TestPromptStreamsEvents(t *testing.T) {
 		f.update("s1", map[string]any{"sessionUpdate": "usage_update", "used": 120, "size": 1000})
 		f.update("s1", map[string]any{"sessionUpdate": "notice", "severity": "info", "title": "Heads up"})
 		f.update("s1", map[string]any{"sessionUpdate": "session_info_update", "title": "T"})
+		f.update("s1", map[string]any{"sessionUpdate": "session_info_update", "_meta": map[string]any{"fx": map[string]any{
+			"modelResponseRecovery": map[string]any{"state": "waiting", "attempt": 4, "message": "Gateway error · next try in 8s"},
+		}}})
+		f.update("s1", map[string]any{"sessionUpdate": "session_info_update", "_meta": map[string]any{"fx": map[string]any{"modelResponseRecovery": nil}}})
 		f.reply(req, map[string]any{"stopReason": "end_turn", "usage": map[string]any{"inputTokens": 7, "outputTokens": 3}})
 	}()
 
@@ -271,7 +275,7 @@ func TestPromptStreamsEvents(t *testing.T) {
 	for _, e := range events {
 		kinds = append(kinds, e.Kind)
 	}
-	want := "thought text tool_call tool_update text usage notice other"
+	want := "thought text tool_call tool_update text usage notice other recovery recovery"
 	if strings.Join(kinds, " ") != want {
 		t.Fatalf("kinds = %v, want %s", kinds, want)
 	}
@@ -289,6 +293,12 @@ func TestPromptStreamsEvents(t *testing.T) {
 	}
 	if events[6].Text != "Heads up" || events[6].Status != "info" {
 		t.Errorf("notice = %+v", events[6])
+	}
+	if events[8].Text != "Gateway error · next try in 8s" || events[8].Status != "waiting" {
+		t.Errorf("recovery = %+v", events[8])
+	}
+	if events[9].Text != "" || events[9].Status != "" {
+		t.Errorf("recovered = %+v", events[9])
 	}
 	if len(events[0].Raw) == 0 {
 		t.Error("event has no Raw")
