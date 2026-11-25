@@ -57,6 +57,7 @@ type Chat interface {
 	Retry(ctx context.Context, session string) error
 	Holds(ctx context.Context, session string) bool
 	Continue(ctx context.Context, session string) error
+	Compact(ctx context.Context, session string) error
 	Open(ctx context.Context, session string) error
 	Setup(ctx context.Context) (chat.Setup, error)
 	Models(ctx context.Context, provider string) ([]chat.Model, error)
@@ -288,7 +289,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		out := make([]session, 0, len(list))
 		for _, l := range list {
-			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated})
+			out = append(out, session{ID: l.ID, Kind: string(l.Kind), Parent: l.Parent, Job: l.Job, Title: l.Title, Archived: l.Archived, Updated: l.Updated, Context: l.Context})
 		}
 		if !paged {
 			reply(w, out)
@@ -341,7 +342,11 @@ func (s *Server) Handler() http.Handler {
 
 		list := []message{}
 		for _, e := range journal[start:end] {
-			list = append(list, message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files, Memory: e.Memory})
+			m := message{Key: e.Key, Mine: e.Type == events.Message, Text: e.Text, At: e.At, Failed: e.Failed, Retry: e.Retry, Files: e.Files, Memory: e.Memory}
+			if e.Type == events.Compacted {
+				m.Compacted = &compaction{Before: e.Before, After: e.Context}
+			}
+			list = append(list, m)
 		}
 		// The journal keeps an offer to retry for good: once its messages
 		// went again, or the user wrote on, den holds nothing to retry.
@@ -638,6 +643,25 @@ func (s *Server) Handler() http.Handler {
 		reply(w, map[string]string{"id": id})
 	})
 
+	// Compacting runs on after the answer; the session's events say how it
+	// went.
+	mux.HandleFunc("POST /sessions/{id}/compact", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		err := s.chat.Compact(r.Context(), id)
+		switch {
+		case errors.Is(err, chat.ErrUnknown):
+			fail(w, http.StatusNotFound, fmt.Errorf("no session %s", id))
+			return
+		case errors.Is(err, chat.ErrBusy):
+			fail(w, http.StatusConflict, err)
+			return
+		case err != nil:
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+
 	// A phone gives its token for pushes each time it starts.
 	mux.HandleFunc("POST /devices", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -757,6 +781,8 @@ type session struct {
 	// Archived marks a session in the archive.
 	Archived bool      `json:"archived,omitempty"`
 	Updated  time.Time `json:"updated"`
+	// Context is its size after its last turn, in tokens, 0 when unknown.
+	Context int `json:"context,omitempty"`
 }
 
 // hit is a message search found, with its session.
@@ -781,6 +807,16 @@ type message struct {
 	Files []events.Attachment `json:"files,omitempty"`
 	// Memory says its turn changed the agent's memory, as events.Event's.
 	Memory *events.Memory `json:"memory,omitempty"`
+	// Compacted marks where den compacted the session; such a message has
+	// no text.
+	Compacted *compaction `json:"compacted,omitempty"`
+}
+
+// compaction is how big a session was before den compacted it and after,
+// in tokens.
+type compaction struct {
+	Before int `json:"before"`
+	After  int `json:"after"`
 }
 
 // API is the version of what den and the app say to each other. It goes up

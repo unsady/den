@@ -811,6 +811,63 @@ func TestCompactCommand(t *testing.T) {
 	telegram.expect(t, "resume=s1 msg=back lines=1")
 }
 
+func TestCompactForApp(t *testing.T) {
+	cfg, telegram, c := startChatWith(t, nil)
+	os.WriteFile(filepath.Join(cfg.Space, "context-size"), []byte("50000"), 0o644)
+	heard, stop := c.Events.Listen()
+	defer stop()
+	next := func(kind string) events.Event {
+		t.Helper()
+		timeout := time.After(5 * time.Second)
+		for {
+			select {
+			case e := <-heard:
+				if e.Type == kind {
+					return e
+				}
+			case <-timeout:
+				t.Fatalf("no %s event", kind)
+			}
+		}
+	}
+
+	if err := c.Compact(context.Background(), "s1"); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("compacting a session fx has not saved: %v", err)
+	}
+
+	// A turn tells the app how big its session grew.
+	telegram.message(42, "hello")
+	telegram.expect(t, "resume=none msg=hello lines=1")
+	if e := next(events.Context); e.Session != "s1" || e.Context != 50_000 {
+		t.Fatalf("context after a turn: %+v", e)
+	}
+
+	// The app sees compacting start and end, and the feed keeps the mark.
+	// The turn holds the session a little after its reply.
+	deadline := time.Now().Add(5 * time.Second)
+	for err := c.Compact(context.Background(), "s1"); err != nil; err = c.Compact(context.Background(), "s1") {
+		if !errors.Is(err, ErrBusy) || time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	next(events.Compacting)
+	if e := next(events.Compacted); e.Before != 50_000 || e.Context != 12_000 {
+		t.Fatalf("compacted: %+v", e)
+	}
+	journal, _ := events.Journal(c.Events.Dir, "s1")
+	if last := journal[len(journal)-1]; last.Type != events.Compacted {
+		t.Fatalf("the feed's last mark: %+v", last)
+	}
+	if s, _ := c.store.Session(context.Background(), "s1"); s.Context != 12_000 {
+		t.Fatalf("size after compacting: %d", s.Context)
+	}
+
+	// Asked for, it is not announced in Telegram.
+	telegram.message(42, "back")
+	telegram.expect(t, "resume=s1 msg=back lines=1")
+}
+
 func TestSessionsList(t *testing.T) {
 	den := &fakeDaemon{jobSessions: map[string]bool{"job": true}}
 	_, telegram, c := startChatWith(t, den)

@@ -584,6 +584,7 @@ func (c *Chat) measure(session string, started time.Time, ok bool) string {
 		if err := c.store.SetContext(ctx, session, size); err != nil {
 			log.Printf("chat: context of %s: %v", session, err)
 		}
+		c.Events.Publish(events.Event{Type: events.Context, Session: session, Context: size})
 	}
 	s, err := c.store.Session(ctx, session)
 	if err != nil || s.Compacted == 0 || !ok {

@@ -67,6 +67,14 @@ const (
 	// Deleted says a session is gone, however it was deleted: by the app,
 	// in Telegram, by the agent, or as a job run with nothing to say.
 	Deleted = "deleted"
+	// Context gives a session's size after a turn, or after compacting
+	// that failed (Failed, with why in Text) or found nothing to do.
+	Context = "context"
+	// Compacting says den started to compact a session, and Compacted
+	// that it did, from Before tokens to Context; the session's feed
+	// keeps the mark.
+	Compacting = "compacting"
+	Compacted  = "compacted"
 )
 
 // Event is one thing that happened. Fields that do not apply to its kind
@@ -110,6 +118,10 @@ type Event struct {
 	Files []Attachment `json:"files,omitempty"`
 	// Memory says a reply's or a result's turn changed the agent's memory.
 	Memory *Memory `json:"memory,omitempty"`
+	// Context is a session's size in tokens, on Context and Compacted, and
+	// Before its size before den compacted it.
+	Context int `json:"context,omitempty"`
+	Before  int `json:"before,omitempty"`
 }
 
 // Memory is what a turn changed in the agent's memory: the lines the agent
@@ -209,7 +221,7 @@ func (h *Hub) Listen() (<-chan Event, func()) {
 
 // keep adds e to its session's journal, when it is one of the kinds kept.
 func (h *Hub) keep(e Event) {
-	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result && e.Type != File && e.Type != Notice {
+	if h.Dir == "" || e.Session == "" || e.Type != Message && e.Type != Reply && e.Type != Result && e.Type != File && e.Type != Notice && e.Type != Compacted {
 		return
 	}
 

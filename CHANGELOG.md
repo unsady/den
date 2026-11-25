@@ -13,6 +13,7 @@ release notes.
 - Push notifications for the phone app: a reply, a job's result, a notice, or a question reaches the phone while the app is closed, once den has an Apple push key (`apns.p8` and `apns.json` among its secrets).
 - When a turn or a job changes the agent's memory, the app marks the reply it sends with "Memory updated", and shows the agent's short lines on what changed, which it leaves with the new `den remembered`.
 - While the agent works, the app's line of its steps says Thinking… while the model thinks between steps, and why it waits when the model's provider does not answer, so a long pause no longer looks like a hang.
+- The apps show how full a session's context is and can compact any session, not only Telegram's; the feed marks where den compacted a session.
 
 ### Fixed
 
