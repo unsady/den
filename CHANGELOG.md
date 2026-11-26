@@ -23,6 +23,11 @@ release notes.
 - `den app unpair` also stops the pushes to the phones that were paired.
 - Backups to a folder den cannot give to its owner still drop the old snapshots, so the folder no longer fills up, and den no longer reports a failed backup when its own restart cut one short.
 - Claude conversations no longer pile up on disk: den deletes Claude's copy of one once it can no longer resume it, and all of them when it starts.
+- Some models on OpenCode Go no longer fail a turn when they call a tool (fx den.10).
+
+### Changed
+
+- den comes with fx 0.0.18: subagents are more reliable, and shell commands run several times faster when an MCP server is set up.
 
 ## v0.16.0
 
