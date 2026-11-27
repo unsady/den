@@ -19,6 +19,7 @@ release notes.
 
 ### Fixed
 
+- The nightly Reflect no longer finds its own session among the ones to review.
 - A chat turn whose model does not answer for 3 minutes fails with a button to retry, instead of waiting for the turn's 30 minutes to run out.
 - Deleting a session in the app while the agent works in it no longer fails now and then with "send /stop first".
 - `den app unpair` also stops the pushes to the phones that were paired.
