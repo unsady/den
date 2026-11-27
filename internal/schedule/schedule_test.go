@@ -41,3 +41,22 @@ func TestFirstRejects(t *testing.T) {
 		}
 	}
 }
+
+func TestDescribe(t *testing.T) {
+	for spec, want := range map[string]string{
+		"every 2h":                             "Every 2h",
+		"@daily":                               "Every day at 00:00",
+		"0 4 * * *":                            "Every day at 04:00",
+		"CRON_TZ=Europe/Belgrade 0 10 * * *":   "Every day at 10:00",
+		"CRON_TZ=Europe/Belgrade 10 * * * *":   "Every hour at :10",
+		"0 9 * * 1-5":                          "Every weekday at 09:00",
+		"CRON_TZ=Europe/Belgrade 0 12 * * 2,6": "Every Tue, Sat at 12:00",
+		"0 11 * * 1":                           "Every Mon at 11:00",
+		"*/15 9-17 * * *":                      "*/15 9-17 * * *",
+		"0 9 1 * *":                            "0 9 1 * *",
+	} {
+		if got := Describe(spec); got != want {
+			t.Errorf("Describe(%q) = %q, want %q", spec, got, want)
+		}
+	}
+}
