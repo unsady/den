@@ -77,6 +77,7 @@ func TestNote(t *testing.T) {
 	}{
 		{events.Event{Type: events.Reply, Session: "s1", Text: "Done\n\nall  of it"}, Note{Title: "den", Body: "Done all of it", Session: "s1"}, true},
 		{events.Event{Type: events.Result, Session: "j1", Title: "Weather", Job: "weather", Text: "Sunny", Quiet: true}, Note{Title: "Weather", Body: "Sunny", Session: "j1", Job: "weather", Quiet: true}, true},
+		{events.Event{Type: events.Result, Session: "j2", Title: "Tidy", Job: "nightly-tidy", Text: "Folded the notes", Muted: true}, Note{}, false},
 		{events.Event{Type: events.Ask, What: "Send the mail"}, Note{Title: "den", Body: "Send the mail"}, true},
 		{events.Event{Type: events.Step, Session: "s1", Text: "Reading"}, Note{}, false},
 		{events.Event{Type: events.Reply, Session: "s1"}, Note{}, false},

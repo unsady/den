@@ -159,7 +159,11 @@ type Note struct {
 func note(e events.Event) (Note, bool) {
 	n := Note{Title: e.Title, Body: e.Text, Session: e.Session, Job: e.Job, Quiet: e.Quiet}
 	switch e.Type {
-	case events.Reply, events.Result, events.Notice:
+	case events.Result:
+		if e.Muted {
+			return n, false
+		}
+	case events.Reply, events.Notice:
 	case events.Ask:
 		n.Body = e.What
 	default:
