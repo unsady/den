@@ -16,7 +16,7 @@ FROM debian:trixie-slim AS whisper
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates cmake git && \
     rm -rf /var/lib/apt/lists/*
-ARG WHISPER_VERSION=v1.9.5
+ARG WHISPER_VERSION=v1.9.6
 ARG WHISPER_NATIVE=ON
 RUN git clone --depth 1 --branch "$WHISPER_VERSION" https://github.com/ggml-org/whisper.cpp /src && \
     cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
