@@ -29,9 +29,9 @@ RUN git clone --depth 1 --branch "$WHISPER_VERSION" https://github.com/ggml-org/
 FROM debian:trixie-slim AS downloads
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
-ARG LIGHTPANDA_VERSION=1.0.4
-ARG LIGHTPANDA_SHA256_AARCH64=f021d49a0b66d07bf2633f8e00870b9075293516f872695b0ca4aeb5848b6ea8
-ARG LIGHTPANDA_SHA256_X86_64=7d22651129901203abdb95c64f49069c49e88f5211f4d8c4c6828c123c4adab4
+ARG LIGHTPANDA_VERSION=1.0.6
+ARG LIGHTPANDA_SHA256_AARCH64=26e0042a52f493d8cc1b04faef42aea9b46bef9ccfcc86170098bd330c19a890
+ARG LIGHTPANDA_SHA256_X86_64=a9bff4c0b8498433cd16d8165a5e5b47181e5690d4c8e1f011d601f1f2e8a467
 RUN arch=$(uname -m); \
     case "$arch" in \
         aarch64) sum=$LIGHTPANDA_SHA256_AARCH64 ;; \
