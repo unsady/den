@@ -473,6 +473,8 @@ func (d *daemon) start(j jobs.Job) bool {
 		if err := d.store.Finish(run); err != nil {
 			log.Printf("job %s: save run: %v", j.Name, err)
 		}
+		// The apps' jobs page shows how the run ended.
+		d.chat.JobsChanged()
 		log.Printf("job %s: %s in %s", j.Name, run.Status(), run.Duration)
 	}()
 	return true
@@ -557,12 +559,7 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool, note *events.Memo
 	var text string
 	switch {
 	case run.Error != "":
-		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Title, run.Error)
-		// fx says why on its last line, such as that no provider is set up.
-		lines := strings.Split(strings.TrimSpace(run.Stderr), "\n")
-		if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
-			text += "\n" + last
-		}
+		text = fmt.Sprintf("⚠️ den job %s failed: %s", j.Title, run.Why())
 	case silent(j, run, quiet):
 		return false
 	default:

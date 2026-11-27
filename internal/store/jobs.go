@@ -231,6 +231,17 @@ func (r Run) Status() string {
 	return "ok"
 }
 
+// Why says why a failed run failed: its error, and the last line of fx's
+// output, which names the cause, such as that no provider is set up.
+func (r Run) Why() string {
+	why := r.Error
+	lines := strings.Split(strings.TrimSpace(r.Stderr), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
+		why += "\n" + last
+	}
+	return why
+}
+
 // keptRuns is how many of a job's latest runs the store keeps.
 const keptRuns = 50
 

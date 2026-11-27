@@ -16,6 +16,7 @@ import (
 	"github.com/unsady/den/internal/events"
 	"github.com/unsady/den/internal/notify"
 	"github.com/unsady/den/internal/runner"
+	"github.com/unsady/den/internal/schedule"
 	"github.com/unsady/den/internal/store"
 )
 
@@ -253,7 +254,7 @@ func (c *Chat) Setup(ctx context.Context) (Setup, error) {
 	return s, nil
 }
 
-// JobsChanged tells the app a job was added, edited, or removed.
+// JobsChanged tells the app a job was added, edited, removed, or ran.
 func (c *Chat) JobsChanged() {
 	c.changed(nil)
 }
@@ -339,4 +340,56 @@ func (c *Chat) catalogName(provider, model string) string {
 	}
 	json.Unmarshal(data, &catalog)
 	return catalog[model].Name
+}
+
+// Job is a job as the app's jobs page shows it.
+type Job struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
+	// Schedule says when the job runs in words; empty for a one-time job.
+	Schedule string     `json:"schedule,omitempty"`
+	Next     time.Time  `json:"next"`
+	Last     *time.Time `json:"last,omitempty"`
+	// Failed marks a job whose last run failed, and Error says why.
+	Failed bool   `json:"failed,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// Jobs lists the jobs, those whose last run failed first, then by their
+// next run.
+func (c *Chat) Jobs(ctx context.Context) ([]Job, error) {
+	list, err := c.store.Jobs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Job, 0, len(list))
+	for _, j := range list {
+		job := Job{Name: j.Name, Title: j.Title, Next: j.NextRun, Last: j.LastRun, Failed: j.LastStatus == "failed"}
+		if !j.Once {
+			job.Schedule = schedule.Describe(j.Schedule)
+		}
+		if job.Failed {
+			runs, err := c.store.Runs(ctx, j.Name, 1)
+			if err != nil {
+				return nil, err
+			}
+			if len(runs) > 0 {
+				job.Error = runs[0].Why()
+			}
+		}
+		out = append(out, job)
+	}
+
+	// The store lists them by their next run already.
+	slices.SortStableFunc(out, func(a, b Job) int {
+		switch {
+		case a.Failed == b.Failed:
+			return 0
+		case a.Failed:
+			return -1
+		}
+		return 1
+	})
+	return out, nil
 }

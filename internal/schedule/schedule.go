@@ -7,6 +7,7 @@ package schedule
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,4 +75,73 @@ func cutPrefixFold(s, prefix string) (string, bool) {
 		return s, false
 	}
 	return strings.TrimSpace(s[len(prefix):]), true
+}
+
+// days names the days of the week as cron numbers them, 7 being Sunday too.
+var days = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+
+// Describe says a recurring spec in words, such as "Every day at 09:00",
+// or gives the spec back without its time zone when it has no simple form.
+func Describe(spec string) string {
+	s := strings.TrimSpace(spec)
+	if rest, ok := cutPrefixFold(s, "every "); ok {
+		return "Every " + rest
+	}
+	switch s {
+	case "@hourly":
+		return "Every hour"
+	case "@daily", "@midnight":
+		return "Every day at 00:00"
+	case "@weekly":
+		return "Every Sun at 00:00"
+	case "@monthly":
+		return "Every month"
+	case "@yearly", "@annually":
+		return "Every year"
+	}
+	if strings.HasPrefix(s, "CRON_TZ=") || strings.HasPrefix(s, "TZ=") {
+		_, s, _ = strings.Cut(s, " ")
+		s = strings.TrimSpace(s)
+	}
+
+	f := strings.Fields(s)
+	if len(f) != 5 || f[2] != "*" || f[3] != "*" {
+		return s
+	}
+	minute, ok := number(f[0], 59)
+	if !ok {
+		return s
+	}
+	if f[1] == "*" && f[4] == "*" {
+		return fmt.Sprintf("Every hour at :%02d", minute)
+	}
+	hour, ok := number(f[1], 23)
+	if !ok {
+		return s
+	}
+	at := fmt.Sprintf("at %02d:%02d", hour, minute)
+
+	switch f[4] {
+	case "*":
+		return "Every day " + at
+	case "1-5":
+		return "Every weekday " + at
+	case "0,6", "6,0", "6,7":
+		return "Every weekend " + at
+	}
+	var names []string
+	for _, d := range strings.Split(f[4], ",") {
+		n, ok := number(d, 7)
+		if !ok {
+			return s
+		}
+		names = append(names, days[n])
+	}
+	return "Every " + strings.Join(names, ", ") + " " + at
+}
+
+// number reads a cron field that is one number no greater than limit.
+func number(field string, limit int) (int, bool) {
+	n, err := strconv.Atoi(field)
+	return n, err == nil && n >= 0 && n <= limit
 }

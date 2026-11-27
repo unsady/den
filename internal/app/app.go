@@ -67,6 +67,7 @@ type Chat interface {
 	ChooseSecondEffort(ctx context.Context, level string) error
 	Sessions(ctx context.Context, shelf store.Shelf, job string, before *store.Mark, limit int) ([]store.Session, error)
 	Archive(ctx context.Context, session string, archived bool) error
+	Jobs(ctx context.Context) ([]chat.Job, error)
 }
 
 // Asker is what the app does with the questions den asks.
@@ -520,6 +521,15 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		reply(w, map[string]bool{"sent": true})
+	})
+
+	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, r *http.Request) {
+		list, err := s.chat.Jobs(r.Context())
+		if err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		reply(w, list)
 	})
 
 	mux.HandleFunc("GET /memory", func(w http.ResponseWriter, r *http.Request) {

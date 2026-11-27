@@ -87,6 +87,10 @@ func (f *fakeChat) Open(context.Context, string) error { return nil }
 
 func (f *fakeChat) Archive(context.Context, string, bool) error { return nil }
 
+func (f *fakeChat) Jobs(context.Context) ([]chat.Job, error) {
+	return []chat.Job{{Name: "news", Title: "News", Schedule: "Every day at 09:00", Failed: true, Error: "timed out"}}, nil
+}
+
 func (f *fakeChat) Sessions(_ context.Context, shelf store.Shelf, _ string, _ *store.Mark, _ int) ([]store.Session, error) {
 	// Search asks for every session; den keeps only s1 here.
 	if shelf == store.Everywhere {
@@ -263,6 +267,10 @@ func TestServer(t *testing.T) {
 
 	if status, body := call("POST", "/stop", token, `{"session":"s9"}`); status != http.StatusOK || c.posted[len(c.posted)-1] != "stop:s9" {
 		t.Fatalf("stop one session: %d %s %v", status, body, c.posted)
+	}
+
+	if status, body := call("GET", "/jobs", token, ""); status != http.StatusOK || !strings.Contains(body, `"failed":true,"error":"timed out"`) {
+		t.Fatalf("jobs: %d %s", status, body)
 	}
 
 	if err := os.WriteFile(filepath.Join(cfg.Space, "AGENTS.md"), []byte("## User\n\nLives in New York.\n"), 0o644); err != nil {

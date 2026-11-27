@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -267,5 +269,41 @@ func TestToTelegram(t *testing.T) {
 	}
 	if !c.ToTelegram("app") {
 		t.Fatal("the session Telegram joined stayed out of it")
+	}
+}
+
+// TestJobs checks that the app's jobs page lists a failed job first, with
+// why it failed, and a recurring job's schedule in words.
+func TestJobs(t *testing.T) {
+	c := newChat(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	for _, j := range []store.Job{
+		{Name: "plan", Title: "Plan", Schedule: "0 9 * * *", Prompt: "p", NextRun: now.Add(time.Hour), Created: now},
+		{Name: "news", Title: "News", Schedule: "0 10 * * *", Prompt: "p", NextRun: now.Add(2 * time.Hour), Created: now},
+		{Name: "call", Title: "Call", Schedule: "2026-12-01 10:00", Prompt: "p", Once: true, NextRun: now.Add(3 * time.Hour), Created: now},
+	} {
+		if err := c.store.AddJob(ctx, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.store.AddRun(ctx, store.Run{Job: "news", Started: now, Error: "exit status 1", Stderr: "loading\nno provider\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.store.FinishJob(ctx, "news", now, "failed"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := c.Jobs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, j := range list {
+		got = append(got, fmt.Sprintf("%s|%s|%v|%s", j.Name, j.Schedule, j.Failed, j.Error))
+	}
+	want := []string{"news|Every day at 10:00|true|exit status 1\nno provider", "plan|Every day at 09:00|false|", "call||false|"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("jobs = %q, want %q", got, want)
 	}
 }
