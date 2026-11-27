@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/unsady/den/internal/config"
@@ -62,5 +63,15 @@ func TestWriteFileReplacesALink(t *testing.T) {
 	// A new file goes in a folder den makes as the agent.
 	if err := WriteFile(config.Config{}, filepath.Join(dir, "fresh", "AGENTS.md"), []byte("rules"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGitConfig(t *testing.T) {
+	env := GitConfig([]string{"HOME=/home/agent"}, "safe.directory", "*")
+	env = GitConfig(env, "http.extraHeader", "X-Session: s1")
+	want := []string{"HOME=/home/agent", "GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*",
+		"GIT_CONFIG_KEY_1=http.extraHeader", "GIT_CONFIG_VALUE_1=X-Session: s1"}
+	if !slices.Equal(env, want) {
+		t.Errorf("env = %q, want %q", env, want)
 	}
 }

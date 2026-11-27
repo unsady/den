@@ -48,7 +48,26 @@ func Command(ctx context.Context, cfg config.Config, name string, args ...string
 	// Only its processes look there: den itself runs as root and must never
 	// run a program the agent can replace.
 	cmd.Env = setEnv(cmd.Env, "PATH", u.HomeDir+"/.local/bin:"+os.Getenv("PATH"))
+	// A home shared from the host, such as virtiofs under Apple's
+	// container, shows the agent's files as root's, and git would refuse
+	// the agent's own repositories. Only the agent's processes trust them:
+	// git that den runs as root still refuses a repository the agent made.
+	cmd.Env = GitConfig(cmd.Env, "safe.directory", "*")
 	return cmd, nil
+}
+
+// GitConfig adds key = value to env as git's configuration from the
+// command line, after what env already sets that way.
+func GitConfig(env []string, key, value string) []string {
+	n := 0
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "GIT_CONFIG_COUNT="); ok {
+			n, _ = strconv.Atoi(v)
+		}
+	}
+	env = setEnv(env, "GIT_CONFIG_COUNT", strconv.Itoa(n+1))
+	env = setEnv(env, fmt.Sprintf("GIT_CONFIG_KEY_%d", n), key)
+	return setEnv(env, fmt.Sprintf("GIT_CONFIG_VALUE_%d", n), value)
 }
 
 // OwnHome gives the agent user its home directory when den runs as root. A

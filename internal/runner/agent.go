@@ -331,9 +331,8 @@ func (a *Agent) open(ctx context.Context, req Request) (conn *acp.Conn, session 
 	// fx holds this one session until it exits. git names it to den's
 	// proxy for GitHub only, so a push that waits for the user tells the
 	// session what came of it.
-	cmd.Env = append(cmd.Env, "DEN_SESSION="+req.Resume, "GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.http://"+gitproxy.Addr+"/.extraHeader",
-		"GIT_CONFIG_VALUE_0="+gitproxy.SessionHeader+": "+req.Resume)
+	cmd.Env = append(cmd.Env, "DEN_SESSION="+req.Resume)
+	cmd.Env = proc.GitConfig(cmd.Env, "http.http://"+gitproxy.Addr+"/.extraHeader", gitproxy.SessionHeader+": "+req.Resume)
 	stderr := &tail{limit: 8 << 10}
 	cmd.Stderr = stderr
 
