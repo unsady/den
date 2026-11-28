@@ -188,14 +188,17 @@ func (c *Claude) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 
-	dir, err := os.MkdirTemp("", "claude-check-")
+	if err := os.MkdirAll(ConfigDir(c.cfg), 0o700); err != nil {
+		return err
+	}
+	// claude runs as root, and git, which it runs, looks for a repository
+	// in every folder above: under /tmp the agent could plant one whose
+	// configuration runs its commands.
+	dir, err := os.MkdirTemp(filepath.Dir(ConfigDir(c.cfg)), "check-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	if err := os.MkdirAll(ConfigDir(c.cfg), 0o700); err != nil {
-		return err
-	}
 
 	bin := c.bin
 	if bin == "" {
