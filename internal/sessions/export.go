@@ -120,8 +120,9 @@ func Export(sessionsDir, archiveDir string, force bool) (Stats, error) {
 }
 
 // Recent returns the archive paths of exported sessions that changed after
-// cutoff, oldest first. Run Export first.
-func Recent(sessionsDir, archiveDir string, cutoff time.Time) ([]string, error) {
+// cutoff, oldest first, all but the session self that asks. Run Export
+// first.
+func Recent(sessionsDir, archiveDir string, cutoff time.Time, self string) ([]string, error) {
 	index, err := readIndex(filepath.Join(sessionsDir, "index.jsonl"))
 	if err != nil {
 		return nil, err
@@ -139,7 +140,7 @@ func Recent(sessionsDir, archiveDir string, cutoff time.Time) ([]string, error) 
 	var items []item
 	for id, entry := range index {
 		e, ok := state[id]
-		if !ok || entry.Updated <= cutoff.UnixMilli() {
+		if !ok || id == self || entry.Updated <= cutoff.UnixMilli() {
 			continue
 		}
 		items = append(items, item{filepath.Join(archiveDir, e.Path), entry.Updated})

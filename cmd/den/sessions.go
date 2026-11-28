@@ -53,7 +53,8 @@ func sessionsCommand(cfg config.Config, args []string) error {
 		if _, err := sessions.Export(cfg.Sessions, cfg.Archive, false); err != nil {
 			return err
 		}
-		paths, err := sessions.Recent(cfg.Sessions, cfg.Archive, cutoff)
+		// The agent that asks, such as the reflect job's, is not one to read.
+		paths, err := sessions.Recent(cfg.Sessions, cfg.Archive, cutoff, os.Getenv("DEN_SESSION"))
 		if err != nil {
 			return err
 		}

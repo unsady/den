@@ -101,6 +101,9 @@ type Event struct {
 	// Quiet marks a job's result that comes without a sound, such as at
 	// night.
 	Quiet bool `json:"quiet,omitempty"`
+	// Muted marks a job's result that is only recorded, with no push or
+	// alert, such as den's own jobs' results.
+	Muted bool `json:"muted,omitempty"`
 	// Retry says what the user can do about a failed turn: RetryAgain or
 	// RetryContinue.
 	Retry string `json:"retry,omitempty"`

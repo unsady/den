@@ -575,7 +575,9 @@ func (d *daemon) deliver(j jobs.Job, run jobs.Run, quiet bool, note *events.Memo
 		result = text
 	}
 	quiet = quietly(j, time.Now())
-	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != "", Quiet: quiet, Memory: note})
+	// den's own jobs' results are only recorded; their failures still tell.
+	muted := own(j) && run.Error == ""
+	d.events.Publish(events.Event{Type: events.Result, Session: run.SessionID, Title: j.Title, Kind: string(store.KindJob), Job: j.Name, Model: run.Model, Text: result, Failed: run.Error != "", Quiet: quiet, Muted: muted, Memory: note})
 
 	// A reply to the job's message continues its session in the chat.
 	ids, err := d.send(text, quiet)
@@ -625,10 +627,15 @@ func quietly(j jobs.Job, now time.Time) bool {
 	switch {
 	case j.Once:
 		return false
-	case j.Name == reflectJob, j.Name == tidyJob:
+	case own(j):
 		return true
 	}
 	return now.Hour() >= 23 || now.Hour() < 8
+}
+
+// own says whether j is one of den's own jobs.
+func own(j jobs.Job) bool {
+	return j.Name == reflectJob || j.Name == tidyJob
 }
 
 // send is notify that returns the ids of the messages it sent, quiet ones

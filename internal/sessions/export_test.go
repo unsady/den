@@ -70,11 +70,14 @@ func TestExport(t *testing.T) {
 	}
 
 	before := time.UnixMilli(1794165718796 - 1)
-	if got, _ := Recent(sessionsDir, archive, before); len(got) != 1 || got[0] != files[0] {
+	if got, _ := Recent(sessionsDir, archive, before, ""); len(got) != 1 || got[0] != files[0] {
 		t.Errorf("recent before the update: %v", got)
 	}
-	if got, _ := Recent(sessionsDir, archive, before.Add(time.Hour)); len(got) != 0 {
+	if got, _ := Recent(sessionsDir, archive, before.Add(time.Hour), ""); len(got) != 0 {
 		t.Errorf("recent after the update: %v", got)
+	}
+	if got, _ := Recent(sessionsDir, archive, before, "abc"); len(got) != 0 {
+		t.Errorf("recent lists the session that asks: %v", got)
 	}
 }
 

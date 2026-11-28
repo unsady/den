@@ -15,7 +15,7 @@ You learn from past sessions here. Most days there is little or nothing to save,
    den sessions recent --after .reflect-stamp
    ```
 
-   Skip sessions that are earlier reflect runs: their first message names the den job nightly-reflect, or "reflect" before it was renamed.
+   Skip the runs of den's own jobs: their first message names the den job nightly-reflect or nightly-tidy, or "reflect" before it was renamed.
 
 2. If there are no sessions, run `touch .reflect-stamp` and `den quiet`.
 
@@ -30,10 +30,10 @@ You learn from past sessions here. Most days there is little or nothing to save,
    - Is it a method that worked, and not a setup failure, a tool that "does not work", or a story of one session?
    - Is it new, and not already in a built-in skill or another note?
 
-6. Commit and stamp:
+6. Commit only the paths you changed, since other sessions may have work in progress here, then stamp:
 
    ```bash
-   git add -A && git commit -m "reflect: <what changed>"
+   git add -- <paths> && git commit -m "reflect: <what changed>"
    touch .reflect-stamp
    ```
 
@@ -73,4 +73,4 @@ Sessions may have saved a skill or a finding already, so check before you add on
 
 ## Local findings
 
-Findings about this skill on this machine are in `notes/skills/reflect.md`. Read it before you start, and add what you learn there. This skill itself is read-only.
+Findings about this skill on this machine are in `notes/skills/reflect.md`. Read it before you start, and add there what will still hold on the next run, never what this run did or found. This skill itself is read-only.
