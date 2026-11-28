@@ -34,6 +34,7 @@ release notes.
 - Tidy no longer trims a skill a few words each night: it leaves one under 750 words as it is, and rewrites a longer one to under 600, keeping its rules and the user's quoted words.
 - Replies are no longer cut down to the bare result: the agent still leaves out how it got there, but no longer drops everything you did not ask about.
 - den comes with fx 0.0.18: subagents are more reliable, and shell commands run several times faster when an MCP server is set up.
+- Lightpanda 1.0.6: the web skill opens more pages that need JavaScript, such as Flutter web apps and some Next.js sites.
 
 ## v0.16.0
 
